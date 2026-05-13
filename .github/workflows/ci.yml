@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-catalyst:
+    name: ${{ matrix.display }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - project: catalyst-gateway
+            display: Gateway
+          - project: catalyst-agents
+            display: Agents
+          - project: catalyst-mcp
+            display: MCP
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "latest"
+
+      - name: Load cached venv
+        id: cached-uv-dependencies
+        uses: actions/cache@v5
+        with:
+          path: ${{ matrix.project }}/.venv
+          key: venv-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('${{ matrix.project }}/uv.lock') }}
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.project }}
+        run: |
+          uv sync --frozen --no-install-project --extra dev
+
+      - name: Check code formatting (Ruff)
+        working-directory: ${{ matrix.project }}
+        run: |
+          uv run ruff format --check .
+
+      - name: Lint code (Ruff)
+        working-directory: ${{ matrix.project }}
+        run: |
+          uv run ruff check .
+
+      - name: Type check (mypy)
+        working-directory: ${{ matrix.project }}
+        run: |
+          uv run mypy src/ || true  # Non-blocking for now
+
+      - name: Run tests
+        working-directory: ${{ matrix.project }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/${{ matrix.project }}
+        run: |
+          uv run pytest tests/ -v
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-results-${{ matrix.project }}
+          path: ${{ matrix.project }}/.pytest_cache
+          if-no-files-found: ignore
