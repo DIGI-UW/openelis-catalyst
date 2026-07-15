@@ -1,9 +1,21 @@
-# Catalyst Agents (M0.0)
+# Catalyst Agents
 
-This package hosts the Catalyst A2A agents used in the M0.0 Foundation POC.
+This package contains the A2A agents inherited from the OGC-70 prototype:
 
-- RouterAgent (A2A SDK server)
-- CatalystAgent (A2A SDK server)
+- RouterAgent
+- CatalystAgent
+- SchemaAgent
+- SQLGenAgent
+
+The target architecture makes Catalyst a client of med-agent-hub and moves
+model, provider, prompt, review, and model-team orchestration out of this
+package. Existing agents remain migration scaffolding until the hub-client
+roadmap replaces their production path.
+
+See the repository
+[product specification](../docs/specification.md),
+[roadmap](../docs/roadmap.md), and
+[hub client contract](../docs/med-agent-hub.md).
 
 ## Quick Start
 

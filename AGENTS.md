@@ -2,17 +2,41 @@
 
 ## Cursor Cloud specific instructions
 
-### What this repo is
+### Repository purpose and authority
 
-Catalyst (OGC-70) is a Python microservices stack for OpenELIS Global: Gateway → Router → Catalyst Agent → MCP. The default dev mode is single-agent (`CATALYST_AGENT_MODE=single`).
+Catalyst is the OpenELIS reporting integration service. The target architecture
+makes Catalyst a client of med-agent-hub:
+
+```text
+OpenELIS / analytics source → Catalyst → med-agent-hub → Catalyst table/report response
+```
+
+R0–R4 target a local demo with demo data and local LLMs. Production security
+and real clinical data are explicitly future work.
+
+Canonical architecture and planning:
+
+- `docs/specification.md`
+- `docs/roadmap.md`
+- `docs/med-agent-hub.md`
+
+Do not duplicate product architecture in this file. This file is an environment
+and test runbook.
+
+The current code still implements the earlier OGC-70 prototype:
+Gateway → RouterAgent → CatalystAgent → Catalyst-local LLM, plus a standalone
+MCP server. Treat Router/SchemaAgent/SQLGenAgent and Catalyst-local provider
+selection as migration scaffolding, not the target design.
 
 ### Toolchain
 
-- **Python 3.11** (pinned in `.python-version`; install via `uv python install 3.11`)
-- **uv** package manager (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- Each component has its own `pyproject.toml` + `uv.lock` virtualenv under `catalyst-{gateway,agents,mcp}/.venv`
+- **Python 3.11** (pinned in `.python-version`; install with
+  `uv python install 3.11`)
+- **uv** package manager
+- A separate `pyproject.toml`, `uv.lock`, and `.venv` under each of
+  `catalyst-gateway/`, `catalyst-agents/`, and `catalyst-mcp/`
 
-### First-time / local setup
+### First-time local setup
 
 ```bash
 cp env.recommended .env
@@ -24,57 +48,97 @@ cd catalyst-mcp && uv sync --frozen --extra dev && cd ..
 
 ### Running services
 
-#### Full stack (OpenELIS + Catalyst) — recommended for integration testing
+#### Full stack
 
-Requires **Docker** and **Docker Compose v2.20+** (`include` support).
+Use this for OpenELIS, Catalyst, and med-agent-hub integration work. It requires
+Docker and Docker Compose v2.20 or newer because the compose file uses
+`include`.
 
 ```bash
 cp env.recommended .env
-./scripts/full-stack-up.sh          # clones openelis-docker -> .openelis-docker/, then compose up
-./scripts/full-stack-health.sh      # wait for DB + Catalyst gateway
-./scripts/full-stack-down.sh        # tear down
+./scripts/bootstrap-deps.sh
+./scripts/full-stack-up.sh
+./scripts/full-stack-health.sh
 ```
 
 Or manually:
 
 ```bash
-./scripts/bootstrap-openelis.sh
+./scripts/bootstrap-deps.sh
 docker compose -f docker-compose.full-stack.yml up -d --build
 ```
 
 | Service | URL |
-|---------|-----|
-| OpenELIS UI | https://localhost/ (admin / adminADMIN!) |
-| OpenELIS DB | localhost:15432 (`clinlims` / password from `.openelis-docker/.env`) |
-| Catalyst Gateway | http://localhost:8000/health |
-| med-agent-hub | http://localhost:8080/health (report SSE; `HUB_LLM_BASE_URL` for completions) |
+| --- | --- |
+| OpenELIS UI | `https://localhost/` (`admin` / `adminADMIN!`) |
+| OpenELIS DB | `localhost:15432` |
+| Catalyst Gateway | `http://localhost:8000/health` |
+| med-agent-hub | `http://localhost:8080/health` |
 
-Run `./scripts/bootstrap-deps.sh` first — it clones [openelis-docker](https://github.com/DIGI-UW/openelis-docker) and [med-agent-hub](https://github.com/pmanko/med-agent-hub) into `.openelis-docker/` and `.med-agent-hub/`. All services share `openelis-network` (`db.openelis.org` reachable from Catalyst MCP and hub).
+Bootstrap creates:
 
-Inside containers, LLM calls use `host.docker.internal:1234` (override via `LMSTUDIO_BASE_URL` in `.env`).
+- `.openelis-docker/` from
+  [`DIGI-UW/openelis-docker`](https://github.com/DIGI-UW/openelis-docker)
+- `.med-agent-hub/` from
+  [`pmanko/med-agent-hub`](https://github.com/pmanko/med-agent-hub)
 
-#### Catalyst only (no OpenELIS)
+All services share `openelis-network`.
 
-Honcho from repo root (Gateway :8000, Router :9100, Catalyst :9101, MCP :9102):
+The full-stack compose currently proves service co-location and health. Do not
+claim that Catalyst calls the hub until the R1 hub-client path and its
+integration tests exist.
+
+#### Current Catalyst prototype
+
+From the repository root:
 
 ```bash
 ./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
 ```
 
-Alternative: `docker compose -f catalyst-dev.docker-compose.yml up -d` (requires Docker).
+This starts:
 
-### LLM provider (required for `/v1/chat/completions` E2E)
+- Gateway `:8000`
+- RouterAgent `:9100`
+- CatalystAgent `:9101`
+- MCP `:9102`
 
-`.env` defaults to `CATALYST_LLM_PROVIDER=lmstudio` with `LMSTUDIO_BASE_URL=http://localhost:1234/v1`. For real provider E2E you need either:
+Alternative:
 
-- LM Studio (or compatible OpenAI API) on port 1234, or
-- `CATALYST_LLM_PROVIDER=gemini` plus `GOOGLE_API_KEY`
+```bash
+docker compose -f catalyst-dev.docker-compose.yml up -d
+```
 
-Without an LLM, health checks and unit/smoke tests still pass; chat-completion E2E will fail.
+This is the legacy standalone stack. It does not start med-agent-hub,
+OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 
-### Tests and lint (CI-equivalent)
+### LLM setup
 
-Per component (`catalyst-gateway`, `catalyst-agents`, `catalyst-mcp`):
+#### Target
+
+med-agent-hub and its local model router own providers, models, prompts, stage
+ordering, review, grounding, and context budgets. Catalyst should eventually
+configure only the hub base URL and approved report profile IDs; the v1 query
+profile is fixed as `catalyst-query-checked`. See
+`docs/med-agent-hub.md`.
+
+#### Current prototype
+
+Until R1 migration, `/v1/chat/completions` uses Catalyst-local configuration:
+
+- `CATALYST_LLM_PROVIDER=lmstudio` with an OpenAI-compatible endpoint at
+  `LMSTUDIO_BASE_URL`; or
+- `CATALYST_LLM_PROVIDER=gemini` with `GOOGLE_API_KEY`.
+
+Without a provider, health and unit tests pass but the legacy provider E2E does
+not.
+
+Inside the full-stack compose, the hub uses `HUB_LLM_BASE_URL`, normally
+pointing to a local model router through `host.docker.internal`.
+
+### Tests and lint
+
+CI-equivalent checks, run in each component:
 
 ```bash
 uv run ruff format --check .
@@ -82,105 +146,52 @@ uv run ruff check .
 PYTHONPATH=. uv run pytest tests/ -v
 ```
 
-Full smoke suite (starts Honcho services, waits for health, runs all pytest suites):
+Full current-prototype smoke suite:
 
 ```bash
 ./tests/run_tests.sh all
 ```
 
-Provider E2E (services must already be running + LLM available):
+The smoke script requires a repository-root `.env` because `Procfile.dev`
+passes it to Uvicorn.
+
+Legacy provider E2E:
 
 ```bash
 ./tests/e2e/test_provider_e2e.sh
 ```
 
+Do not use `tests/e2e/test_multiagent_e2e.sh` as evidence of the target
+architecture. It covers the older Catalyst-local agent topology.
+
+For roadmap implementation:
+
+- use test-driven vertical slices;
+- test the real Catalyst → hub boundary before milestone sign-off;
+- validate query result correctness against seeded analytics data, not only SQL
+  shape;
+- keep mock-only tests as component evidence, not end-to-end evidence.
+
 ### Gotchas
 
-- **`catalyst-dev.docker-compose.yml` is Catalyst-only** — it does not start OpenELIS. Use `docker-compose.full-stack.yml` for OE + Catalyst.
-- First full-stack `up` pulls large OpenELIS images; allow several minutes. OE webapp may lag DB readiness.
-- `run_tests.sh` starts Honcho in the background and tears it down on exit; for manual API testing, start Honcho separately and keep it running.
-- PostgreSQL (`MCP_DB_ENABLED`) is off by default in M0.x; MCP uses mock schema data even when OE DB is running.
-- Multi-agent mode (M0.2+) requires SchemaAgent and SQLGenAgent, which are not in `Procfile.dev` by default.
-- `catalyst-agents/Makefile` targets (`make check`, `make dev-setup`) apply only to the agents component.
+- `catalyst-dev.docker-compose.yml` is Catalyst-only. Use
+  `docker-compose.full-stack.yml` for OpenELIS and med-agent-hub.
+- First full-stack startup may pull large OpenELIS images. The web application
+  can lag database readiness.
+- `tests/run_tests.sh` starts Honcho and tears it down on exit. Start Honcho
+  separately for manual API testing.
+- `MCP_DB_ENABLED` defaults to false; current MCP schema data is mocked.
+- Current multi-agent mode expects SchemaAgent on the same default port used by
+  MCP and does not pass SchemaAgent output into SQLGenAgent. It is legacy
+  scaffolding, not a supported target mode.
+- `catalyst-agents/Makefile` targets apply only to the agents component.
+- The required `catalyst-query-checked` med-agent-hub profile is planned but
+  does not exist yet. Never document or test it as shipped until `/v1/models`
+  advertises it.
 
-### med-agent-hub integration (report generation / display)
+### Evaluation boundary
 
-Catalyst handles **short, synchronous SQL Q&A** (Gateway → Router → Agent → MCP). **Longer, multi-stage lab reports** should delegate to [med-agent-hub](https://github.com/pmanko/med-agent-hub) — a profile-driven clinical answer engine with deterministic validation gates and staged async delivery.
-
-| Concern | Catalyst (this repo) | med-agent-hub |
-|---------|----------------------|---------------|
-| Primary job | NL → SQL, schema context | NL → validated clinical answer + in-depth report |
-| Client API | OpenAI `/v1/chat/completions` → A2A chain | OpenAI `/v1/chat/completions` + `/v1/models` |
-| Orchestration | Router + specialist agents | Single hub; stages defined in `server/levels.yaml` |
-| Async model | Request/response (honcho) | Same engine; **staged SSE** for product profiles |
-| Context | MCP mock / future `clinlims` | Evidence ledger + inline chart or Querystore patient |
-
-#### How to talk to the hub
-
-**Discover profiles**
-
-```bash
-curl -fsS http://localhost:8080/v1/models
-```
-
-Default product profile: `single-e4b-checked` (fast answer → review → grounded in-depth). Profiles declare stages, models, validation, and `capabilities.staged`.
-
-**Blocking report (drain full pipeline into one JSON string)**
-
-```bash
-curl -fsS http://localhost:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "single-e4b-checked",
-    "stream": false,
-    "messages": [
-      {"role": "user", "content": "[1] (2026-01-15) Test: HIV viral load 1200 copies/mL"},
-      {"role": "user", "content": "Summarize recent viral load trends for a lab report."}
-    ]
-  }'
-```
-
-**Staged async (for report display UI)** — set `"stream": true` on a profile with `capabilities.staged: true`. Response is **SSE**, not OpenAI token chunks. Events (in order):
-
-| Event | Purpose |
-|-------|---------|
-| `answer_done` | Fast draft answer + resolved references (`answerValidation.status` may be `validating`) |
-| `answer_validation` | Post-review correction (if review stage edits the draft) |
-| `indepth_pending` | In-depth section starting |
-| `indepth_done` / `indepth_error` | Detailed claims or failure |
-| `done` | Final envelope: answer, inDepth, references, gates |
-
-Heartbeats: `: hb` comments every 10s. Errors: `event: error` with `{code, source, message}`.
-
-**Patient context (Querystore / OpenMRS harness)**
-
-```bash
-curl -fsS http://localhost:8080/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "single-e4b-checked",
-    "stream": true,
-    "patient": "<patient-uuid>",
-    "messages": [{"role": "user", "content": "Generate a lab summary report."}]
-  }'
-```
-
-Requires hub env: `QUERYSTORE_BASE_URL`, `QUERYSTORE_USERNAME`, `QUERYSTORE_PASSWORD`. Inline numbered chart lines work without Querystore.
-
-**Context source contract (for OpenELIS lab data)**
-
-Hub adapters implement `ContextSource` in `server/context_sources.py`. Evidence records use numbered `[N] (yyyy-mm-dd) text` lines with stable `sourceId` for citation grounding. For Catalyst → hub handoff, serialize OpenELIS query results into that chart shape (see hub `chart_serializer.py`) rather than raw SQL rows.
-
-#### Intended Catalyst + hub split
-
-```text
-OpenELIS UI
-  -> Catalyst Gateway (SQL / data retrieval, RBAC at execution)
-  -> format lab evidence as inline chart or future OE ContextSource
-  -> med-agent-hub POST /v1/chat/completions (stream: true, product profile)
-  -> UI renders SSE stages (answer → validation → in-depth) as report sections
-```
-
-Hub runs in full-stack compose on port 8080 (`LLM_BASE_URL` / `HUB_LLM_BASE_URL` → host LLM router, typically :8077). Catalyst SQL path stays on port 8000; report UI calls hub directly for staged SSE.
-
-Reference repo: https://github.com/pmanko/med-agent-hub
+Local golden queries are engineering fixtures for MVP development. The
+Clinical AI Validation Harness transition is intentionally deferred until the
+query-to-table MVP exit criteria pass. Do not update or depend on the external
+harness during R0–R3 work unless the roadmap is explicitly revised.

@@ -57,7 +57,7 @@ uv run pre-commit autoupdate
 ### 1. Install Dependencies
 
 ```bash
-cd projects/catalyst/catalyst-agents
+cd catalyst-agents
 uv sync --dev
 ```
 

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-completion-v1.schema.json",
+  "title": "Catalyst query-profile completion envelope",
+  "description": "OpenAI-compatible blocking completion envelope returned by med-agent-hub for catalyst-query-checked.",
+  "type": "object",
+  "required": [
+    "id",
+    "object",
+    "model",
+    "choices"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "object": {
+      "const": "chat.completion"
+    },
+    "model": {
+      "const": "catalyst-query-checked"
+    },
+    "choices": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "message",
+          "finish_reason"
+        ],
+        "properties": {
+          "index": {
+            "const": 0
+          },
+          "message": {
+            "type": "object",
+            "required": [
+              "role",
+              "content"
+            ],
+            "properties": {
+              "role": {
+                "const": "assistant"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One JSON serialization of catalyst.query.v1."
+              }
+            }
+          },
+          "finish_reason": {
+            "const": "stop"
+          }
+        }
+      }
+    }
+  }
+}

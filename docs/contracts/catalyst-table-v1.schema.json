@@ -1,0 +1,557 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-table-v1.schema.json",
+  "title": "Catalyst table response",
+  "description": "Successful governed query result returned for table rendering.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "deploymentMode",
+    "question",
+    "preview",
+    "query",
+    "table",
+    "source",
+    "execution",
+    "provenance",
+    "warnings"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.table.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preview": {
+      "$ref": "#/$defs/preview"
+    },
+    "query": {
+      "$ref": "#/$defs/query"
+    },
+    "table": {
+      "$ref": "#/$defs/table"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "previewId",
+        "queryDigest",
+        "acceptedAt"
+      ],
+      "properties": {
+        "previewId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "queryDigest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sql",
+        "parameters"
+      ],
+      "properties": {
+        "sql": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/boundParameter"
+          }
+        }
+      }
+    },
+    "boundParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "source",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "date-time",
+            "string-list",
+            "integer-list"
+          ]
+        },
+        "source": {
+          "const": "question"
+        },
+        "value": {}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "number"
+            },
+            "value": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date-time"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "rows",
+        "rowCount"
+      ],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/cell"
+            }
+          }
+        },
+        "rowCount": {
+          "$ref": "#/$defs/rowCount"
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "logicalType",
+        "nullable"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalType": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "date-time"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "cell": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "decimal"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "date"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "date-time"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      ]
+    },
+    "rowCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "returned",
+        "total",
+        "totalIsExact",
+        "truncated",
+        "limit"
+      ],
+      "properties": {
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "totalIsExact": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "total": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "total"
+            ]
+          },
+          "then": {
+            "properties": {
+              "totalIsExact": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataSource",
+        "catalogVersion",
+        "views",
+        "freshness"
+      ],
+      "properties": {
+        "dataSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "catalogVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "views": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceWatermark",
+            "pipelineRunId",
+            "completionState",
+            "observedLagSeconds"
+          ],
+          "properties": {
+            "sourceWatermark": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "pipelineRunId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "completionState": {
+              "enum": [
+                "complete",
+                "partial"
+              ]
+            },
+            "observedLagSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "durationMs",
+        "statementTimeoutMs"
+      ],
+      "properties": {
+        "status": {
+          "const": "succeeded"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "statementTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalystTraceId",
+        "hubTraceId",
+        "profileId"
+      ],
+      "properties": {
+        "catalystTraceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hubTraceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profileId": {
+          "const": "catalyst-query-checked"
+        }
+      }
+    }
+  }
+}

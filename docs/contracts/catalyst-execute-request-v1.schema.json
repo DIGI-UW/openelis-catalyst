@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-execute-request-v1.schema.json",
+  "title": "Catalyst accepted-preview execution request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "previewId",
+    "queryDigest",
+    "accept",
+    "idempotencyKey"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.execute.request.v1"
+    },
+    "previewId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "queryDigest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "accept": {
+      "const": true
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
