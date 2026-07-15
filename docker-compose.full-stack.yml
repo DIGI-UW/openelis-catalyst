@@ -1,0 +1,87 @@
+# OpenELIS Global + Catalyst + med-agent-hub on one Docker network.
+#
+# Prerequisites:
+#   ./scripts/bootstrap-deps.sh   # clones openelis-docker + med-agent-hub
+#   cp env.recommended .env
+#
+# Usage:
+#   docker compose -f docker-compose.full-stack.yml up -d --build
+#   ./scripts/full-stack-health.sh
+#
+# OpenELIS UI: https://localhost/  (admin / adminADMIN!)
+# Catalyst:    http://localhost:8000/health
+# med-agent-hub: http://localhost:8080/health  (reports; needs LLM on HUB_LLM_BASE_URL)
+
+name: openelis-catalyst
+
+include:
+  - path: .openelis-docker/docker-compose.yml
+    project_directory: .openelis-docker
+    env_file: .openelis-docker/.env
+  - path: catalyst-dev.docker-compose.yml
+    env_file: .env
+
+services:
+  med-agent-hub:
+    build: ./.med-agent-hub
+    container_name: med-agent-hub
+    ports:
+      - "${MED_AGENT_HUB_PORT:-8080}:8080"
+    networks:
+      - openelis-network
+    environment:
+      LLM_BASE_URL: ${HUB_LLM_BASE_URL:-http://host.docker.internal:8077}
+      LLM_API_KEY: ${HUB_LLM_API_KEY:-}
+      QUERYSTORE_BASE_URL: ${QUERYSTORE_BASE_URL:-}
+      QUERYSTORE_USERNAME: ${QUERYSTORE_USERNAME:-}
+      QUERYSTORE_PASSWORD: ${QUERYSTORE_PASSWORD:-}
+      TEAM_TRACE_DIR: /app/trace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db.openelis.org:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  catalyst-gateway:
+    networks:
+      - openelis-network
+    depends_on:
+      catalyst-router:
+        condition: service_started
+      db.openelis.org:
+        condition: service_healthy
+
+  catalyst-router:
+    networks:
+      - openelis-network
+    environment:
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  catalyst-agent:
+    networks:
+      - openelis-network
+    environment:
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  catalyst-mcp:
+    networks:
+      - openelis-network
+    environment:
+      - MCP_DB_HOST=db.openelis.org
+      - MCP_DB_PORT=5432
+      - MCP_DB_NAME=clinlims
+      - MCP_DB_SCHEMA=clinlims
+      - MCP_DB_ENABLED=${MCP_DB_ENABLED:-false}
+    depends_on:
+      db.openelis.org:
+        condition: service_healthy

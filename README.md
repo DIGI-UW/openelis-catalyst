@@ -99,10 +99,22 @@ sign-off checklist.
 - If the Gateway is unreachable, scripts exit 1 and instruct you to start
   services first.
 
-### Docker compose (M0.0)
+### Docker compose
+
+**Full stack (OpenELIS + Catalyst + med-agent-hub)** — use this to test Catalyst with OpenELIS and the report engine:
 
 ```bash
-cd projects/catalyst
+cp env.recommended .env
+./scripts/bootstrap-deps.sh      # openelis-docker + med-agent-hub
+./scripts/full-stack-up.sh
+./scripts/full-stack-health.sh
+```
+
+OpenELIS UI: https://localhost/ · Catalyst Gateway: http://localhost:8000/health · med-agent-hub: http://localhost:8080/health
+
+**Catalyst only** (no OpenELIS):
+
+```bash
 docker compose -f catalyst-dev.docker-compose.yml up -d
 ```
 
