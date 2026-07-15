@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# OpenELIS docker deployment (cloned by scripts/bootstrap-openelis.sh)
+.openelis-docker/
+
 # Logs
 logs/
 *.log

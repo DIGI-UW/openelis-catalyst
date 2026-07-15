@@ -1,0 +1,60 @@
+# OpenELIS Global + Catalyst on one Docker network (Option A).
+#
+# Prerequisites:
+#   ./scripts/bootstrap-openelis.sh   # clones DIGI-UW/openelis-docker -> .openelis-docker/
+#   cp env.recommended .env
+#
+# Usage:
+#   docker compose -f docker-compose.full-stack.yml up -d --build
+#   ./scripts/full-stack-health.sh
+#
+# OpenELIS UI: https://localhost/  (admin / adminADMIN!)
+# Catalyst:    http://localhost:8000/health
+
+name: openelis-catalyst
+
+include:
+  - path: .openelis-docker/docker-compose.yml
+    project_directory: .openelis-docker
+    env_file: .openelis-docker/.env
+  - path: catalyst-dev.docker-compose.yml
+    env_file: .env
+
+services:
+  catalyst-gateway:
+    networks:
+      - openelis-network
+    depends_on:
+      catalyst-router:
+        condition: service_started
+      db.openelis.org:
+        condition: service_healthy
+
+  catalyst-router:
+    networks:
+      - openelis-network
+    environment:
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  catalyst-agent:
+    networks:
+      - openelis-network
+    environment:
+      - LMSTUDIO_BASE_URL=${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  catalyst-mcp:
+    networks:
+      - openelis-network
+    environment:
+      - MCP_DB_HOST=db.openelis.org
+      - MCP_DB_PORT=5432
+      - MCP_DB_NAME=clinlims
+      - MCP_DB_SCHEMA=clinlims
+      - MCP_DB_ENABLED=${MCP_DB_ENABLED:-false}
+    depends_on:
+      db.openelis.org:
+        condition: service_healthy
