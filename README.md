@@ -101,15 +101,16 @@ sign-off checklist.
 
 ### Docker compose
 
-**Full stack (OpenELIS + Catalyst)** — use this to test Catalyst with OpenELIS:
+**Full stack (OpenELIS + Catalyst + med-agent-hub)** — use this to test Catalyst with OpenELIS and the report engine:
 
 ```bash
 cp env.recommended .env
+./scripts/bootstrap-deps.sh      # openelis-docker + med-agent-hub
 ./scripts/full-stack-up.sh
 ./scripts/full-stack-health.sh
 ```
 
-OpenELIS UI: https://localhost/ · Catalyst Gateway: http://localhost:8000/health
+OpenELIS UI: https://localhost/ · Catalyst Gateway: http://localhost:8000/health · med-agent-hub: http://localhost:8080/health
 
 **Catalyst only** (no OpenELIS):
 

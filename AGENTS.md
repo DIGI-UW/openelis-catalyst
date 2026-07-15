@@ -47,8 +47,9 @@ docker compose -f docker-compose.full-stack.yml up -d --build
 | OpenELIS UI | https://localhost/ (admin / adminADMIN!) |
 | OpenELIS DB | localhost:15432 (`clinlims` / password from `.openelis-docker/.env`) |
 | Catalyst Gateway | http://localhost:8000/health |
+| med-agent-hub | http://localhost:8080/health (report SSE; `HUB_LLM_BASE_URL` for completions) |
 
-OpenELIS is sourced from [DIGI-UW/openelis-docker](https://github.com/DIGI-UW/openelis-docker) (shallow clone to `.openelis-docker/`). Catalyst services join the `openelis-network` so MCP can reach `db.openelis.org`.
+Run `./scripts/bootstrap-deps.sh` first — it clones [openelis-docker](https://github.com/DIGI-UW/openelis-docker) and [med-agent-hub](https://github.com/pmanko/med-agent-hub) into `.openelis-docker/` and `.med-agent-hub/`. All services share `openelis-network` (`db.openelis.org` reachable from Catalyst MCP and hub).
 
 Inside containers, LLM calls use `host.docker.internal:1234` (override via `LMSTUDIO_BASE_URL` in `.env`).
 
@@ -180,6 +181,6 @@ OpenELIS UI
   -> UI renders SSE stages (answer → validation → in-depth) as report sections
 ```
 
-Hub runs separately (`LLM_BASE_URL` points at llama.cpp or other OpenAI-compatible router on ~8077). Not yet wired into `docker-compose.full-stack.yml`; add as a follow-up service once report profiles are pinned for OE.
+Hub runs in full-stack compose on port 8080 (`LLM_BASE_URL` / `HUB_LLM_BASE_URL` → host LLM router, typically :8077). Catalyst SQL path stays on port 8000; report UI calls hub directly for staged SSE.
 
 Reference repo: https://github.com/pmanko/med-agent-hub

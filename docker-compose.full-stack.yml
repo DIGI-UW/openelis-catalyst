@@ -1,7 +1,7 @@
-# OpenELIS Global + Catalyst on one Docker network (Option A).
+# OpenELIS Global + Catalyst + med-agent-hub on one Docker network.
 #
 # Prerequisites:
-#   ./scripts/bootstrap-openelis.sh   # clones DIGI-UW/openelis-docker -> .openelis-docker/
+#   ./scripts/bootstrap-deps.sh   # clones openelis-docker + med-agent-hub
 #   cp env.recommended .env
 #
 # Usage:
@@ -10,6 +10,7 @@
 #
 # OpenELIS UI: https://localhost/  (admin / adminADMIN!)
 # Catalyst:    http://localhost:8000/health
+# med-agent-hub: http://localhost:8080/health  (reports; needs LLM on HUB_LLM_BASE_URL)
 
 name: openelis-catalyst
 
@@ -21,6 +22,32 @@ include:
     env_file: .env
 
 services:
+  med-agent-hub:
+    build: ./.med-agent-hub
+    container_name: med-agent-hub
+    ports:
+      - "${MED_AGENT_HUB_PORT:-8080}:8080"
+    networks:
+      - openelis-network
+    environment:
+      LLM_BASE_URL: ${HUB_LLM_BASE_URL:-http://host.docker.internal:8077}
+      LLM_API_KEY: ${HUB_LLM_API_KEY:-}
+      QUERYSTORE_BASE_URL: ${QUERYSTORE_BASE_URL:-}
+      QUERYSTORE_USERNAME: ${QUERYSTORE_USERNAME:-}
+      QUERYSTORE_PASSWORD: ${QUERYSTORE_PASSWORD:-}
+      TEAM_TRACE_DIR: /app/trace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db.openelis.org:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   catalyst-gateway:
     networks:
       - openelis-network

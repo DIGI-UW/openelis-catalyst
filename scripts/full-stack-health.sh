@@ -1,10 +1,11 @@
 #!/bin/bash
-# Wait for OpenELIS DB/webapp and Catalyst gateway health endpoints.
+# Wait for OpenELIS DB, Catalyst gateway, and med-agent-hub health endpoints.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 GATEWAY_PORT=8000
+HUB_PORT=8080
 OE_URL="${OE_URL:-https://localhost/}"
 
 if [ -f "${ENV_FILE}" ]; then
@@ -15,6 +16,7 @@ if [ -f "${ENV_FILE}" ]; then
 fi
 
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
+HUB_PORT="${MED_AGENT_HUB_PORT:-8080}"
 
 wait_for() {
   local name="$1"
@@ -38,6 +40,9 @@ wait_for "OpenELIS database" \
 
 wait_for "Catalyst gateway" \
   "curl -sf http://localhost:${GATEWAY_PORT}/health"
+
+wait_for "med-agent-hub" \
+  "curl -sf http://localhost:${HUB_PORT}/health"
 
 if curl -kfs "${OE_URL}" >/dev/null 2>&1; then
   echo "OK: OpenELIS web UI (${OE_URL})"

@@ -5,6 +5,9 @@
 # OpenELIS docker deployment (cloned by scripts/bootstrap-openelis.sh)
 .openelis-docker/
 
+# Report engine (cloned by scripts/bootstrap-med-agent-hub.sh)
+.med-agent-hub/
+
 # Logs
 logs/
 *.log
