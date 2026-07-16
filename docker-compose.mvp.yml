@@ -196,7 +196,7 @@ services:
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
       CATALYST_QUERY_MAX_ROWS: "${CATALYST_QUERY_MAX_ROWS:-100}"
       CATALYST_STATEMENT_TIMEOUT_MS: "${CATALYST_STATEMENT_TIMEOUT_MS:-10000}"
-      CATALYST_HUB_TIMEOUT_SECONDS: "${CATALYST_HUB_TIMEOUT_SECONDS:-180}"
+      CATALYST_HUB_TIMEOUT_SECONDS: "${CATALYST_HUB_TIMEOUT_SECONDS:-360}"
     volumes:
       - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
       - ./docs/contracts:/docs/contracts:ro

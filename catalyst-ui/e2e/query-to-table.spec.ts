@@ -9,7 +9,7 @@ import {
 const query = process.env.PLAYWRIGHT_QUERY ?? QUESTION;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
 
-test.setTimeout(240_000);
+test.setTimeout(480_000);
 
 const installDeterministicApi = async (page: Page) => {
   await page.route("**/v1/catalyst/queries", async (route) => {
@@ -68,7 +68,7 @@ test("question to accepted preview to typed table", async ({
 
   await expect(
     page.getByRole("heading", { name: "Review query" }),
-  ).toBeVisible({ timeout: useMockApi ? 5_000 : 180_000 });
+  ).toBeVisible({ timeout: useMockApi ? 5_000 : 420_000 });
   await expect(page.getByLabel("Generated SQL")).toBeVisible();
   await expect(
     page.getByText(useMockApi ? "minimum_result" : "date_1", { exact: true }),
