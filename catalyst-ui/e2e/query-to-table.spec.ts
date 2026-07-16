@@ -7,6 +7,9 @@ import {
 } from "../src/features/query/test/fixtures";
 
 const query = process.env.PLAYWRIGHT_QUERY ?? QUESTION;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
+
+test.setTimeout(240_000);
 
 const installDeterministicApi = async (page: Page) => {
   await page.route("**/v1/catalyst/queries", async (route) => {
@@ -61,10 +64,16 @@ test("question to accepted preview to typed table", async ({
   await page.getByLabel("Question").fill(query);
   await page.getByRole("button", { name: "Generate preview" }).click();
 
-  await expect(page.getByRole("heading", { name: "Review query" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Review query" }),
+  ).toBeVisible({ timeout: useMockApi ? 5_000 : 180_000 });
   await expect(page.getByLabel("Generated SQL")).toBeVisible();
-  await expect(page.getByText("minimum_result", { exact: true })).toBeVisible();
-  await expect(page.getByText("integer", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(useMockApi ? "minimum_result" : "date_1", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(useMockApi ? "integer" : "date", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Accept and run" }).click();
 
@@ -79,12 +88,33 @@ test("question to accepted preview to typed table", async ({
   await expect(
     provenance.getByText("catalyst-query-checked", { exact: true }),
   ).toBeVisible();
-  await expect(
-    provenance.getByText("cat-trace-123", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    provenance.getByText("hub-trace-456", { exact: true }),
-  ).toBeVisible();
+  if (useMockApi) {
+    await expect(
+      provenance.getByText("cat-trace-123", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      provenance.getByText("hub-trace-456", { exact: true }),
+    ).toBeVisible();
+  } else {
+    await expect(
+      provenance.getByText("openelis-fhir-postgresql", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      provenance.getByText("complete", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      provenance
+        .getByText("Catalyst trace", { exact: true })
+        .locator("..")
+        .getByText(uuidPattern),
+    ).toBeVisible();
+    await expect(
+      provenance
+        .getByText("Hub trace", { exact: true })
+        .locator("..")
+        .getByText(uuidPattern),
+    ).toBeVisible();
+  }
 
   await expect(page.getByText("Demo environment", { exact: true })).toBeVisible();
 });
