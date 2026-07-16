@@ -24,17 +24,7 @@ The original
 are historical planning inputs. The local specification records which
 capabilities are retained, reassigned, superseded or deferred.
 
-## Current implementation status
-
-The current source is the OGC-70 prototype:
-
-```text
-Gateway → RouterAgent → CatalystAgent → local LLM client
-                                └────→ mock schema
-MCP server → mock approved schema + deterministic SQL checks
-```
-
-The target is:
+## MVP implementation
 
 ```text
 OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
@@ -42,15 +32,26 @@ OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
   → optional med-agent-hub report profile
 ```
 
-The repository does not yet implement the hub-backed query profile, analytics
-views, query execution or table UI. Existing Router/SchemaAgent/SQLGenAgent
-code remains migration scaffolding until roadmap work replaces it.
+The query-to-table MVP implements that path with:
+
+- a pinned synthetic OpenELIS viral-load fixture;
+- HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
+- a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
+- a hub-owned `catalyst-query-checked` generation/review profile;
+- deterministic Catalyst SQL policy, expiring preview acceptance, read-only
+  execution, typed table contracts, and provenance;
+- a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
+
+The original `/v1/chat/completions` and Router/Agent/MCP code remain available
+as legacy compatibility scaffolding; the MVP does not use them.
 
 ## Repository layout
 
 - `catalyst-gateway/` — OpenAI-compatible HTTP boundary.
-- `catalyst-agents/` — current OGC-70 agent prototype and future hub-client
-  migration surface.
+- `catalyst-ui/` — React/Carbon query review and results sidecar.
+- `analytics/` — OpenELIS seed, Data Pipes configuration, semantic SQL, and
+  approved catalog.
+- `catalyst-agents/` — legacy OGC-70 agent prototype.
 - `catalyst-mcp/` — deterministic schema/context and SQL policy tools.
 - `docs/` — canonical local specification and roadmap.
 - `scripts/` — dependency bootstrap and full-stack helpers.
@@ -63,8 +64,8 @@ med-agent-hub lives in
 
 ## Local setup
 
-Requirements: Python 3.11 and
-[`uv`](https://docs.astral.sh/uv/).
+Requirements: Python 3.11, [`uv`](https://docs.astral.sh/uv/), Node.js 22,
+Docker, and Docker Compose v2.20+.
 
 ```bash
 cp env.recommended .env
@@ -84,25 +85,34 @@ Run the current prototype stack:
 This starts Gateway `:8000`, Router `:9100`, CatalystAgent `:9101`, and MCP
 `:9102`. It does not represent the final hub-client topology.
 
-## Full stack
+## Query-to-table MVP
 
 Docker Compose v2.20 or newer is required.
 
 ```bash
 cp env.recommended .env
-./scripts/bootstrap-deps.sh
-./scripts/full-stack-up.sh
-./scripts/full-stack-health.sh
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
 ```
 
-Services:
+The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
+Open the sidecar at `http://localhost:3000`.
 
-- OpenELIS UI: `https://localhost/`
-- Catalyst health: `http://localhost:8000/health`
-- med-agent-hub health: `http://localhost:8080/health`
+Deterministic fake-backend mode:
 
-The compose topology currently co-locates the services. Application-level
-Catalyst → hub query integration is roadmap work.
+```bash
+MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
+
+Stop or reset disposable demo state:
+
+```bash
+./scripts/mvp-down.sh
+./scripts/mvp-reset.sh
+```
 
 ## Tests
 
@@ -120,15 +130,24 @@ Repository smoke suite:
 ./tests/run_tests.sh all
 ```
 
-Provider and multi-agent E2E scripts under `tests/e2e/` validate the legacy
-prototype. They will be replaced by hub profile contract and query-to-table
-tests during the hub-client migration.
+MVP evidence:
+
+```bash
+./tests/e2e/test_mvp_live.sh
+./tests/e2e/test_data_pipes_incremental.sh
+cd catalyst-ui
+npx playwright test --project=deterministic
+PLAYWRIGHT_BASE_URL=http://localhost:3000 \
+PLAYWRIGHT_USE_MOCK_API=false \
+PLAYWRIGHT_QUERY='Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time' \
+npx playwright test --project=demo-video e2e/query-to-table.spec.ts
+```
 
 ## Evaluation
 
-`tests/fixtures/golden_queries.json` remains a local engineering fixture for
-the query-to-table MVP. It is not evidence of clinical validation.
+The seeded MVP and its local golden scenarios are engineering evidence, not
+clinical validation.
 
-After the MVP exit criteria in the roadmap pass, evaluation should move to the
+The MVP exit criteria now pass. The next evaluation phase should move to the
 [Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness).
 That external update is intentionally deferred.

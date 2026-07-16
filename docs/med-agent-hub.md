@@ -1,6 +1,6 @@
 # med-agent-hub Client Contract
 
-**Status:** Target integration contract  
+**Status:** Query-profile integration implemented locally; report profiles future
 **Product specification:** [`specification.md`](specification.md)  
 **Roadmap:** [`roadmap.md`](roadmap.md)
 
@@ -48,7 +48,7 @@ product dependencies.
 
 | Configuration | Default | Availability |
 | --- | --- | --- |
-| Query profile | `catalyst-query-checked` | Planned; not currently shipped |
+| Query profile | `catalyst-query-checked` | Implemented by Catalyst's pinned hub patch |
 | Fast report profile | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 |
 | Deep report profile | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 |
 
@@ -68,11 +68,12 @@ verify that every enabled product profile:
 An unknown, hidden, experimental, or unavailable profile fails closed.
 Catalyst must not silently substitute a different profile.
 
-Current hub discovery does not advertise `catalyst.query.v1`. Adding profile
-metadata such as `capabilities.outputContracts` is part of the planned query
-profile dependency, not current behavior.
+The pinned upstream hub commit does not advertise `catalyst.query.v1`.
+Catalyst's bootstrap applies a local patch that adds
+`capabilities.outputContracts`, strict request/response handling, and the
+checked query stages.
 
-## Planned query profile
+## Checked query profile
 
 `catalyst-query-checked` is a new med-agent-hub product profile required by the
 query-to-table MVP. Existing answer profiles generate clinical prose and do not
@@ -122,10 +123,9 @@ It defines the complete OpenAI-compatible request envelope:
 The demo request contains no production actor, facility, tenant, or
 authorization context.
 
-The current hub does not yet implement the `catalystQuery` extension. The
-planned profile owns conversion of `requiredOutputContract` into the
-model-backend structured-output mechanism; Catalyst does not configure profile
-internals.
+The patched hub implements the `catalystQuery` extension and owns conversion of
+`requiredOutputContract` into the model-backend structured-output mechanism;
+Catalyst does not configure profile internals.
 
 The MVP request contains demo questions and uses the local model router.
 Production PHI classification and provider-routing policy are deferred.
@@ -280,7 +280,7 @@ Report failure never changes the status of a successfully executed table.
 
 ## Configuration
 
-Target Catalyst configuration should contain only integration policy:
+MVP Catalyst configuration contains only integration policy:
 
 - `MED_AGENT_HUB_BASE_URL`
 - `CATALYST_REPORT_PROFILE`

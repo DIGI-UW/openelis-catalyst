@@ -23,16 +23,17 @@ Canonical architecture and planning:
 Do not duplicate product architecture in this file. This file is an environment
 and test runbook.
 
-The current code still implements the earlier OGC-70 prototype:
-Gateway → RouterAgent → CatalystAgent → Catalyst-local LLM, plus a standalone
-MCP server. Treat Router/SchemaAgent/SQLGenAgent and Catalyst-local provider
-selection as migration scaffolding, not the target design.
+The query-to-table MVP implements the target path in Gateway, analytics, the
+patched hub checkout, and `catalyst-ui/`. The earlier OGC-70
+RouterAgent/CatalystAgent/MCP path remains legacy compatibility scaffolding.
 
 ### Toolchain
 
 - **Python 3.11** (pinned in `.python-version`; install with
   `uv python install 3.11`)
 - **uv** package manager
+- **Node.js 22** for the React sidecar and Playwright
+- **Docker + Compose v2.20+** for the focused MVP
 - A separate `pyproject.toml`, `uv.lock`, and `.venv` under each of
   `catalyst-gateway/`, `catalyst-agents/`, and `catalyst-mcp/`
 
@@ -47,6 +48,21 @@ cd catalyst-mcp && uv sync --frozen --extra dev && cd ..
 ```
 
 ### Running services
+
+#### Query-to-table MVP
+
+```bash
+cp env.recommended .env
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
+
+The first live run downloads and verifies the local coder model. The React
+sidecar is at `http://localhost:3000`.
+
+Use `MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh` for deterministic CI-style
+assembly without the GGUF.
 
 #### Full stack
 
@@ -84,9 +100,8 @@ Bootstrap creates:
 
 All services share `openelis-network`.
 
-The full-stack compose currently proves service co-location and health. Do not
-claim that Catalyst calls the hub until the R1 hub-client path and its
-integration tests exist.
+`docker-compose.full-stack.yml` is the older co-location stack.
+`docker-compose.mvp.yml` is the tested query-to-table assembly.
 
 #### Current Catalyst prototype
 
@@ -114,17 +129,17 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 
 ### LLM setup
 
-#### Target
+#### MVP path
 
 med-agent-hub and its local model router own providers, models, prompts, stage
-ordering, review, grounding, and context budgets. Catalyst should eventually
-configure only the hub base URL and approved report profile IDs; the v1 query
-profile is fixed as `catalyst-query-checked`. See
-`docs/med-agent-hub.md`.
+ordering, review, grounding, and context budgets. The v1 query profile is fixed
+as `catalyst-query-checked`; Catalyst configures only the hub base URL. The
+bootstrap pins upstream hub commit `7869c62` and applies the checked-in query
+profile patch because this repository cannot push to the upstream hub.
 
 #### Current prototype
 
-Until R1 migration, `/v1/chat/completions` uses Catalyst-local configuration:
+The legacy `/v1/chat/completions` path still uses Catalyst-local configuration:
 
 - `CATALYST_LLM_PROVIDER=lmstudio` with an OpenAI-compatible endpoint at
   `LMSTUDIO_BASE_URL`; or
@@ -172,10 +187,22 @@ For roadmap implementation:
   shape;
 - keep mock-only tests as component evidence, not end-to-end evidence.
 
+MVP evidence:
+
+```bash
+./tests/e2e/test_mvp_live.sh
+./tests/e2e/test_data_pipes_incremental.sh
+cd catalyst-ui
+npx playwright test --project=deterministic
+PLAYWRIGHT_BASE_URL=http://localhost:3000 \
+PLAYWRIGHT_USE_MOCK_API=false \
+npx playwright test --project=demo-video e2e/query-to-table.spec.ts
+```
+
 ### Gotchas
 
-- `catalyst-dev.docker-compose.yml` is Catalyst-only. Use
-  `docker-compose.full-stack.yml` for OpenELIS and med-agent-hub.
+- `catalyst-dev.docker-compose.yml` is the legacy stack. Use
+  `docker-compose.mvp.yml` for query-to-table testing.
 - First full-stack startup may pull large OpenELIS images. The web application
   can lag database readiness.
 - `tests/run_tests.sh` starts Honcho and tears it down on exit. Start Honcho
@@ -185,13 +212,12 @@ For roadmap implementation:
   MCP and does not pass SchemaAgent output into SQLGenAgent. It is legacy
   scaffolding, not a supported target mode.
 - `catalyst-agents/Makefile` targets apply only to the agents component.
-- The required `catalyst-query-checked` med-agent-hub profile is planned but
-  does not exist yet. Never document or test it as shipped until `/v1/models`
-  advertises it.
+- Local CPU inference can take several minutes under contention; Gateway and
+  sidecar proxy timeouts are deliberately larger than deterministic-test
+  timeouts.
 
 ### Evaluation boundary
 
-Local golden queries are engineering fixtures for MVP development. The
-Clinical AI Validation Harness transition is intentionally deferred until the
-query-to-table MVP exit criteria pass. Do not update or depend on the external
-harness during R0–R3 work unless the roadmap is explicitly revised.
+Local golden queries and seeded E2E runs are engineering evidence, not clinical
+validation. R1–R3 exit criteria now pass. Clinical AI Validation Harness work
+remains intentionally deferred to a separate planning cycle.

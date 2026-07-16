@@ -1,6 +1,6 @@
 # Catalyst Product Specification
 
-**Status:** Target architecture  
+**Status:** Query-to-table MVP implemented; reports and production hardening future
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -38,9 +38,10 @@ This file is the canonical local product and architecture specification.
   remains useful history. The compatibility mapping below records what this
   specification retains, reassigns, or defers.
 
-The current Python implementation still contains the original RouterAgent,
-CatalystAgent, SchemaAgent, and SQLGenAgent prototype. That code is migration
-scaffolding; its presence does not override this specification.
+The current implementation provides the query-to-table path in Gateway,
+analytics, med-agent-hub, and the React sidecar. Original RouterAgent,
+CatalystAgent, SchemaAgent, and SQLGenAgent code remains legacy compatibility
+scaffolding.
 
 ## Goals
 
@@ -103,8 +104,7 @@ targets.
 
 ## Catalyst-facing demo API
 
-The query-to-table UI uses a small Catalyst API. These routes are target
-contracts and are not implemented by the current Gateway prototype.
+The query-to-table UI uses the implemented Catalyst API below.
 
 ### Submit a question
 
@@ -197,13 +197,14 @@ The demo configuration must point med-agent-hub at the local model router.
 
 | Profile | Status | Purpose |
 | --- | --- | --- |
-| `catalyst-query-checked` | Planned; required for query MVP | Return a reviewed `catalyst.query.v1` result for approved semantic-layer views |
+| `catalyst-query-checked` | Implemented by the pinned local hub patch | Return a reviewed `catalyst.query.v1` result for approved semantic-layer views |
 | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 | Default fast, checked narrative report |
 | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 | Optional deeper team-based report and later evaluation candidate |
 
-`catalyst-query-checked` is not currently present in med-agent-hub. MVP cannot
-be declared complete until the hub advertises this profile through
-`GET /v1/models` and its structured contract passes integration tests.
+The upstream hub commit does not yet contain `catalyst-query-checked`; Catalyst
+pins that commit and applies `patches/med-agent-hub/catalyst-query-profile.patch`.
+The assembled hub advertises the profile through `GET /v1/models`, and live
+integration tests validate its structured contract.
 
 The v1 query contract fixes the profile ID as `catalyst-query-checked`.
 Catalyst may configure approved report profile identifiers, but never model
@@ -227,7 +228,7 @@ It places one JSON serialization of `catalyst.query.v1` in
 `choices[0].message.content`. Catalyst does not parse query instructions from
 surrounding prose.
 
-The planned `catalyst.query.v1` response contains:
+The implemented `catalyst.query.v1` response contains:
 
 - `contractVersion`
 - `deploymentMode`: `demo`
@@ -437,8 +438,10 @@ MVP requires an end-to-end deployment that demonstrates:
 9. Complete freshness, query, profile, source, and trace provenance.
 10. Automated happy-path and failure-path integration tests.
 
-An optional report demonstration does not substitute for the table acceptance
-criteria.
+All query-to-table criteria pass against the seeded OpenELIS demo, the pinned
+FHIR Data Pipes pipeline, the local model, deterministic tests, Playwright
+video, and manual browser proof. An optional report demonstration does not
+substitute for these table acceptance criteria.
 
 ## Relationship to OGC-70
 
