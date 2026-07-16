@@ -23,7 +23,14 @@ def test_checked_in_analytics_catalog_is_the_gateway_context():
         field["name"]: field
         for field in catalog.request_catalog()["views"][0]["fields"]
     }
-    assert fields["specimen_received_at"]["type"] == "date-time"
+    assert set(fields) == {
+        "result_value",
+        "result_unit",
+        "issued_at",
+        "receipt_to_release_minutes",
+        "observed_at",
+    }
+    assert fields["issued_at"]["type"] == "date-time"
     assert fields["receipt_to_release_minutes"]["type"] == "decimal"
     assert catalog.freshness == {}
 
