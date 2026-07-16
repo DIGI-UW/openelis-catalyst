@@ -78,10 +78,15 @@ test("question to accepted preview to typed table", async ({
   ).toBeVisible();
   if (!useMockApi) {
     await page.getByRole("heading", { name: "Review query" }).scrollIntoViewIfNeeded();
-    await page.waitForTimeout(6_000);
+    await page.waitForTimeout(3_000);
   }
 
-  await page.getByRole("button", { name: "Accept and run" }).click();
+  const acceptButton = page.getByRole("button", { name: "Accept and run" });
+  if (!useMockApi) {
+    await acceptButton.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(3_000);
+  }
+  await acceptButton.click();
 
   const results = page.getByRole("region", { name: "Query results" });
   await expect(results).toBeVisible();
