@@ -61,6 +61,10 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
         self.assertIn("./docs/contracts:/docs/contracts:ro", self.compose)
         self.assertIn("CATALYST_HUB_TIMEOUT_SECONDS", self.compose)
+        self.assertIn(
+            "proxy_read_timeout 240s",
+            (ROOT / "catalyst-ui/nginx.conf").read_text(),
+        )
 
 
 class MvpScriptContractTests(unittest.TestCase):
