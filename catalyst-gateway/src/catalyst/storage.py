@@ -391,9 +391,7 @@ class PreviewStore:
         if started_at_value is None:
             lease_expired = True
         else:
-            started_at = datetime.fromisoformat(
-                started_at_value.replace("Z", "+00:00")
-            )
+            started_at = datetime.fromisoformat(started_at_value.replace("Z", "+00:00"))
             lease_expired = (
                 self._now() - started_at
             ).total_seconds() >= self.execution_lease_seconds
