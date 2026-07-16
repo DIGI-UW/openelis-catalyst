@@ -5,7 +5,7 @@
   "dataSource": "openelis-fhir-postgresql",
   "dialect": "postgresql",
   "schemaVersion": "analytics-v1",
-  "description": "Approved demo-only analytics vocabulary over OHS FHIR Data Pipes projections.",
+  "description": "Narrow demo-only analytics vocabulary over OHS FHIR Data Pipes projections.",
   "freshness": {
     "relation": "analytics.pipeline_run_v1",
     "contract": "catalyst.analytics.pipeline-run.v1",
@@ -28,78 +28,6 @@
       ],
       "columns": [
         {
-          "name": "observation_id",
-          "logicalType": "string",
-          "nullable": false,
-          "description": "Stable FHIR Observation resource key."
-        },
-        {
-          "name": "patient_id",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "FHIR Patient reference key; an opaque demo identifier."
-        },
-        {
-          "name": "service_request_id",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "FHIR ServiceRequest reference key."
-        },
-        {
-          "name": "specimen_id",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "FHIR Specimen reference key."
-        },
-        {
-          "name": "result_status",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "FHIR Observation.status code."
-        },
-        {
-          "name": "observed_at",
-          "logicalType": "timestamp",
-          "nullable": true,
-          "description": "FHIR Observation.effectiveDateTime."
-        },
-        {
-          "name": "issued_at",
-          "logicalType": "timestamp",
-          "nullable": true,
-          "description": "FHIR Observation.issued instant."
-        },
-        {
-          "name": "specimen_received_at",
-          "logicalType": "timestamp",
-          "nullable": true,
-          "description": "FHIR Specimen.receivedTime projected through specimen_flat_v1."
-        },
-        {
-          "name": "receipt_to_release_minutes",
-          "logicalType": "decimal",
-          "nullable": true,
-          "description": "Elapsed minutes from Specimen.receivedTime to Observation.issued; null when either timestamp is absent."
-        },
-        {
-          "name": "test_code_system",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "Code system URI from the first OpenELIS-emitted test coding."
-        },
-        {
-          "name": "test_code",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "Code from the first OpenELIS-emitted test coding."
-        },
-        {
-          "name": "test_name",
-          "logicalType": "string",
-          "nullable": true,
-          "description": "Display text from the first OpenELIS-emitted test coding."
-        },
-        {
           "name": "result_value",
           "logicalType": "decimal",
           "nullable": true,
@@ -113,32 +41,29 @@
           "description": "FHIR Quantity display unit; the seed uses copies/mL."
         },
         {
-          "name": "result_unit_system",
-          "logicalType": "string",
+          "name": "issued_at",
+          "logicalType": "timestamp",
           "nullable": true,
-          "description": "FHIR Quantity unit system URI when OpenELIS emits one."
+          "description": "FHIR Observation.issued instant."
         },
         {
-          "name": "result_unit_code",
-          "logicalType": "string",
+          "name": "receipt_to_release_minutes",
+          "logicalType": "decimal",
           "nullable": true,
-          "description": "FHIR Quantity unit code when OpenELIS emits one."
+          "description": "Elapsed minutes from Specimen.receivedTime to Observation.issued."
+        },
+        {
+          "name": "observed_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Observation.effectiveDateTime used for the required date constraint."
         }
       ],
       "allowedFilters": [
-        "patient_id",
-        "result_status",
         "observed_at",
-        "specimen_received_at",
-        "test_code_system",
-        "test_code",
         "result_unit"
       ],
       "allowedGroupings": [
-        "result_status",
-        "test_code_system",
-        "test_code",
-        "test_name",
         "result_unit"
       ],
       "requiredConstraints": {
@@ -147,37 +72,21 @@
         "maxResultRows": 1000
       },
       "terminology": [
-        "The OpenELIS 3.2.1.x demo catalog's Viral Load test has no asserted LOINC code; test_code_system and test_code must be treated as source-local unless the emitted system URI says otherwise.",
-        "The seed resolves the OpenELIS test by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects its configured unit to be copies/mL.",
-        "FHIR status values are preserved; finalized OpenELIS seed analyses are expected to emit final Observations."
+        "This first catalog is intentionally limited to the synthetic Viral Load demo fixture.",
+        "The seed resolves the OpenELIS test by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects copies/mL."
       ],
       "freshness": {
         "relation": "analytics.pipeline_run_v1",
         "mode": "latest-succeeded-run",
-        "updateBehavior": "Operator-triggered FULL FHIR_SEARCH after explicit HAPI backfill; query provenance must carry run ID, source watermark, completion state, and observed lag."
+        "updateBehavior": "Operator-triggered FULL FHIR_SEARCH after explicit HAPI backfill; query provenance carries run ID, source watermark, completion state, and observed lag."
       },
       "examples": [
         {
-          "question": "Show this demo patient's viral-load results over time.",
-          "sql": "SELECT observed_at, result_value, result_unit FROM analytics.lab_result_fact_v1 WHERE patient_id = :patient_id AND observed_at >= :start_at AND observed_at < :end_at ORDER BY observed_at",
-          "parameters": {
-            "patient_id": {
-              "logicalType": "string"
-            },
-            "start_at": {
-              "logicalType": "timestamp"
-            },
-            "end_at": {
-              "logicalType": "timestamp"
-            }
-          }
-        },
-        {
           "question": "Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time.",
-          "sql": "SELECT result_value, result_unit, issued_at, specimen_received_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE observed_at >= :start_at ORDER BY observed_at LIMIT 100",
+          "sql": "SELECT result_value, result_unit, issued_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE observed_at >= :start_at ORDER BY observed_at",
           "parameters": {
             "start_at": {
-              "logicalType": "timestamp"
+              "logicalType": "date"
             }
           }
         }

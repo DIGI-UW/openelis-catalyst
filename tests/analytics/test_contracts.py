@@ -245,16 +245,15 @@ class SemanticContractTests(unittest.TestCase):
         ):
             self.assertTrue(view[field], field)
 
-        column_names = {column["name"] for column in view["columns"]}
-        self.assertTrue(
-            {
-                "observation_id",
-                "patient_id",
+        self.assertEqual(
+            [
                 "result_value",
                 "result_unit",
-                "specimen_received_at",
+                "issued_at",
                 "receipt_to_release_minutes",
-            }.issubset(column_names)
+                "observed_at",
+            ],
+            [column["name"] for column in view["columns"]],
         )
         self.assertEqual(
             "analytics.pipeline_run_v1", self.catalog["freshness"]["relation"]
