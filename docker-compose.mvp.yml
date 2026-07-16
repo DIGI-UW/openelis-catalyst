@@ -116,9 +116,9 @@ services:
       - --port
       - "8077"
       - --hf-repo
-      - "${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-14B-Instruct-GGUF}"
+      - "${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}"
       - --hf-file
-      - "${MVP_MODEL_FILE:-Qwen2.5-Coder-14B-Instruct-Q2_K.gguf}"
+      - "${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}"
       - --alias
       - qwen2.5-coder-14b
       - --ctx-size

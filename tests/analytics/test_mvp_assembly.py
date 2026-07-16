@@ -51,8 +51,8 @@ class MvpComposeContractTests(unittest.TestCase):
         )
 
     def test_router_alias_hub_and_ui_ports_do_not_collide(self):
-        self.assertIn("bartowski/Qwen2.5-Coder-14B-Instruct-GGUF", self.compose)
-        self.assertIn("Qwen2.5-Coder-14B-Instruct-Q2_K.gguf", self.compose)
+        self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.compose)
+        self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
         self.assertIn("qwen2.5-coder-14b", self.compose)
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)

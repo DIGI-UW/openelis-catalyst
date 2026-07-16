@@ -217,8 +217,8 @@ OPENELIS_VERSION="${OPENELIS_VERSION:-unknown}" \
 DATA_PIPES_COMMIT="${PINNED_COMMIT}" \
 HUB_COMMIT="${hub_commit}" \
 ROUTER_MODE="${router_mode}" \
-MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-14B-Instruct-GGUF}" \
-MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-14B-Instruct-Q2_K.gguf}" \
+MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
+MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
 python3 - <<'PY'
 import datetime
 import json
