@@ -43,6 +43,9 @@ const errorMessage = (body: unknown, status: number) => {
   if (isRecord(body)) {
     if (typeof body.detail === "string") return body.detail;
     if (typeof body.message === "string") return body.message;
+    if (isRecord(body.error) && typeof body.error.message === "string") {
+      return body.error.message;
+    }
   }
   return `Catalyst request failed (HTTP ${status}).`;
 };

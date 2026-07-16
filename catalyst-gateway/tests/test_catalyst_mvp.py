@@ -1,3 +1,4 @@
+import asyncio
 import json
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
@@ -24,6 +25,7 @@ from src.catalyst.request import build_query_request
 from src.catalyst.service import CatalystService
 from src.catalyst.storage import PreviewStore
 from src.catalyst.table import TableError, build_table
+from src.config import load_config
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
@@ -155,6 +157,7 @@ class FakeHub:
         self.response = response
         self.error = error
         self.requests: list[dict] = []
+        self.closed = False
 
     async def generate_query(self, request: dict) -> dict:
         self.requests.append(request)
@@ -170,12 +173,15 @@ class FakeHub:
             "modelRouter": {"ready": self.error is None},
         }
 
+    async def aclose(self) -> None:
+        self.closed = True
+
 
 class FakeAnalytics:
     def __init__(
         self,
         result: AnalyticsResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ):
         self.result = result or AnalyticsResult(
             column_names=["test_name", "result_count"],
@@ -208,11 +214,16 @@ def make_service(
     analytics: FakeAnalytics | None = None,
     clock: Clock | None = None,
     ttl_seconds: int = 60,
+    execution_lease_seconds: int = 60,
 ) -> tuple[CatalystService, FakeHub, FakeAnalytics, ContractRegistry]:
     registry = ContractRegistry.load(CONTRACTS)
     actual_hub = hub or FakeHub(response or ready_query())
     actual_analytics = analytics or FakeAnalytics()
-    store = PreviewStore(tmp_path / "previews.sqlite3", now=clock)
+    store = PreviewStore(
+        tmp_path / "previews.sqlite3",
+        now=clock,
+        execution_lease_seconds=execution_lease_seconds,
+    )
     service = CatalystService(
         contracts=registry,
         catalog=catalog(),
@@ -631,6 +642,30 @@ def test_preview_store_replays_failure_and_poll_does_not_execute(tmp_path: Path)
     assert unknown_pair.status_code == 404
 
 
+def test_preview_store_terminates_a_stale_execution_lease(tmp_path: Path):
+    clock = Clock()
+    store = PreviewStore(
+        tmp_path / "state.sqlite3",
+        now=clock,
+        execution_lease_seconds=5,
+    )
+    preview = store.create_preview(ready_query(), ttl_seconds=30)
+    store.begin_execution(preview["previewId"], preview["queryDigest"], "lease-key")
+
+    clock.advance(6)
+    stale = store.begin_execution(
+        preview["previewId"],
+        preview["queryDigest"],
+        "lease-key",
+    )
+
+    assert stale.status_code == 502
+    assert stale.body["status"] == "failed"
+    assert stale.body["errorCode"] == "execution_failed"
+    assert "lease expired" in stale.body["message"].lower()
+    assert store.poll(preview["previewId"], "lease-key").status_code == 502
+
+
 def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
     query = ready_query()
     query["expectedColumns"] = [
@@ -992,6 +1027,23 @@ def test_execute_route_stores_and_replays_execution_failure(tmp_path: Path):
     assert analytics.calls == 1
 
 
+@pytest.mark.asyncio
+async def test_execute_cancellation_is_reraised_and_stored(tmp_path: Path):
+    analytics = FakeAnalytics(error=asyncio.CancelledError())
+    service, _, _, registry = make_service(tmp_path, analytics=analytics)
+    preview = service.store.create_preview(ready_query(), ttl_seconds=30)
+    body = execute_body(preview, "cancelled")
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.execute_preview(preview["previewId"], body)
+
+    replay = service.store.poll(preview["previewId"], "cancelled")
+    assert replay.status_code == 502
+    registry.validate("catalyst-execution-outcome-v1.schema.json", replay.body)
+    assert replay.body["status"] == "failed"
+    assert "cancelled" in replay.body["message"].lower()
+
+
 def test_structured_readiness_and_legacy_route_are_both_exposed(tmp_path: Path):
     service, _, _, _ = make_service(tmp_path)
     app = gateway.create_app(catalyst_service=service)
@@ -1014,3 +1066,34 @@ def test_structured_readiness_and_legacy_route_are_both_exposed(tmp_path: Path):
     assert "/v1/catalyst/queries" in paths
     assert "/v1/catalyst/previews/{preview_id}/execute" in paths
     assert "/v1/catalyst/executions/{preview_id}" in paths
+
+
+def test_app_lifespan_closes_owned_clients(tmp_path: Path):
+    service, hub, _, _ = make_service(tmp_path)
+    app = gateway.create_app(catalyst_service=service)
+    a2a_client = app.state.a2a_client
+
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+
+    assert hub.closed is True
+    assert a2a_client._http_client.is_closed is True
+    assert service.store.readiness() == {"ready": False}
+
+
+def test_gateway_defaults_match_the_local_mvp(monkeypatch: pytest.MonkeyPatch):
+    for name in (
+        "MED_AGENT_HUB_BASE_URL",
+        "CATALYST_ANALYTICS_DSN",
+        "CATALYST_HUB_TIMEOUT_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    config = load_config()
+
+    assert config.hub_base_url == "http://localhost:8082"
+    assert config.analytics_dsn == (
+        "postgresql://catalyst_readonly:demo-readonly-change-me"
+        "@localhost:15433/catalyst_analytics"
+    )
+    assert config.hub_timeout_seconds == 360

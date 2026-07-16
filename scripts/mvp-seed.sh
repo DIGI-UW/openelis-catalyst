@@ -85,6 +85,7 @@ done
   -e "PGPASSWORD=${OE_DB_PASSWORD}" \
   "${DB_SERVICE}" \
   psql --username clinlims --dbname clinlims \
+    --set=ON_ERROR_STOP=1 \
     --set="openelis_version=${OPENELIS_VERSION}" \
   < "${ROOT_DIR}/analytics/openelis/seed-openelis-3.2.1.sql"
 

@@ -22,6 +22,8 @@ class HubProtocol(Protocol):
 
     async def readiness(self) -> dict[str, dict[str, Any]]: ...
 
+    async def aclose(self) -> None: ...
+
 
 class AnalyticsProtocol(Protocol):
     async def execute(
@@ -176,6 +178,19 @@ class CatalystService:
                 catalyst_trace_id=decision.catalyst_trace_id,
             )
             self.contracts.validate("catalyst-table-v1.schema.json", table)
+        except asyncio.CancelledError:
+            try:
+                body = self.store.finish_failure(
+                    preview_id,
+                    payload["idempotencyKey"],
+                    "Execution was cancelled before completion.",
+                )
+                self.contracts.validate(
+                    "catalyst-execution-outcome-v1.schema.json",
+                    body,
+                )
+            finally:
+                raise
         except Exception as error:
             body = self.store.finish_failure(
                 preview_id,
@@ -193,6 +208,10 @@ class CatalystService:
             table,
         )
         return ServiceResponse(200, table)
+
+    async def aclose(self) -> None:
+        await self.hub.aclose()
+        self.store.close()
 
     def poll_execution(
         self,

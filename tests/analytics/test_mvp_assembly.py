@@ -55,10 +55,23 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.env)
         self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
         self.assertIn("qwen2.5-coder-14b", self.compose)
+        self.assertIn(
+            "ghcr.io/ggml-org/llama.cpp@sha256:"
+            "6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4",
+            self.compose,
+        )
         self.assertIn("./.models:/models:ro", self.compose)
         self.assertIn("--model", self.compose)
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
+        for port_mapping in (
+            "127.0.0.1:${ANALYTICS_DB_PORT:-15433}:5432",
+            "127.0.0.1:${DATA_PIPES_PORT:-8090}:8080",
+            "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080",
+            "127.0.0.1:${GATEWAY_PORT:-8000}:8000",
+            "127.0.0.1:${CATALYST_UI_PORT:-3000}:8080",
+        ):
+            self.assertIn(port_mapping, self.compose)
         self.assertIn("./docs/contracts:/docs/contracts:ro", self.compose)
         self.assertIn(
             'CATALYST_HUB_TIMEOUT_SECONDS: "${CATALYST_HUB_TIMEOUT_SECONDS:-360}"',
@@ -68,6 +81,24 @@ class MvpComposeContractTests(unittest.TestCase):
             "proxy_read_timeout 420s",
             (ROOT / "catalyst-ui/nginx.conf").read_text(),
         )
+
+    def test_gateway_image_contains_runtime_contracts_and_catalog(self):
+        dockerfile = (ROOT / "catalyst-gateway/Dockerfile").read_text()
+        self.assertIn("COPY docs/contracts /docs/contracts", dockerfile)
+        self.assertIn(
+            "COPY analytics/catalog /app/config",
+            dockerfile,
+        )
+        self.assertIn("context: .", self.compose)
+        self.assertIn("dockerfile: catalyst-gateway/Dockerfile", self.compose)
+        legacy_compose = (ROOT / "catalyst-dev.docker-compose.yml").read_text()
+        self.assertIn("context: .", legacy_compose)
+        self.assertIn("dockerfile: catalyst-gateway/Dockerfile", legacy_compose)
+        dockerignore = (ROOT / ".dockerignore").read_text()
+        self.assertIn(".env", dockerignore)
+        self.assertIn(".models", dockerignore)
+        self.assertIn("!docs/contracts/**", dockerignore)
+        self.assertIn("!analytics/catalog/**", dockerignore)
 
 
 class MvpScriptContractTests(unittest.TestCase):
@@ -93,6 +124,10 @@ class MvpScriptContractTests(unittest.TestCase):
         self.assertIn("fhir.openelis.org", script)
         self.assertNotIn("frontend.openelis.org", script)
         self.assertNotRegex(script, r'[" ]proxy[" )]')
+
+    def test_seed_psql_stops_on_the_first_error(self):
+        script = (ROOT / "scripts/mvp-seed.sh").read_text()
+        self.assertIn("--set=ON_ERROR_STOP=1", script)
 
     def test_health_gates_full_contract_and_emits_provenance(self):
         script = (ROOT / "scripts/mvp-health.sh").read_text()

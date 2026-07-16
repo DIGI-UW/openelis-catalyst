@@ -118,9 +118,11 @@ export const ResultsTable = ({ result }: ResultsTableProps) => {
                   {columnOrder.map((sourceIndex, columnIndex) => {
                     const cell = row[sourceIndex]!;
                     return (
-                    <TableCell key={`${columnIndex}-${cell.type}`}>
-                      {renderCell(cell)}
-                    </TableCell>
+                      <TableCell
+                        key={`${displayColumns[columnIndex]!.name}-${sourceIndex}`}
+                      >
+                        {renderCell(cell)}
+                      </TableCell>
                     );
                   })}
                 </TableRow>

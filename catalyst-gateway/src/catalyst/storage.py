@@ -38,9 +38,11 @@ class PreviewStore:
         path: str | Path,
         *,
         now: Callable[[], datetime] | None = None,
+        execution_lease_seconds: int = 60,
     ) -> None:
         self.path = str(path)
         self._now = now or _utc_now
+        self.execution_lease_seconds = execution_lease_seconds
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(
             self.path,
@@ -64,6 +66,7 @@ class PreviewStore:
                     state TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
                     accepted_at TEXT,
+                    execution_started_at TEXT,
                     idempotency_key TEXT,
                     outcome_json TEXT,
                     outcome_status INTEGER,
@@ -71,6 +74,17 @@ class PreviewStore:
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(catalyst_previews)"
+                ).fetchall()
+            }
+            if "execution_started_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE catalyst_previews "
+                    "ADD COLUMN execution_started_at TEXT"
+                )
 
     def create_preview(
         self,
@@ -174,10 +188,11 @@ class PreviewStore:
                 connection.execute(
                     """
                     UPDATE catalyst_previews
-                    SET state = 'consuming', idempotency_key = ?, accepted_at = ?
+                    SET state = 'consuming', idempotency_key = ?,
+                        accepted_at = ?, execution_started_at = ?
                     WHERE preview_id = ? AND state = 'awaiting_acceptance'
                     """,
-                    (idempotency_key, accepted_at, preview_id),
+                    (idempotency_key, accepted_at, accepted_at, preview_id),
                 )
                 return ExecutionDecision(
                     action="execute",
@@ -209,6 +224,13 @@ class PreviewStore:
                 )
 
             if state == "consuming":
+                stale = self._stale_execution_decision(
+                    connection,
+                    row,
+                    idempotency_key,
+                )
+                if stale is not None:
+                    return stale
                 return self._outcome_decision(
                     202,
                     preview_id,
@@ -276,6 +298,13 @@ class PreviewStore:
                     message="Execution was not found.",
                 )
             if row["state"] == "consuming":
+                stale = self._stale_execution_decision(
+                    connection,
+                    row,
+                    idempotency_key,
+                )
+                if stale is not None:
+                    return stale
                 return self._outcome_decision(
                     202,
                     preview_id,
@@ -295,6 +324,10 @@ class PreviewStore:
         except sqlite3.Error:
             return {"ready": False}
         return {"ready": True}
+
+    def close(self) -> None:
+        with self._lock:
+            self._connection.close()
 
     def _finish(
         self,
@@ -347,6 +380,48 @@ class PreviewStore:
             status_code=row["outcome_status"],
             body=body,
         )
+
+    def _stale_execution_decision(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        idempotency_key: str,
+    ) -> ExecutionDecision | None:
+        started_at_value = row["execution_started_at"] or row["accepted_at"]
+        if started_at_value is None:
+            lease_expired = True
+        else:
+            started_at = datetime.fromisoformat(
+                started_at_value.replace("Z", "+00:00")
+            )
+            lease_expired = (
+                self._now() - started_at
+            ).total_seconds() >= self.execution_lease_seconds
+        if not lease_expired:
+            return None
+
+        body = self._outcome(
+            row["preview_id"],
+            idempotency_key,
+            status="failed",
+            error_code="execution_failed",
+            message="Execution lease expired before an outcome was stored.",
+            replayed=True,
+        )
+        connection.execute(
+            """
+            UPDATE catalyst_previews
+            SET state = 'failed', outcome_json = ?, outcome_status = 502
+            WHERE preview_id = ? AND state = 'consuming'
+                AND idempotency_key = ?
+            """,
+            (
+                json.dumps(body, separators=(",", ":")),
+                row["preview_id"],
+                idempotency_key,
+            ),
+        )
+        return ExecutionDecision(action="return", status_code=502, body=body)
 
     @staticmethod
     def _outcome(

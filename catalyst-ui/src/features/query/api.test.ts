@@ -96,6 +96,24 @@ describe("Catalyst API client", () => {
     await expect(api.submitQuestion(QUESTION)).rejects.toThrow("Bad gateway");
   });
 
+  it("surfaces the Gateway nested error message", async () => {
+    fetcher.mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: "hub_timeout",
+            message: "The local model exceeded the configured timeout.",
+          },
+        },
+        502,
+      ),
+    );
+
+    await expect(api.submitQuestion(QUESTION)).rejects.toThrow(
+      "The local model exceeded the configured timeout.",
+    );
+  });
+
   it("reports an invalid non-JSON response", async () => {
     fetcher.mockResolvedValue(
       new Response("<html>proxy error</html>", {
