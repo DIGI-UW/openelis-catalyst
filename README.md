@@ -99,6 +99,8 @@ cp env.recommended .env
 The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
 Open the sidecar at `http://localhost:3000`.
 
+Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
+
 Deterministic fake-backend mode:
 
 ```bash
