@@ -7,7 +7,7 @@ include:
 
 services:
   analytics-db:
-    image: postgres:16.9-alpine3.22
+    image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
     environment:
       POSTGRES_DB: catalyst_analytics
       POSTGRES_USER: catalyst_analytics_writer
@@ -144,7 +144,7 @@ services:
       start_period: 30s
 
   model-router-fake:
-    image: python:3.11.13-alpine3.22
+    image: python:3.11.13-alpine3.22@sha256:801053a2c35d91edc335c4c478f682de905611fed131007715538c7552d943db
     profiles:
       - fake
     command: ["python", "/opt/catalyst/fake-model-router.py"]
