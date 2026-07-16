@@ -165,12 +165,10 @@ services:
       LLM_BASE_URL: "${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
       LLM_API_KEY: "${HUB_LLM_API_KEY:-}"
       LLM_TEMPERATURE: "0"
-      TEAM_TRACE_DIR: /app/trace
+      TEAM_TRACE_DIR: /tmp/catalyst-trace
       QUERYSTORE_BASE_URL: "${QUERYSTORE_BASE_URL:-}"
       QUERYSTORE_USERNAME: "${QUERYSTORE_USERNAME:-}"
       QUERYSTORE_PASSWORD: "${QUERYSTORE_PASSWORD:-}"
-    volumes:
-      - hub-trace:/app/trace
     networks:
       - openelis-network
     healthcheck:
@@ -198,6 +196,7 @@ services:
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
       CATALYST_QUERY_MAX_ROWS: "${CATALYST_QUERY_MAX_ROWS:-100}"
       CATALYST_STATEMENT_TIMEOUT_MS: "${CATALYST_STATEMENT_TIMEOUT_MS:-10000}"
+      CATALYST_HUB_TIMEOUT_SECONDS: "${CATALYST_HUB_TIMEOUT_SECONDS:-180}"
     volumes:
       - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
       - ./docs/contracts:/docs/contracts:ro
@@ -238,4 +237,3 @@ volumes:
   analytics-db-data:
   data-pipes-dwh:
   gateway-state:
-  hub-trace:

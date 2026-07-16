@@ -60,6 +60,7 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
         self.assertIn("./docs/contracts:/docs/contracts:ro", self.compose)
+        self.assertIn("CATALYST_HUB_TIMEOUT_SECONDS", self.compose)
 
 
 class MvpScriptContractTests(unittest.TestCase):
