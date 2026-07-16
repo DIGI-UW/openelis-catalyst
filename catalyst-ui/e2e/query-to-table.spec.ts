@@ -59,9 +59,11 @@ test("question to accepted preview to typed table", async ({
   }
 
   await page.goto("/");
+  if (!useMockApi) await page.waitForTimeout(2_000);
 
   await expect(page.getByText("Demo environment", { exact: true })).toBeVisible();
   await page.getByLabel("Question").fill(query);
+  if (!useMockApi) await page.waitForTimeout(2_000);
   await page.getByRole("button", { name: "Generate preview" }).click();
 
   await expect(
@@ -74,6 +76,10 @@ test("question to accepted preview to typed table", async ({
   await expect(
     page.getByText(useMockApi ? "integer" : "date", { exact: true }),
   ).toBeVisible();
+  if (!useMockApi) {
+    await page.getByRole("heading", { name: "Review query" }).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(6_000);
+  }
 
   await page.getByRole("button", { name: "Accept and run" }).click();
 
@@ -82,6 +88,10 @@ test("question to accepted preview to typed table", async ({
   await expect(results.getByText("1200", { exact: true })).toBeVisible();
   await expect(results.getByText("450", { exact: true })).toBeVisible();
   await expect(results.getByText("80", { exact: true })).toBeVisible();
+  if (!useMockApi) {
+    await results.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(8_000);
+  }
 
   const provenance = page.getByRole("region", { name: "Provenance" });
   await expect(provenance).toBeVisible();
@@ -117,4 +127,8 @@ test("question to accepted preview to typed table", async ({
   }
 
   await expect(page.getByText("Demo environment", { exact: true })).toBeVisible();
+  if (!useMockApi) {
+    await provenance.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(5_000);
+  }
 });
