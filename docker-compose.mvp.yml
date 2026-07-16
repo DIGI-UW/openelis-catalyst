@@ -115,10 +115,8 @@ services:
       - 0.0.0.0
       - --port
       - "8077"
-      - --hf-repo
-      - "${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}"
-      - --hf-file
-      - "${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}"
+      - --model
+      - "/models/${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}"
       - --alias
       - qwen2.5-coder-14b
       - --ctx-size
@@ -127,11 +125,23 @@ services:
       - "1"
       - --jinja
     volumes:
-      - model-cache:/root/.cache
+      - ./.models:/models:ro
     expose:
       - "8077"
     networks:
       - openelis-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://localhost:8077/v1/models",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
 
   model-router-fake:
     image: python:3.11.13-alpine3.22
@@ -229,4 +239,3 @@ volumes:
   data-pipes-dwh:
   gateway-state:
   hub-trace:
-  model-cache:

@@ -29,6 +29,7 @@ if [ "${MVP_FAKE_BACKEND:-false}" = "true" ]; then
   export MVP_HUB_LLM_BASE_URL="http://model-router-fake:8077"
   echo "Using deterministic fake model backend"
 else
+  "${ROOT_DIR}/scripts/mvp-download-model.sh"
   export MVP_HUB_LLM_BASE_URL="${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
   echo "Using live qwen2.5-coder-14b llama.cpp backend"
 fi

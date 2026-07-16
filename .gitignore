@@ -11,6 +11,9 @@
 # OHS analytics pipeline (cloned by scripts/bootstrap-fhir-data-pipes.sh)
 .fhir-data-pipes/
 
+# Local demo model files
+.models/
+
 # Logs
 logs/
 *.log

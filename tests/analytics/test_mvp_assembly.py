@@ -13,6 +13,7 @@ class MvpComposeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.compose = COMPOSE.read_text()
+        cls.env = (ROOT / "env.recommended").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
@@ -51,9 +52,11 @@ class MvpComposeContractTests(unittest.TestCase):
         )
 
     def test_router_alias_hub_and_ui_ports_do_not_collide(self):
-        self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.compose)
+        self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.env)
         self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
         self.assertIn("qwen2.5-coder-14b", self.compose)
+        self.assertIn("./.models:/models:ro", self.compose)
+        self.assertIn("--model", self.compose)
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
         self.assertIn("./docs/contracts:/docs/contracts:ro", self.compose)
@@ -64,6 +67,7 @@ class MvpScriptContractTests(unittest.TestCase):
         for name in (
             "mvp-reset.sh",
             "mvp-up.sh",
+            "mvp-download-model.sh",
             "mvp-seed.sh",
             "mvp-health.sh",
             "mvp-down.sh",
