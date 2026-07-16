@@ -1,9 +1,9 @@
 diff --git a/server/catalyst_query.py b/server/catalyst_query.py
 new file mode 100644
-index 0000000..b86012e
+index 0000000..5b43d47
 --- /dev/null
 +++ b/server/catalyst_query.py
-@@ -0,0 +1,724 @@
+@@ -0,0 +1,731 @@
 +"""Fail-closed stages for the governed Catalyst analytics-query profile."""
 +
 +from __future__ import annotations
@@ -629,14 +629,21 @@ index 0000000..b86012e
 +            candidate = await _generate(client, request, extension)
 +            candidate = _bind_question_date_literals(candidate, question)
 +            steps.append({"role": "query_generate", "status": candidate["status"]})
-+        except Exception:
++        except Exception as exc:
++            logger.warning("Catalyst query generation failed: %s", exc)
 +            result = _rejected(
 +                question,
 +                extension,
 +                message="Query generation failed its structured-output contract.",
 +                check_name="query_generate",
 +            )
-+            steps.append({"role": "query_generate", "status": "failed"})
++            steps.append(
++                {
++                    "role": "query_generate",
++                    "status": "failed",
++                    "message": str(exc),
++                }
++            )
 +        else:
 +            if not _candidate_matches_catalog(candidate, canonical_target):
 +                result = _rejected(
