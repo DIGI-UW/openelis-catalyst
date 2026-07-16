@@ -1,0 +1,587 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-v1.schema.json",
+  "title": "Catalyst governed query response",
+  "description": "Structured output returned by the planned med-agent-hub catalyst-query-checked profile.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "deploymentMode",
+    "status",
+    "question",
+    "validation",
+    "provenance"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.query.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "needs_clarification",
+        "unsupported",
+        "rejected"
+      ]
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "sql": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One read-only statement using :name placeholders for every parameter."
+    },
+    "parameters": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Parameter names must also be unique and match SQL placeholders exactly; Catalyst enforces that runtime invariant.",
+      "items": {
+        "$ref": "#/$defs/parameter"
+      }
+    },
+    "expectedColumns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/column"
+      }
+    },
+    "clarification": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation": {
+      "$ref": "#/$defs/validation"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "oneOf": [
+    {
+      "title": "Ready query",
+      "properties": {
+        "status": {
+          "const": "ready"
+        },
+        "validation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/validation"
+            },
+            {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "passed",
+                    "warned"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "target",
+        "sql",
+        "parameters",
+        "expectedColumns"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "clarification"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Clarification required",
+      "properties": {
+        "status": {
+          "const": "needs_clarification"
+        },
+        "validation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/validation"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "warned"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "clarification"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "sql"
+            ]
+          },
+          {
+            "required": [
+              "parameters"
+            ]
+          },
+          {
+            "required": [
+              "expectedColumns"
+            ]
+          },
+          {
+            "required": [
+              "message"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Unsupported query",
+      "properties": {
+        "status": {
+          "const": "unsupported"
+        },
+        "validation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/validation"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "rejected"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "sql"
+            ]
+          },
+          {
+            "required": [
+              "parameters"
+            ]
+          },
+          {
+            "required": [
+              "expectedColumns"
+            ]
+          },
+          {
+            "required": [
+              "clarification"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Rejected query",
+      "properties": {
+        "status": {
+          "const": "rejected"
+        },
+        "validation": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/validation"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "rejected"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target"
+            ]
+          },
+          {
+            "required": [
+              "sql"
+            ]
+          },
+          {
+            "required": [
+              "parameters"
+            ]
+          },
+          {
+            "required": [
+              "expectedColumns"
+            ]
+          },
+          {
+            "required": [
+              "clarification"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataSource",
+        "catalogVersion",
+        "dialect",
+        "approvedViews"
+      ],
+      "properties": {
+        "dataSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "catalogVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dialect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvedViews": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+          }
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "source"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "date-time",
+            "string-list",
+            "integer-list"
+          ]
+        },
+        "source": {
+          "const": "question"
+        },
+        "value": {}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "number"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "date"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "date-time"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "source": {
+              "const": "question"
+            },
+            "type": {
+              "const": "integer-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          },
+          "required": [
+            "value"
+          ]
+        }
+      ]
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "logicalType",
+        "nullable"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalType": {
+          "enum": [
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "date-time"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checks"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "passed",
+            "warned",
+            "rejected"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "status"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "passed",
+                  "warned",
+                  "failed"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "traceId",
+        "contextSourceIds"
+      ],
+      "properties": {
+        "profileId": {
+          "const": "catalyst-query-checked"
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contextSourceIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

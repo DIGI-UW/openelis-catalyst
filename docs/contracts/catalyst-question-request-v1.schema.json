@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-question-request-v1.schema.json",
+  "title": "Catalyst demo question request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "deploymentMode",
+    "question"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.question.request.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

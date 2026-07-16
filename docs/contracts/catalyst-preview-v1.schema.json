@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-preview-v1.schema.json",
+  "title": "Catalyst query preview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "deploymentMode",
+    "previewId",
+    "queryDigest",
+    "question",
+    "target",
+    "sql",
+    "parameters",
+    "expectedColumns",
+    "createdAt",
+    "expiresAt",
+    "state"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.preview.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "previewId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "queryDigest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataSource",
+        "catalogVersion",
+        "dialect",
+        "approvedViews"
+      ],
+      "properties": {
+        "dataSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "catalogVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dialect": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvedViews": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "sql": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boundParameter"
+      }
+    },
+    "expectedColumns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "logicalType",
+          "nullable"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "logicalType": {
+            "enum": [
+              "string",
+              "integer",
+              "decimal",
+              "boolean",
+              "date",
+              "date-time"
+            ]
+          },
+          "nullable": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "const": "awaiting_acceptance"
+    }
+  },
+  "$defs": {
+    "boundParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "source",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "date-time",
+            "string-list",
+            "integer-list"
+          ]
+        },
+        "source": {
+          "const": "question"
+        },
+        "value": {}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "number"
+            },
+            "value": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date-time"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

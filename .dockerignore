@@ -1,0 +1,21 @@
+*
+
+# Never send local secrets, model files, databases, or dependency checkouts.
+.env
+.env.*
+.models
+.openelis-docker
+.med-agent-hub
+.fhir-data-pipes
+logs
+
+# Gateway image inputs.
+!.dockerignore
+!catalyst-gateway/
+!catalyst-gateway/**
+!docs/
+!docs/contracts/
+!docs/contracts/**
+!analytics/
+!analytics/catalog/
+!analytics/catalog/**

@@ -1,158 +1,155 @@
-## Catalyst (OGC-70)
+# Catalyst
 
-This folder contains **Catalyst-specific tooling and supporting services** that
-live alongside OpenELIS Global.
+Catalyst is the OpenELIS reporting integration service. Its target architecture
+uses med-agent-hub for all LLM profile, model-team, prompt, review and grounding
+behavior while Catalyst owns trusted data integration, deterministic query
+policy, execution and table output.
 
-### Intended contents
+The current target is a local demo using demo data and local LLMs. Production
+security and real clinical data are future roadmap work.
 
-- `projects/catalyst/catalyst-mcp/`: Python MCP server (schema RAG / retrieval)
-- `projects/catalyst/catalyst-dev.docker-compose.yml`: Docker Compose for
-  Catalyst dev services
-- `projects/catalyst/scripts/`: helper scripts (optional)
+The first product milestone is:
 
-OpenELIS integration points remain in:
+> Natural-language question → reviewed query → table output
 
-- Backend: `src/main/java/org/openelisglobal/catalyst/`
-- Frontend: `frontend/src/components/catalyst/`
-- Config: `volume/properties/catalyst.properties`
+## Canonical documentation
 
-### Version managers (project setup)
+- [Product specification](docs/specification.md)
+- [Roadmap](docs/roadmap.md)
+- [med-agent-hub client contract](docs/med-agent-hub.md)
+- [Cloud development instructions](AGENTS.md)
 
-This project follows the same setup patterns used in similar multi-service agent
-repos (e.g., med-agent-hub and omrs-ai-playground): keep tool versions explicit
-and local to the repo.
+The original
+[OGC-70 specs](https://github.com/DIGI-UW/OpenELIS-Global-2/tree/develop/specs/OGC-070-catalyst-assistant)
+are historical planning inputs. The local specification records which
+capabilities are retained, reassigned, superseded or deferred.
 
-- Java tooling: use the repo root `.sdkmanrc` and run `sdk env` (Java 21).
-- Node tooling: use `frontend/.nvmrc` and run `nvm use` if you work on the
-  frontend milestone.
-- Python tooling: use `projects/catalyst/.python-version` with pyenv/asdf
-  (Python 3.11+).
+## MVP implementation
 
-**Note**: This folder is created to keep Catalyst work scoped to a small surface
-area.
-
-### Local dev (M0.0)
-
-```bash
-# 1. Copy env template
-cp projects/catalyst/env.recommended projects/catalyst/.env
-
-# 2. Install Python deps (per component, --extra dev includes honcho/ruff/mypy)
-cd projects/catalyst/catalyst-gateway && uv sync --extra dev && cd ..
-cd catalyst-agents && uv sync --extra dev && cd ..
-cd catalyst-mcp && uv sync --extra dev && cd ..
-
-# 3. Create logs directory
-mkdir -p logs
-
-# 4. Start all services (run from projects/catalyst/)
-./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
+```text
+OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
+  → Catalyst → med-agent-hub profile → local read-only demo execution → table
+  → optional med-agent-hub report profile
 ```
 
-### Smoke tests (M0.0)
+The query-to-table MVP implements that path with:
 
-```bash
-cd projects/catalyst
-./tests/run_tests.sh all
-```
+- a pinned synthetic OpenELIS viral-load fixture;
+- HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
+- a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
+- a hub-owned `catalyst-query-checked` generation/review profile;
+- deterministic Catalyst SQL policy, expiring preview acceptance, read-only
+  execution, typed table contracts, and provenance;
+- a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
 
-### E2E testing (milestone sign-off)
+The original `/v1/chat/completions` and Router/Agent/MCP code remain available
+as legacy compatibility scaffolding; the MVP does not use them.
 
-Use these steps to verify functionality end-to-end before signing off on a
-milestone. See `specs/OGC-070-catalyst-assistant/tasks.md` for each milestone’s
-sign-off checklist.
+## Repository layout
 
-**Prerequisites**
+- `catalyst-gateway/` — OpenAI-compatible HTTP boundary.
+- `catalyst-ui/` — React/Carbon query review and results sidecar.
+- `analytics/` — OpenELIS seed, Data Pipes configuration, semantic SQL, and
+  approved catalog.
+- `catalyst-agents/` — legacy OGC-70 agent prototype.
+- `catalyst-mcp/` — deterministic schema/context and SQL policy tools.
+- `docs/` — canonical local specification and roadmap.
+- `scripts/` — dependency bootstrap and full-stack helpers.
+- `tests/` — smoke scripts and local golden-query fixtures.
 
-- **LM Studio (M0.1+)** For provider E2E with `CATALYST_LLM_PROVIDER=lmstudio`:
-  run LM Studio and expose an OpenAI-compatible API on `http://localhost:1234`.
-- **Gemini (M0.1+)** For provider E2E with `CATALYST_LLM_PROVIDER=gemini`: set
-  `GOOGLE_API_KEY` in `.env` (see `env.recommended` for `GEMINI_MODEL`).
+OpenELIS backend and frontend integration live in
+[`DIGI-UW/OpenELIS-Global-2`](https://github.com/DIGI-UW/OpenELIS-Global-2).
+med-agent-hub lives in
+[`pmanko/med-agent-hub`](https://github.com/pmanko/med-agent-hub).
 
-**Commands**
+## Local setup
 
-1. Copy env and configure provider:
-   ```bash
-   cp projects/catalyst/env.recommended projects/catalyst/.env
-   # Edit .env: set CATALYST_LLM_PROVIDER=lmstudio or gemini; add GOOGLE_API_KEY if using Gemini.
-   ```
-2. Start services (Gateway, Router, Catalyst Agent, MCP), e.g. via
-   `Procfile.dev` or by running `./tests/run_tests.sh all` (it starts services
-   then runs pytest).
-3. In another terminal, run the provider E2E script:
-   ```bash
-   cd projects/catalyst
-   ./tests/e2e/test_provider_e2e.sh
-   ```
-4. For full M0.1 sign-off: run the same script once with LM Studio configured,
-   then again with Gemini configured. Both runs must succeed.
-5. For M0.2+ multi-agent sign-off: with the M0.2 stack running, run:
-   ```bash
-   ./tests/e2e/test_multiagent_e2e.sh
-   ```
-
-**Expected output**
-
-- `test_provider_e2e.sh` and `test_multiagent_e2e.sh` print `PASS: ...` and exit
-  0 when the Gateway is up and returns a valid completion (e.g. SQL or
-  structured content).
-- If the Gateway is unreachable, scripts exit 1 and instruct you to start
-  services first.
-
-### Docker compose
-
-**Full stack (OpenELIS + Catalyst + med-agent-hub)** — use this to test Catalyst with OpenELIS and the report engine:
+Requirements: Python 3.11, [`uv`](https://docs.astral.sh/uv/), Node.js 22,
+Docker, and Docker Compose v2.20+.
 
 ```bash
 cp env.recommended .env
-./scripts/bootstrap-deps.sh      # openelis-docker + med-agent-hub
-./scripts/full-stack-up.sh
-./scripts/full-stack-health.sh
+mkdir -p logs
+
+cd catalyst-gateway && uv sync --frozen --extra dev && cd ..
+cd catalyst-agents && uv sync --frozen --extra dev && cd ..
+cd catalyst-mcp && uv sync --frozen --extra dev && cd ..
 ```
 
-OpenELIS UI: https://localhost/ · Catalyst Gateway: http://localhost:8000/health · med-agent-hub: http://localhost:8080/health
-
-**Catalyst only** (no OpenELIS):
+Run the current prototype stack:
 
 ```bash
-docker compose -f catalyst-dev.docker-compose.yml up -d
+./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
 ```
 
-### MCP Database Access Architecture
+This starts Gateway `:8000`, Router `:9100`, CatalystAgent `:9101`, and MCP
+`:9102`. It does not represent the final hub-client topology.
 
-**Decision**: MCP server provides **allowlisted schema context** to support LLM
-query generation and validation. MCP does **not** execute user queries.
+## Query-to-table MVP
 
-**Architecture**:
+Docker Compose v2.20 or newer is required.
 
-- **MCP Layer (Python)**:
+```bash
+cp env.recommended .env
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
 
-  - Direct read-only database access for schema introspection (M1+)
-  - Provides `get_query_context()` and `validate_sql()` tools only
-  - Enforces table allowlist boundary (what LLM can reference)
-  - M0.0: Mock responses (no DB connection)
-  - M1+: Direct PostgreSQL connection via `psycopg2-binary` for real schema
-    introspection
+The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
+Open the sidecar at `http://localhost:3000`.
 
-- **OE Backend (Java)**:
-  - Executes user-accepted queries (after user reviews generated SQL in chat)
-  - Enforces RBAC, audit trail, transaction management
-  - Returns query results to frontend
+Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
 
-**Privacy Boundary**:
+Deterministic fake-backend mode:
 
-- **Table allowlist**: `MCP_ALLOWED_TABLES` environment variable
-  (comma-separated)
-- **Default profile**: Minimal non-PHI tables (terminology, test catalog,
-  statuses)
-- **Enforcement**: Both `get_query_context()` and `validate_sql()` respect
-  allowlist
-- LLM cannot generate SQL referencing non-allowed tables (blocked at validation)
+```bash
+MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
 
-**Security**:
+Stop or reset disposable demo state:
 
-- Read-only database user for MCP (no INSERT/UPDATE/DELETE permissions)
-- Network isolation (MCP server in same Docker network as DB)
-- Connection string via environment variables (not hardcoded)
-- Defense in depth: MCP validates SQL structure; OE backend enforces RBAC at
-  execution time
+```bash
+./scripts/mvp-down.sh
+./scripts/mvp-reset.sh
+```
+
+## Tests
+
+Per component:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+PYTHONPATH=. uv run pytest tests/ -v
+```
+
+Repository smoke suite:
+
+```bash
+./tests/run_tests.sh all
+```
+
+MVP evidence:
+
+```bash
+./tests/e2e/test_mvp_live.sh
+./tests/e2e/test_data_pipes_incremental.sh
+cd catalyst-ui
+npx playwright test --project=deterministic
+PLAYWRIGHT_BASE_URL=http://localhost:3000 \
+PLAYWRIGHT_USE_MOCK_API=false \
+PLAYWRIGHT_QUERY='Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time' \
+npx playwright test --project=demo-video e2e/query-to-table.spec.ts
+```
+
+## Evaluation
+
+The seeded MVP and its local golden scenarios are engineering evidence, not
+clinical validation.
+
+The MVP exit criteria now pass. The next evaluation phase should move to the
+[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness).
+That external update is intentionally deferred.

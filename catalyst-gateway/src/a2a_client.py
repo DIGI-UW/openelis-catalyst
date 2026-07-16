@@ -21,6 +21,9 @@ class A2AClient:
         )
         return ClientFactory(client_config).create(agent_card)
 
+    async def aclose(self) -> None:
+        await self._http_client.aclose()
+
     @staticmethod
     def _extract_user_message(payload: Dict[str, Any]) -> Optional[str]:
         messages = payload.get("messages") or []

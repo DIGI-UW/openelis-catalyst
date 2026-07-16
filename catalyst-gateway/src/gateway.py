@@ -1,17 +1,64 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from .a2a_client import A2AClient
+from .catalyst.analytics import PostgresAnalyticsAdapter
+from .catalyst.catalog import Catalog
+from .catalyst.contracts import ContractRegistry
+from .catalyst.hub import HubClient
+from .catalyst.policy import SqlPolicy
+from .catalyst.routes import install_catalyst_routes
+from .catalyst.service import CatalystService
+from .catalyst.storage import PreviewStore
 from .config import load_config
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="Catalyst Gateway", version="0.0.1")
+def _default_catalyst_service() -> CatalystService:
+    config = load_config()
+    contracts = ContractRegistry.default()
+    catalog = Catalog.load(config.catalog_path)
+    return CatalystService(
+        contracts=contracts,
+        catalog=catalog,
+        hub=HubClient(
+            config.hub_base_url,
+            contracts,
+            timeout_seconds=config.hub_timeout_seconds,
+        ),
+        analytics=PostgresAnalyticsAdapter(config.analytics_dsn),
+        store=PreviewStore(
+            config.preview_store_path,
+            execution_lease_seconds=config.execution_lease_seconds,
+        ),
+        sql_policy=SqlPolicy(max_rows=config.max_rows),
+        max_rows=config.max_rows,
+        statement_timeout_ms=config.statement_timeout_ms,
+        preview_ttl_seconds=config.preview_ttl_seconds,
+    )
+
+
+def create_app(*, catalyst_service: CatalystService | None = None) -> FastAPI:
     config = load_config()
     client = A2AClient(config.router_url)
+    catalyst = catalyst_service or _default_catalyst_service()
 
-    @app.get("/health")
-    async def health() -> dict:
-        return {"status": "ok"}
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        try:
+            yield
+        finally:
+            await catalyst.aclose()
+            await client.aclose()
+
+    app = FastAPI(
+        title="Catalyst Gateway",
+        version="0.0.1",
+        lifespan=lifespan,
+    )
+    app.state.catalyst = catalyst
+    app.state.a2a_client = client
+    install_catalyst_routes(app, catalyst)
 
     @app.post("/v1/chat/completions")
     async def chat_completions(payload: dict) -> dict:

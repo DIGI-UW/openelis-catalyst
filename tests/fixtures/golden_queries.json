@@ -1,6 +1,6 @@
 {
   "$schema": "https://openelis-global.org/catalyst/golden-queries/v1",
-  "description": "OpenELIS Catalyst golden query dataset for FR-022 evaluation harness. Based on research.md Section 13.",
+  "description": "Legacy OGC-70 golden queries retained as local engineering fixtures for the query-to-table MVP. This dataset is not evidence of clinical validation; expected tables must be migrated to approved analytics views.",
   "version": "1.0",
   "queries": [
     {

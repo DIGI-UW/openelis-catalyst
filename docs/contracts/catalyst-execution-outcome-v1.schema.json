@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-execution-outcome-v1.schema.json",
+  "title": "Catalyst non-success execution outcome",
+  "description": "Non-success result for an accepted preview. Successful execution returns catalyst.table.v1 instead.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "deploymentMode",
+    "previewId",
+    "idempotencyKey",
+    "status",
+    "errorCode",
+    "message",
+    "replayed",
+    "retryable"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.execution.outcome.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "previewId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "in_progress",
+        "not_found",
+        "expired",
+        "conflict",
+        "failed"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "execution_in_progress",
+        "execution_not_found",
+        "preview_expired",
+        "preview_consumed",
+        "idempotency_conflict",
+        "execution_failed"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replayed": {
+      "type": "boolean"
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "True only for polling an active execution with the same idempotency key."
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "not_found"
+        },
+        "errorCode": {
+          "const": "execution_not_found"
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "in_progress"
+        },
+        "errorCode": {
+          "const": "execution_in_progress"
+        },
+        "retryable": {
+          "const": true
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "expired"
+        },
+        "errorCode": {
+          "const": "preview_expired"
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "conflict"
+        },
+        "errorCode": {
+          "enum": [
+            "preview_consumed",
+            "idempotency_conflict"
+          ]
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "failed"
+        },
+        "errorCode": {
+          "const": "execution_failed"
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    }
+  ]
+}
