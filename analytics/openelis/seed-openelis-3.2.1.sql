@@ -60,7 +60,8 @@ BEGIN
                 ('analysis', 'fhir_uuid'),
                 ('result', 'fhir_uuid'),
                 ('analysis', 'status_id'),
-                ('sample_item', 'status_id')
+                ('sample_item', 'status_id'),
+                ('sample_item', 'received_date')
         ) AS required(table_name, column_name)
         WHERE NOT EXISTS (
             SELECT 1
@@ -223,16 +224,28 @@ BEGIN
             v_sample_item_id := nextval('clinlims.sample_item_seq');
             INSERT INTO clinlims.sample_item (
                 id, fhir_uuid, sort_order, samp_id, typeosamp_id, uom_id,
-                quantity, lastupdated, collection_date, status_id, collector
+                quantity, lastupdated, collection_date, received_date,
+                status_id, collector
             ) VALUES (
                 v_sample_item_id, v_row.specimen_fhir_uuid, 1, v_sample_id,
                 v_sample_type_id, NULL, 1, v_row.observed_at,
                 v_row.observed_at - interval '3 hours',
+                (v_row.observed_at - interval '1 hour')
+                    AT TIME ZONE 'America/New_York',
                 v_sample_item_status_id, 'Catalyst Demo'
             );
         ELSIF (SELECT samp_id FROM clinlims.sample_item WHERE id = v_sample_item_id) IS DISTINCT FROM v_sample_id THEN
             RAISE EXCEPTION 'Existing seed specimen % belongs to another sample', v_row.specimen_fhir_uuid;
         END IF;
+
+        UPDATE clinlims.sample_item
+        SET received_date = (
+            v_row.observed_at - interval '1 hour'
+        ) AT TIME ZONE 'America/New_York'
+        WHERE id = v_sample_item_id
+          AND received_date IS DISTINCT FROM (
+              v_row.observed_at - interval '1 hour'
+          ) AT TIME ZONE 'America/New_York';
 
         SELECT id
         INTO v_analysis_id
@@ -248,7 +261,7 @@ BEGIN
                 entry_date, referred_out, type_of_sample_name, corrected
             ) VALUES (
                 v_analysis_id, v_row.analysis_fhir_uuid, v_sample_item_id,
-                v_test_section_id, v_test_id, 0, 'F',
+                v_test_section_id, v_test_id, 0, v_finalized_status_id::text,
                 v_row.observed_at - interval '30 minutes',
                 v_row.observed_at, v_row.observed_at, 'Y', 'NORMAL',
                 v_row.observed_at, v_finalized_status_id,
@@ -258,6 +271,15 @@ BEGIN
         ELSIF (SELECT sampitem_id FROM clinlims.analysis WHERE id = v_analysis_id) IS DISTINCT FROM v_sample_item_id THEN
             RAISE EXCEPTION 'Existing seed analysis % belongs to another specimen', v_row.analysis_fhir_uuid;
         END IF;
+
+        UPDATE clinlims.analysis
+        SET status = v_finalized_status_id::text,
+            status_id = v_finalized_status_id
+        WHERE id = v_analysis_id
+          AND (
+              status IS DISTINCT FROM v_finalized_status_id::text
+              OR status_id IS DISTINCT FROM v_finalized_status_id
+          );
 
         SELECT id
         INTO v_result_id
@@ -274,10 +296,15 @@ BEGIN
                 'Y', 'N', v_row.result_value::text, v_row.observed_at, 0, 0
             );
         ELSIF (
-            SELECT (analysis_id, value)
+            SELECT analysis_id
             FROM clinlims.result
             WHERE id = v_result_id
-        ) IS DISTINCT FROM (v_analysis_id, v_row.result_value::text) THEN
+        ) IS DISTINCT FROM v_analysis_id
+        OR (
+            SELECT value
+            FROM clinlims.result
+            WHERE id = v_result_id
+        ) IS DISTINCT FROM v_row.result_value::varchar THEN
             RAISE EXCEPTION 'Existing seed Observation % has different analysis/value data',
                 v_row.observation_fhir_uuid;
         END IF;

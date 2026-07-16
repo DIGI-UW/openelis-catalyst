@@ -59,6 +59,10 @@ class DataPipesConfigTests(unittest.TestCase):
     def test_controller_uses_fhir_search_to_postgresql_without_spark(self):
         self.assertEqual("FHIR_SEARCH", self.config["fhirFetchMode"])
         self.assertEqual(
+            "http://hapi-mtls-proxy:8080/fhir",
+            self.config["fhirServerUrl"],
+        )
+        self.assertEqual(
             "Patient,Observation,ServiceRequest,Specimen,DiagnosticReport",
             self.config["resourceList"],
         )
@@ -130,6 +134,12 @@ class SeedContractTests(unittest.TestCase):
         self.assertIn("CATALYST-DEMO-PATIENT-001", self.seed)
         self.assertIn("b50d156e-0f6f-40cd-921c-4e831602a623", self.seed)
         self.assertIn("status.test.valid", self.seed)
+        self.assertIn("v_finalized_status_id::text", self.seed)
+        self.assertIn(
+            "collection_date, received_date, status_id, collector",
+            " ".join(self.seed.split()),
+        )
+        self.assertIn("AT TIME ZONE 'America/New_York'", self.seed)
         self.assertIn("IF v_patient_id IS NULL", self.seed)
         self.assertIn("IF v_sample_id IS NULL", self.seed)
         self.assertIn("IF v_result_id IS NULL", self.seed)
@@ -145,6 +155,7 @@ class SeedContractTests(unittest.TestCase):
         self.assertIn("/OEToFhir", self.backfill)
         self.assertIn("checkAll=true", self.backfill)
         self.assertIn("waitForResults=true", self.backfill)
+        self.assertIn("HAPI_CLIENT_P12", self.backfill)
         for resource, count in {
             "Patient": 1,
             "Observation": 3,
@@ -175,9 +186,15 @@ class SemanticContractTests(unittest.TestCase):
             "create or replace view analytics.lab_result_fact_v1 as", 1
         )[1]
         self.assertIn("from public.observation_flat_v1 as observation", fact_sql)
-        self.assertNotIn(" join ", fact_sql)
+        self.assertIn(
+            "left join public.specimen_flat_v1 as specimen "
+            "on specimen.id = observation.specimen_id",
+            fact_sql,
+        )
         self.assertNotIn("select *", fact_sql)
         self.assertIn("observation.id as observation_id", fact_sql)
+        self.assertIn("specimen.received_at as specimen_received_at", fact_sql)
+        self.assertIn("as receipt_to_release_minutes", fact_sql)
 
     def test_freshness_and_run_metadata_are_structured(self):
         normalized = " ".join(self.sql.lower().split())
@@ -230,9 +247,14 @@ class SemanticContractTests(unittest.TestCase):
 
         column_names = {column["name"] for column in view["columns"]}
         self.assertTrue(
-            {"observation_id", "patient_id", "result_value", "result_unit"}.issubset(
-                column_names
-            )
+            {
+                "observation_id",
+                "patient_id",
+                "result_value",
+                "result_unit",
+                "specimen_received_at",
+                "receipt_to_release_minutes",
+            }.issubset(column_names)
         )
         self.assertEqual(
             "analytics.pipeline_run_v1", self.catalog["freshness"]["relation"]

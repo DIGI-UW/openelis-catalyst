@@ -1,0 +1,232 @@
+name: openelis-catalyst-mvp
+
+include:
+  - path: .openelis-docker/docker-compose.yml
+    project_directory: .openelis-docker
+    env_file: .openelis-docker/.env
+
+services:
+  analytics-db:
+    image: postgres:16.9-alpine3.22
+    environment:
+      POSTGRES_DB: catalyst_analytics
+      POSTGRES_USER: catalyst_analytics_writer
+      POSTGRES_PASSWORD: demo-only-change-me
+    ports:
+      - "${ANALYTICS_DB_PORT:-15433}:5432"
+    volumes:
+      - analytics-db-data:/var/lib/postgresql/data
+      - ./analytics/sql/000_analytics_roles.sql:/docker-entrypoint-initdb.d/000_analytics_roles.sql:ro
+    networks:
+      - openelis-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -q -d catalyst_analytics -U catalyst_analytics_writer",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  hapi-mtls-proxy:
+    image: catalyst/hapi-mtls-proxy:openelis-3.2.1
+    build:
+      context: ./analytics/config
+      dockerfile: hapi-mtls-proxy.Dockerfile
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        openssl pkcs12 -legacy
+        -in /etc/openelis-global/client_facing_keystore
+        -out /run/hapi-client.pem
+        -nodes
+        -passin pass:kspass
+        && exec nginx -g 'daemon off;'
+    volumes:
+      - ./analytics/config/hapi-mtls-proxy.conf:/etc/nginx/nginx.conf:ro
+      - key_trust-store-volume:/etc/openelis-global:ro
+    networks:
+      - openelis-network
+    depends_on:
+      fhir.openelis.org:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO /dev/null http://127.0.0.1:8080/fhir/metadata",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  fhir-data-pipes:
+    image: catalyst/fhir-data-pipes:3ea890884d674e2f31257a2da421601f2d75b5e9
+    restart: "on-failure:10"
+    build:
+      context: ./.fhir-data-pipes
+      dockerfile: Dockerfile
+    environment:
+      JAVA_OPTS: >-
+        -Xms512m
+        -Xmx${DATA_PIPES_MAX_HEAP:-2g}
+        -Djavax.net.ssl.trustStore=/etc/openelis-global/truststore
+        -Djavax.net.ssl.trustStorePassword=tspass
+        -Djavax.net.ssl.trustStoreType=PKCS12
+        -Djavax.net.ssl.keyStore=/etc/openelis-global/client_facing_keystore
+        -Djavax.net.ssl.keyStorePassword=kspass
+        -Djavax.net.ssl.keyStoreType=PKCS12
+      FHIRDATA_GENERATEPARQUETFILES: "false"
+      FHIRDATA_CREATEHIVERESOURCETABLES: "false"
+      FHIRDATA_CREATEPARQUETVIEWS: "false"
+      FHIRDATA_SINKDBCONFIGPATH: "config/postgres-sink.json"
+      FHIRDATA_NUMTHREADS: "1"
+    ports:
+      - "${DATA_PIPES_PORT:-8090}:8080"
+    volumes:
+      - ./analytics/config:/app/config:ro
+      - data-pipes-dwh:/app/dwh
+      - key_trust-store-volume:/etc/openelis-global:ro
+    networks:
+      - openelis-network
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      hapi-mtls-proxy:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/actuator/health', timeout=3)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  model-router:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8077"
+      - --hf-repo
+      - "${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-14B-Instruct-GGUF}"
+      - --hf-file
+      - "${MVP_MODEL_FILE:-Qwen2.5-Coder-14B-Instruct-Q2_K.gguf}"
+      - --alias
+      - qwen2.5-coder-14b
+      - --ctx-size
+      - "${MVP_MODEL_CONTEXT:-8192}"
+      - --parallel
+      - "1"
+      - --jinja
+    volumes:
+      - model-cache:/root/.cache
+    expose:
+      - "8077"
+    networks:
+      - openelis-network
+
+  model-router-fake:
+    image: python:3.11.13-alpine3.22
+    profiles:
+      - fake
+    command: ["python", "/opt/catalyst/fake-model-router.py"]
+    environment:
+      MODEL_ROUTER_PORT: "8077"
+    volumes:
+      - ./scripts/fake-model-router.py:/opt/catalyst/fake-model-router.py:ro
+    expose:
+      - "8077"
+    networks:
+      - openelis-network
+
+  med-agent-hub:
+    build: ./.med-agent-hub
+    ports:
+      - "${MED_AGENT_HUB_PORT:-8082}:8080"
+    environment:
+      LLM_BASE_URL: "${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
+      LLM_API_KEY: "${HUB_LLM_API_KEY:-}"
+      LLM_TEMPERATURE: "0"
+      TEAM_TRACE_DIR: /app/trace
+      QUERYSTORE_BASE_URL: "${QUERYSTORE_BASE_URL:-}"
+      QUERYSTORE_USERNAME: "${QUERYSTORE_USERNAME:-}"
+      QUERYSTORE_PASSWORD: "${QUERYSTORE_PASSWORD:-}"
+    volumes:
+      - hub-trace:/app/trace
+    networks:
+      - openelis-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://localhost:8080/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  catalyst-gateway:
+    build: ./catalyst-gateway
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    environment:
+      CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
+      MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
+      CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
+      CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
+      CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
+      CATALYST_QUERY_MAX_ROWS: "${CATALYST_QUERY_MAX_ROWS:-100}"
+      CATALYST_STATEMENT_TIMEOUT_MS: "${CATALYST_STATEMENT_TIMEOUT_MS:-10000}"
+    volumes:
+      - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
+      - ./docs/contracts:/docs/contracts:ro
+      - gateway-state:/app/state
+    networks:
+      - openelis-network
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      med-agent-hub:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "uv",
+          "run",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  catalyst-ui:
+    build: ./catalyst-ui
+    ports:
+      - "${CATALYST_UI_PORT:-3000}:8080"
+    networks:
+      - openelis-network
+    depends_on:
+      catalyst-gateway:
+        condition: service_healthy
+
+volumes:
+  analytics-db-data:
+  data-pipes-dwh:
+  gateway-state:
+  hub-trace:
+  model-cache:

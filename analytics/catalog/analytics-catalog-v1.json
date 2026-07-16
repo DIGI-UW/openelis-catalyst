@@ -21,9 +21,10 @@
       "version": "1",
       "approved": true,
       "demoDataOnly": true,
-      "grain": "Exactly one row per FHIR Observation projected by observation_flat_v1.",
+      "grain": "Exactly one row per FHIR Observation, with at most one Specimen matched by resource key.",
       "sourceRelations": [
-        "public.observation_flat_v1"
+        "public.observation_flat_v1",
+        "public.specimen_flat_v1"
       ],
       "columns": [
         {
@@ -67,6 +68,18 @@
           "logicalType": "timestamp",
           "nullable": true,
           "description": "FHIR Observation.issued instant."
+        },
+        {
+          "name": "specimen_received_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Specimen.receivedTime projected through specimen_flat_v1."
+        },
+        {
+          "name": "receipt_to_release_minutes",
+          "logicalType": "decimal",
+          "nullable": true,
+          "description": "Elapsed minutes from Specimen.receivedTime to Observation.issued; null when either timestamp is absent."
         },
         {
           "name": "test_code_system",
@@ -116,6 +129,7 @@
         "patient_id",
         "result_status",
         "observed_at",
+        "specimen_received_at",
         "test_code_system",
         "test_code",
         "result_unit"
@@ -154,6 +168,15 @@
               "logicalType": "timestamp"
             },
             "end_at": {
+              "logicalType": "timestamp"
+            }
+          }
+        },
+        {
+          "question": "Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time.",
+          "sql": "SELECT result_value, result_unit, issued_at, specimen_received_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE observed_at >= :start_at ORDER BY observed_at LIMIT 100",
+          "parameters": {
+            "start_at": {
               "logicalType": "timestamp"
             }
           }

@@ -69,10 +69,20 @@ SELECT
     observation.result_value,
     observation.result_unit,
     observation.result_unit_system,
-    observation.result_unit_code
-FROM public.observation_flat_v1 AS observation;
+    observation.result_unit_code,
+    specimen.received_at AS specimen_received_at,
+    (
+        EXTRACT(EPOCH FROM (observation.issued_at - specimen.received_at))
+        / 60.0
+    )::numeric AS receipt_to_release_minutes
+FROM public.observation_flat_v1 AS observation
+LEFT JOIN public.specimen_flat_v1 AS specimen
+    ON specimen.id = observation.specimen_id;
 
 COMMENT ON VIEW analytics.lab_result_fact_v1 IS
-    'Demo-only laboratory result fact at exactly one row per FHIR Observation.';
+    'Demo-only laboratory result fact at exactly one row per FHIR Observation; the Specimen join is one-to-one by resource key.';
+
+GRANT USAGE ON SCHEMA analytics TO catalyst_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO catalyst_readonly;
 
 COMMIT;

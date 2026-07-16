@@ -1,6 +1,6 @@
 fhirdata:
   fhirFetchMode: "FHIR_SEARCH"
-  fhirServerUrl: "http://fhir.openelis.org:8080/fhir"
+  fhirServerUrl: "http://hapi-mtls-proxy:8080/fhir"
   checkPatientEndpoint: true
   resourceList: "Patient,Observation,ServiceRequest,Specimen,DiagnosticReport"
   fhirVersion: "R4"

@@ -191,6 +191,11 @@ class FakeAnalytics:
             raise self.error
         return self.result
 
+    async def freshness(self) -> dict:
+        if self.error:
+            raise self.error
+        return deepcopy(catalog().freshness)
+
     async def readiness(self) -> dict:
         return {"ready": self.error is None, "dataSource": "openelis-demo"}
 

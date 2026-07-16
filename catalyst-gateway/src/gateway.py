@@ -15,7 +15,7 @@ from .config import load_config
 def _default_catalyst_service() -> CatalystService:
     config = load_config()
     contracts = ContractRegistry.default()
-    catalog = Catalog.demo()
+    catalog = Catalog.load(config.catalog_path)
     return CatalystService(
         contracts=contracts,
         catalog=catalog,

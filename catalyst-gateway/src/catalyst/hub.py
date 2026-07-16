@@ -58,11 +58,9 @@ class HubClient:
                 f"Hub does not advertise available profile {QUERY_PROFILE_ID}.",
             )
         capabilities = profile.get("capabilities")
-        output_contracts = (
-            capabilities.get("outputContracts")
-            if isinstance(capabilities, dict)
-            else None
-        )
+        output_contracts = profile.get("outputContracts")
+        if output_contracts is None and isinstance(capabilities, dict):
+            output_contracts = capabilities.get("outputContracts")
         if (
             not isinstance(output_contracts, list)
             or not all(isinstance(item, str) for item in output_contracts)
@@ -133,7 +131,8 @@ class HubClient:
                 capabilities = profile.get("capabilities", {})
                 model_router = capabilities.get("modelRouter")
                 model_router_ready = (
-                    model_router is True
+                    profile.get("available") is True
+                    or model_router is True
                     or isinstance(model_router, dict)
                     and model_router.get("available") is True
                 )

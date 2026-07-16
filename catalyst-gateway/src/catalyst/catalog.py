@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Any
 
 
@@ -30,6 +32,51 @@ class Catalog:
             "contextSourceId": self.context_source_id,
             "views": deepcopy(self.views),
         }
+
+    @classmethod
+    def load(cls, path: str | Path) -> Catalog:
+        catalog_path = Path(path)
+        payload = json.loads(catalog_path.read_text(encoding="utf-8"))
+        if payload.get("contractVersion") != "catalyst.analytics.catalog.v1":
+            raise ValueError(f"Unsupported analytics catalog: {catalog_path}")
+
+        views = []
+        for source_view in payload.get("views", []):
+            if source_view.get("approved") is not True:
+                continue
+            fields = []
+            for column in source_view.get("columns", []):
+                logical_type = column["logicalType"]
+                field = {
+                    "name": column["name"],
+                    "type": (
+                        "date-time" if logical_type == "timestamp" else logical_type
+                    ),
+                    "description": column["description"],
+                }
+                if "unit" in column:
+                    field["unit"] = column["unit"]
+                fields.append(field)
+            views.append(
+                {
+                    "name": source_view["name"],
+                    "version": source_view["version"],
+                    "grain": source_view["grain"],
+                    "fields": fields,
+                }
+            )
+        if not views:
+            raise ValueError(f"Analytics catalog has no approved views: {catalog_path}")
+
+        catalog_version = payload["catalogVersion"]
+        return cls(
+            data_source=payload["dataSource"],
+            catalog_version=catalog_version,
+            dialect=payload["dialect"],
+            context_source_id=f"catalog:{catalog_version}",
+            views=views,
+            freshness={},
+        )
 
     @classmethod
     def demo(cls) -> Catalog:

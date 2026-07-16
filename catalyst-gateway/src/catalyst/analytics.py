@@ -64,6 +64,16 @@ class PostgresAnalyticsAdapter:
             }
         return {"ready": True, "dataSource": "postgresql"}
 
+    async def freshness(self) -> dict[str, Any]:
+        try:
+            return await asyncio.to_thread(self._freshness_sync)
+        except AnalyticsError:
+            raise
+        except Exception as error:
+            raise AnalyticsError(
+                f"PostgreSQL freshness lookup failed: {error}"
+            ) from error
+
     def _execute_sync(
         self,
         sql: str,
@@ -106,6 +116,43 @@ class PostgresAnalyticsAdapter:
                 cursor.execute("SET TRANSACTION READ ONLY")
                 cursor.execute("SELECT 1")
                 cursor.fetchmany(1)
+
+    def _freshness_sync(self) -> dict[str, Any]:
+        with self._connect(
+            self.dsn,
+            connect_timeout=self.connect_timeout_seconds,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute(
+                    """
+                    SELECT
+                        pipeline_run_id,
+                        completion_state,
+                        source_watermark,
+                        observed_lag_seconds
+                    FROM analytics.pipeline_freshness_v1
+                    WHERE completion_state = 'succeeded'
+                    ORDER BY completed_at DESC NULLS LAST
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+        if row is None:
+            raise AnalyticsError("No succeeded analytics pipeline run is available.")
+        pipeline_run_id, completion_state, source_watermark, observed_lag_seconds = row
+        if completion_state != "succeeded" or not isinstance(
+            source_watermark, datetime
+        ):
+            raise AnalyticsError("Latest analytics pipeline freshness is invalid.")
+        if source_watermark.tzinfo is None:
+            raise AnalyticsError("Analytics source watermark has no timezone.")
+        return {
+            "sourceWatermark": source_watermark.isoformat().replace("+00:00", "Z"),
+            "pipelineRunId": str(pipeline_run_id),
+            "completionState": "complete",
+            "observedLagSeconds": max(0, int(observed_lag_seconds)),
+        }
 
     @staticmethod
     def _binding_value(parameter: dict[str, Any]) -> Any:

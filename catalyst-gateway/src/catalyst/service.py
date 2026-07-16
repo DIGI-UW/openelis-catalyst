@@ -33,6 +33,8 @@ class AnalyticsProtocol(Protocol):
         statement_timeout_ms: int,
     ) -> AnalyticsResult: ...
 
+    async def freshness(self) -> dict[str, Any]: ...
+
     async def readiness(self) -> dict[str, Any]: ...
 
 
@@ -160,12 +162,13 @@ class CatalystService:
                 max_rows=self.max_rows,
                 statement_timeout_ms=self.statement_timeout_ms,
             )
+            freshness = await self.analytics.freshness()
             duration_ms = int((time.perf_counter() - started) * 1000)
             table = build_table(
                 preview=decision.preview,
                 query=decision.query,
                 result=result,
-                freshness=self.catalog.freshness,
+                freshness=freshness,
                 accepted_at=decision.accepted_at,
                 duration_ms=duration_ms,
                 statement_timeout_ms=self.statement_timeout_ms,

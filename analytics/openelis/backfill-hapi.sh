@@ -2,8 +2,8 @@
 # Trigger the OpenELIS 3.2.1.x legacy-data transform and wait for fixed seed IDs.
 set -euo pipefail
 
-OE_BACKFILL_URL="${OE_BACKFILL_URL:-https://localhost/api/OpenELIS-Global/OEToFhir}"
-HAPI_FHIR_URL="${HAPI_FHIR_URL:-http://localhost:8081/fhir}"
+OE_BACKFILL_URL="${OE_BACKFILL_URL:-https://localhost:8443/OpenELIS-Global/OEToFhir}"
+HAPI_FHIR_URL="${HAPI_FHIR_URL:-https://localhost:8444/fhir}"
 OE_USERNAME="${OE_USERNAME:-admin}"
 OE_PASSWORD="${OE_PASSWORD:-adminADMIN!}"
 FHIR_WAIT_ATTEMPTS="${FHIR_WAIT_ATTEMPTS:-60}"
@@ -24,7 +24,13 @@ fi
 if [ -n "${HAPI_CLIENT_KEY:-}" ]; then
   hapi_curl+=(--key "${HAPI_CLIENT_KEY}")
 fi
-if [ "${HAPI_TLS_INSECURE:-false}" = "true" ]; then
+if [ -n "${HAPI_CLIENT_P12:-}" ]; then
+  hapi_curl+=(
+    --cert-type P12
+    --cert "${HAPI_CLIENT_P12}:${HAPI_CLIENT_P12_PASSWORD:-kspass}"
+  )
+fi
+if [ "${HAPI_TLS_INSECURE:-true}" = "true" ]; then
   hapi_curl+=(-k)
 fi
 
