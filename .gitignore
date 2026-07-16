@@ -8,6 +8,9 @@
 # Report engine (cloned by scripts/bootstrap-med-agent-hub.sh)
 .med-agent-hub/
 
+# OHS analytics pipeline (cloned by scripts/bootstrap-fhir-data-pipes.sh)
+.fhir-data-pipes/
+
 # Logs
 logs/
 *.log

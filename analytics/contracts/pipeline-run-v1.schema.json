@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis.org/catalyst/contracts/analytics-pipeline-run-v1.schema.json",
+  "title": "Catalyst analytics pipeline run v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "pipelineRunId",
+    "completionState",
+    "sourceWatermark",
+    "startedAt",
+    "completedAt",
+    "observedAt",
+    "dataPipesCommit",
+    "resourceCounts"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "catalyst.analytics.pipeline-run.v1"
+    },
+    "pipelineRunId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "completionState": {
+      "enum": [
+        "running",
+        "succeeded",
+        "failed"
+      ]
+    },
+    "sourceWatermark": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dataPipesCommit": {
+      "const": "3ea890884d674e2f31257a2da421601f2d75b5e9"
+    },
+    "resourceCounts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "errorMessage": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "completionState": {
+            "const": "running"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "completedAt": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "completionState": {
+            "const": "succeeded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sourceWatermark": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  ]
+}

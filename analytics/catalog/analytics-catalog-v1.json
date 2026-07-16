@@ -1,0 +1,164 @@
+{
+  "contractVersion": "catalyst.analytics.catalog.v1",
+  "catalogVersion": "analytics-catalog-v1",
+  "deploymentMode": "demo",
+  "dataSource": "openelis-fhir-postgresql",
+  "dialect": "postgresql",
+  "schemaVersion": "analytics-v1",
+  "description": "Approved demo-only analytics vocabulary over OHS FHIR Data Pipes projections.",
+  "freshness": {
+    "relation": "analytics.pipeline_run_v1",
+    "contract": "catalyst.analytics.pipeline-run.v1",
+    "sourceWatermarkColumn": "source_watermark",
+    "runIdColumn": "pipeline_run_id",
+    "completionStateColumn": "completion_state",
+    "observedAtColumn": "observed_at",
+    "updateBehavior": "An operator-triggered FULL FHIR_SEARCH run recreates the sink projections; only succeeded runs with a source watermark are current."
+  },
+  "views": [
+    {
+      "name": "analytics.lab_result_fact_v1",
+      "version": "1",
+      "approved": true,
+      "demoDataOnly": true,
+      "grain": "Exactly one row per FHIR Observation projected by observation_flat_v1.",
+      "sourceRelations": [
+        "public.observation_flat_v1"
+      ],
+      "columns": [
+        {
+          "name": "observation_id",
+          "logicalType": "string",
+          "nullable": false,
+          "description": "Stable FHIR Observation resource key."
+        },
+        {
+          "name": "patient_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Patient reference key; an opaque demo identifier."
+        },
+        {
+          "name": "service_request_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR ServiceRequest reference key."
+        },
+        {
+          "name": "specimen_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Specimen reference key."
+        },
+        {
+          "name": "result_status",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Observation.status code."
+        },
+        {
+          "name": "observed_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Observation.effectiveDateTime."
+        },
+        {
+          "name": "issued_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Observation.issued instant."
+        },
+        {
+          "name": "test_code_system",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Code system URI from the first OpenELIS-emitted test coding."
+        },
+        {
+          "name": "test_code",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Code from the first OpenELIS-emitted test coding."
+        },
+        {
+          "name": "test_name",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Display text from the first OpenELIS-emitted test coding."
+        },
+        {
+          "name": "result_value",
+          "logicalType": "decimal",
+          "nullable": true,
+          "unitColumn": "result_unit",
+          "description": "Numeric FHIR Quantity value; do not aggregate across unlike units."
+        },
+        {
+          "name": "result_unit",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Quantity display unit; the seed uses copies/mL."
+        },
+        {
+          "name": "result_unit_system",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Quantity unit system URI when OpenELIS emits one."
+        },
+        {
+          "name": "result_unit_code",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Quantity unit code when OpenELIS emits one."
+        }
+      ],
+      "allowedFilters": [
+        "patient_id",
+        "result_status",
+        "observed_at",
+        "test_code_system",
+        "test_code",
+        "result_unit"
+      ],
+      "allowedGroupings": [
+        "result_status",
+        "test_code_system",
+        "test_code",
+        "test_name",
+        "result_unit"
+      ],
+      "requiredConstraints": {
+        "dateColumn": "observed_at",
+        "maxDateRangeDays": 366,
+        "maxResultRows": 1000
+      },
+      "terminology": [
+        "The OpenELIS 3.2.1.x demo catalog's Viral Load test has no asserted LOINC code; test_code_system and test_code must be treated as source-local unless the emitted system URI says otherwise.",
+        "The seed resolves the OpenELIS test by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects its configured unit to be copies/mL.",
+        "FHIR status values are preserved; finalized OpenELIS seed analyses are expected to emit final Observations."
+      ],
+      "freshness": {
+        "relation": "analytics.pipeline_run_v1",
+        "mode": "latest-succeeded-run",
+        "updateBehavior": "Operator-triggered FULL FHIR_SEARCH after explicit HAPI backfill; query provenance must carry run ID, source watermark, completion state, and observed lag."
+      },
+      "examples": [
+        {
+          "question": "Show this demo patient's viral-load results over time.",
+          "sql": "SELECT observed_at, result_value, result_unit FROM analytics.lab_result_fact_v1 WHERE patient_id = :patient_id AND observed_at >= :start_at AND observed_at < :end_at ORDER BY observed_at",
+          "parameters": {
+            "patient_id": {
+              "logicalType": "string"
+            },
+            "start_at": {
+              "logicalType": "timestamp"
+            },
+            "end_at": {
+              "logicalType": "timestamp"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
