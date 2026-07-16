@@ -43,6 +43,53 @@ describe("ResultsTable", () => {
     expect(within(region).getByText("—")).toHaveAccessibleName("No value");
   });
 
+  it("prioritizes result values, units, release time, and turnaround", () => {
+    const result: CatalystTable = {
+      ...table,
+      table: {
+        columns: [
+          { name: "observation_id", logicalType: "string", nullable: false },
+          { name: "issued_at", logicalType: "date-time", nullable: false },
+          { name: "result_value", logicalType: "decimal", nullable: false },
+          { name: "result_unit", logicalType: "string", nullable: false },
+          {
+            name: "receipt_to_release_minutes",
+            logicalType: "decimal",
+            nullable: true,
+          },
+        ],
+        rows: [
+          [
+            { type: "string", value: "observation-1" },
+            { type: "date-time", value: "2026-01-15T14:00:00Z" },
+            { type: "decimal", value: "1200" },
+            { type: "string", value: "copies/ml" },
+            { type: "decimal", value: "60" },
+          ],
+        ],
+        rowCount: {
+          returned: 1,
+          total: 1,
+          totalIsExact: true,
+          truncated: false,
+          limit: 100,
+        },
+      },
+    };
+
+    render(<ResultsTable result={result} />);
+
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual([
+      "result_value",
+      "result_unit",
+      "issued_at",
+      "receipt_to_release_minutes",
+      "observation_id",
+    ]);
+  });
+
   it("renders a successful empty result distinctly", () => {
     const result: CatalystTable = {
       ...table,

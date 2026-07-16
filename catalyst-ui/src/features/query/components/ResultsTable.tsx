@@ -36,8 +36,29 @@ const rowSummary = (result: CatalystTable) => {
   return `${returned} ${returned === 1 ? "row" : "rows"} returned`;
 };
 
+const preferredColumns = [
+  "result_value",
+  "result_unit",
+  "issued_at",
+  "receipt_to_release_minutes",
+  "observed_at",
+  "test_name",
+];
+
 export const ResultsTable = ({ result }: ResultsTableProps) => {
   const { columns, rows, rowCount } = result.table;
+  const columnOrder = columns
+    .map((_, index) => index)
+    .sort((left, right) => {
+      const leftPriority = preferredColumns.indexOf(columns[left]!.name);
+      const rightPriority = preferredColumns.indexOf(columns[right]!.name);
+      const normalizedLeft =
+        leftPriority === -1 ? preferredColumns.length + left : leftPriority;
+      const normalizedRight =
+        rightPriority === -1 ? preferredColumns.length + right : rightPriority;
+      return normalizedLeft - normalizedRight;
+    });
+  const displayColumns = columnOrder.map((index) => columns[index]!);
 
   return (
     <section
@@ -82,7 +103,7 @@ export const ResultsTable = ({ result }: ResultsTableProps) => {
           <Table size="lg" useZebraStyles>
             <TableHead>
               <TableRow>
-                {columns.map((column) => (
+                {displayColumns.map((column) => (
                   <TableHeader key={column.name}>
                     {column.unit
                       ? `${column.name} (${column.unit})`
@@ -94,11 +115,14 @@ export const ResultsTable = ({ result }: ResultsTableProps) => {
             <TableBody>
               {rows.map((row, rowIndex) => (
                 <TableRow key={`${result.preview.previewId}-${rowIndex}`}>
-                  {row.map((cell, columnIndex) => (
+                  {columnOrder.map((sourceIndex, columnIndex) => {
+                    const cell = row[sourceIndex]!;
+                    return (
                     <TableCell key={`${columnIndex}-${cell.type}`}>
                       {renderCell(cell)}
                     </TableCell>
-                  ))}
+                    );
+                  })}
                 </TableRow>
               ))}
             </TableBody>
