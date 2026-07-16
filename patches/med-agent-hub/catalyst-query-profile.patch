@@ -1,9 +1,9 @@
 diff --git a/server/catalyst_query.py b/server/catalyst_query.py
 new file mode 100644
-index 0000000..bccfe9b
+index 0000000..b86012e
 --- /dev/null
 +++ b/server/catalyst_query.py
-@@ -0,0 +1,676 @@
+@@ -0,0 +1,724 @@
 +"""Fail-closed stages for the governed Catalyst analytics-query profile."""
 +
 +from __future__ import annotations
@@ -12,6 +12,7 @@ index 0000000..bccfe9b
 +import json
 +import logging
 +import os
++import re
 +from copy import deepcopy
 +from datetime import datetime, timezone
 +from pathlib import Path
@@ -286,6 +287,50 @@ index 0000000..bccfe9b
 +    if candidate.get("status") != "ready":
 +        return True
 +    return candidate.get("target") == canonical_target
++
++
++_ISO_DATE_LITERAL = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
++
++
++def _bind_question_date_literals(
++    candidate: Mapping[str, Any], question: str
++) -> Dict[str, Any]:
++    """Convert exact ISO dates copied from the question into named parameters."""
++    normalized = deepcopy(dict(candidate))
++    if normalized.get("status") != "ready":
++        return normalized
++
++    sql = str(normalized["sql"])
++    parameters = list(normalized["parameters"])
++    existing_names = {str(parameter["name"]) for parameter in parameters}
++    existing_values = {
++        str(parameter.get("value"))
++        for parameter in parameters
++        if parameter.get("type") == "date"
++    }
++    date_index = 1
++    for value in dict.fromkeys(_ISO_DATE_LITERAL.findall(question)):
++        quoted = f"'{value}'"
++        if quoted not in sql or value in existing_values:
++            continue
++        while f"date_{date_index}" in existing_names:
++            date_index += 1
++        name = f"date_{date_index}"
++        sql = sql.replace(quoted, f":{name}")
++        parameters.append(
++            {
++                "name": name,
++                "type": "date",
++                "source": "question",
++                "value": value,
++            }
++        )
++        existing_names.add(name)
++        existing_values.add(value)
++        date_index += 1
++    normalized["sql"] = sql
++    normalized["parameters"] = parameters
++    return normalized
 +
 +
 +def _request_payload(
@@ -582,6 +627,7 @@ index 0000000..bccfe9b
 +    async with httpx.AsyncClient() as client:
 +        try:
 +            candidate = await _generate(client, request, extension)
++            candidate = _bind_question_date_literals(candidate, question)
 +            steps.append({"role": "query_generate", "status": candidate["status"]})
 +        except Exception:
 +            result = _rejected(
@@ -623,7 +669,9 @@ index 0000000..bccfe9b
 +                            checks=list(review["checks"]),
 +                        )
 +                    elif review["decision"] == "repair":
-+                        repaired = review["candidate"]
++                        repaired = _bind_question_date_literals(
++                            review["candidate"], question
++                        )
 +                        candidate_error = _validation_error(
 +                            _CANDIDATE_VALIDATOR,
 +                            repaired,
@@ -1654,10 +1702,10 @@ index 0000000..2908ecf
 +this review.
 diff --git a/tests/test_catalyst_query.py b/tests/test_catalyst_query.py
 new file mode 100644
-index 0000000..ff888da
+index 0000000..839eff9
 --- /dev/null
 +++ b/tests/test_catalyst_query.py
-@@ -0,0 +1,510 @@
+@@ -0,0 +1,536 @@
 +from __future__ import annotations
 +
 +import copy
@@ -2018,6 +2066,32 @@ index 0000000..ff888da
 +    review_schema = calls[1]["response_format"]["json_schema"]["schema"]
 +    assert review_schema["properties"]["decision"] == {"const": "approve"}
 +    assert set(review_schema["required"]) == {"decision", "checks"}
++
++
++def test_question_date_literals_are_bound_before_independent_review():
++    draft = _ready_candidate()
++    draft["sql"] = (
++        f"SELECT viral_load_value, release_date FROM {VIEW_NAME} "
++        "WHERE release_date >= '2026-01-01'"
++    )
++    draft["parameters"] = []
++
++    response, calls = _post_with_backend([draft, _review("passed")])
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert payload["sql"].endswith("WHERE release_date >= :date_1")
++    assert payload["parameters"] == [
++        {
++            "name": "date_1",
++            "type": "date",
++            "source": "question",
++            "value": "2026-01-01",
++        }
++    ]
++    review_payload = json.loads(calls[1]["messages"][1]["content"])
++    assert review_payload["candidate"]["sql"] == payload["sql"]
++    assert review_payload["candidate"]["parameters"] == payload["parameters"]
 +
 +
 +@pytest.mark.parametrize(
