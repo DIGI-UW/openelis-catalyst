@@ -79,6 +79,7 @@ class MvpScriptContractTests(unittest.TestCase):
             "mvp-seed.sh",
             "mvp-health.sh",
             "mvp-down.sh",
+            "../tests/e2e/test_data_pipes_incremental.sh",
         ):
             with self.subTest(name=name):
                 script = ROOT / "scripts" / name
