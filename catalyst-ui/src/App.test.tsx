@@ -170,6 +170,27 @@ describe("Catalyst query workflow", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows a rejected generated candidate and lint feedback without an execution action", async () => {
+    const api = makeApi();
+    vi.mocked(api.submitQuestion).mockResolvedValue(queryOutcome("rejected"));
+    render(<App api={api} />);
+
+    await askQuestion();
+
+    expect(await screen.findByText("Generated candidate")).toBeVisible();
+    expect(screen.getByText("Not executable")).toBeVisible();
+    expect(screen.getByLabelText("Rejected generated SQL")).toHaveTextContent(
+      "result_value > 1000",
+    );
+    expect(
+      screen.getByText("policy.unbound_predicate_literal"),
+    ).toBeVisible();
+    expect(screen.getByText(/Replace 1000 with a named parameter/)).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Accept and run" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("distinguishes a Catalyst policy rejection and its violations", async () => {
     const api = makeApi();
     vi.mocked(api.submitQuestion).mockResolvedValue(policyOutcome);

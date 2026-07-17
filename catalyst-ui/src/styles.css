@@ -380,6 +380,53 @@ input {
   padding-left: 1.25rem;
 }
 
+.diagnostic-candidate {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #c6c6c6;
+}
+
+.diagnostic-candidate__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.diagnostic-candidate__heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.diagnostic-parameters {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.diagnostic-parameters > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) 1fr;
+  gap: 1rem;
+}
+
+.diagnostic-parameters dt,
+.diagnostic-parameters dd {
+  margin: 0;
+}
+
+.diagnostic-attempts > li + li {
+  margin-top: 1rem;
+}
+
+.diagnostic-attempts ul {
+  margin-top: 0.5rem;
+}
+
+.diagnostic-attempts p {
+  margin: 0.25rem 0 0;
+  color: #525252;
+}
+
 .execution-state__heading {
   margin-bottom: 1rem;
 }

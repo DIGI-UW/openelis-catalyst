@@ -118,7 +118,7 @@ Responses:
 | HTTP | Body | Meaning |
 | --- | --- | --- |
 | `201` | `catalyst.preview.v1` | Query is ready for review and acceptance |
-| `200` | Non-`ready` `catalyst.query.v1` | Clarification, unsupported, or rejected outcome; never executable |
+| `200` | Non-`ready` `catalyst.query.v1` | Clarification, unsupported, or rejected outcome; rejected generation may include a diagnostic candidate that is never executable |
 | `400` | Request validation error | Malformed demo question request |
 | `422` | `catalyst.policy.outcome.v1` | Hub returned `ready`, but Catalyst deterministic policy rejected it |
 | `502` | Hub integration error | Hub unavailable, incompatible, or invalid response |
@@ -164,13 +164,14 @@ surface during migration. It is not the normative query-to-table API.
    repair, then returns `catalyst.query.v1`.
 5. If status is `needs_clarification`, Catalyst returns the clarification
    without SQL. If status is `unsupported` or `rejected`, Catalyst returns a
-   stable non-executable outcome with the contract `message`. Only `ready`
-   continues.
+   stable non-executable outcome with the contract `message`. A rejected
+   generation may retain its candidate and deterministic findings for manual
+   diagnosis, but it cannot be accepted or run. Only `ready` continues.
 6. Catalyst independently validates the returned query against deterministic
    policy. A failure returns `catalyst.policy.outcome.v1`; Catalyst does not
    rewrite the hub-owned response.
 7. Catalyst stores a preview bound to the query digest, parameters, catalog
-   version, expiry, and one-time execution state.
+   version and one-time execution state.
 8. The UI presents the preview for explicit acceptance.
 9. Catalyst runs the accepted preview against the local demo analytics store
    with read-only credentials, timeout, row, and resource limits.
@@ -238,6 +239,9 @@ The implemented `catalyst.query.v1` response contains:
 - `sql`, `parameters`, and `expectedColumns` only when status is `ready`
 - `clarification` when status is `needs_clarification`
 - `message` when status is `unsupported` or `rejected`
+- `diagnosticCandidate` on rejected generation or review outcomes when model
+  output is available; it is explicitly non-executable and may contain the
+  parsed candidate or raw output plus deterministic attempt findings
 - `validation` with profile-owned checks and warnings
 - `provenance` with profile ID, trace ID and context source identifiers
 
@@ -288,22 +292,20 @@ awaiting_acceptance
   → consuming
       → succeeded
       → failed
-  → expired
 ```
 
 `queryDigest` is SHA-256 over RFC 8785 JSON Canonicalization Scheme bytes for
 the stored `{question, target, sql, parameters, expectedColumns}` object.
 `target` includes the catalog version. Execution atomically compares that
-digest and expiry
-before moving from `awaiting_acceptance` to `consuming`.
+digest before moving from `awaiting_acceptance` to `consuming`.
 
 Only one idempotency key can consume a preview. Repeating the same key while
 execution is active returns `in_progress` and permits polling with that key.
 Repeating it after completion returns the stored outcome without running the
 query again; a different concurrent key conflicts. Failed execution does not
 reopen the preview—a new preview is required.
-Successful execution returns `catalyst.table.v1`. In-progress, expired,
-conflicting, consumed, and failed requests return the versioned non-success
+Successful execution returns `catalyst.table.v1`. In-progress, conflicting,
+consumed, and failed requests return the versioned non-success
 execution outcome. A same-key replay returns the originally stored table or
 non-success outcome with no second query execution.
 
@@ -409,8 +411,8 @@ claimed by the demo MVP.
 - **CAT-FR-005:** Deterministically validate and safely execute accepted
   read-only queries.
 - **CAT-FR-006:** Return typed table results with freshness and provenance.
-- **CAT-FR-007:** Require explicit user acceptance through a server-bound,
-  expiring query preview before execution.
+- **CAT-FR-007:** Require explicit user acceptance through a server-bound query
+  preview before execution.
 - **CAT-FR-008:** Reserve a trusted execution boundary for future authorization
   and facility scope.
 - **CAT-FR-009:** Optionally generate an evidence-linked report with explicit
@@ -432,7 +434,7 @@ MVP requires an end-to-end deployment that demonstrates:
 3. Query review and governed read-only execution.
 4. Correct typed table output against seeded expected data.
 5. Deterministic rejection of disallowed and out-of-scope queries.
-6. Expiring preview acceptance and one-time execution.
+6. Explicit preview acceptance and one-time execution.
 7. Local med-agent-hub and local model-router execution only.
 8. Demo data only.
 9. Complete freshness, query, profile, source, and trace provenance.

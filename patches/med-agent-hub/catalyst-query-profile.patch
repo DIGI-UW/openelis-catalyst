@@ -433,10 +433,10 @@ index 534ce71..fb6b022 100644
          "unavailable_reasons": [],
 diff --git a/server/catalyst_query.py b/server/catalyst_query.py
 new file mode 100644
-index 0000000..ca82e98
+index 0000000..91aa0a0
 --- /dev/null
 +++ b/server/catalyst_query.py
-@@ -0,0 +1,1498 @@
+@@ -0,0 +1,1544 @@
 +"""Fail-closed stages for the governed Catalyst analytics-query profile."""
 +
 +from __future__ import annotations
@@ -596,8 +596,17 @@ index 0000000..ca82e98
 +class QueryGenerationError(QueryContractError):
 +    """Generation stopped after preserving its deterministic attempt history."""
 +
-+    def __init__(self, message: str, history: list[dict[str, Any]]) -> None:
++    def __init__(
++        self,
++        message: str,
++        history: list[dict[str, Any]],
++        *,
++        candidate: Optional[Mapping[str, Any]] = None,
++        raw_output: Optional[str] = None,
++    ) -> None:
 +        self.history = deepcopy(history)
++        self.candidate = deepcopy(candidate) if candidate is not None else None
++        self.raw_output = raw_output
 +        super().__init__(message)
 +
 +
@@ -1345,6 +1354,8 @@ index 0000000..ca82e98
 +    seen_outputs: set[str] = set()
 +    history: list[dict[str, Any]] = []
 +    binding_normalized = False
++    last_candidate: Optional[Dict[str, Any]] = None
++    last_output: Optional[str] = None
 +
 +    for attempt in range(1, max_attempts + 1):
 +        content = await _backend_chat(
@@ -1355,6 +1366,7 @@ index 0000000..ca82e98
 +            temperature=float(profile.knobs["query_generate"]["temperature"]),
 +            max_tokens=request.max_tokens,
 +        )
++        last_output = content
 +        if content in seen_outputs:
 +            finding = {
 +                "code": "generation.unchanged_candidate",
@@ -1373,7 +1385,12 @@ index 0000000..ca82e98
 +                    "findings": [finding],
 +                }
 +            )
-+            raise QueryGenerationError(finding["message"], history)
++            raise QueryGenerationError(
++                finding["message"],
++                history,
++                candidate=last_candidate,
++                raw_output=last_output,
++            )
 +        seen_outputs.add(content)
 +
 +        try:
@@ -1386,6 +1403,7 @@ index 0000000..ca82e98
 +            bound = _bind_question_date_literals(parsed, question)
 +            normalized_this_attempt = normalized_this_attempt or bound != parsed
 +            parsed = bound
++            last_candidate = deepcopy(parsed)
 +            findings = [
 +                *lint_candidate(parsed, extension),
 +                *_semantic_lint_findings(parsed, question, extension),
@@ -1415,6 +1433,8 @@ index 0000000..ca82e98
 +            raise QueryGenerationError(
 +                f"query generation exhausted deterministic correction budget: {codes}",
 +                history,
++                candidate=last_candidate,
++                raw_output=last_output,
 +            )
 +
 +        feedback = {
@@ -1603,6 +1623,7 @@ index 0000000..ca82e98
 +    message: str,
 +    check_name: str,
 +    checks: Optional[list[dict[str, Any]]] = None,
++    diagnostic_candidate: Optional[Mapping[str, Any]] = None,
 +    profile_id: str = "catalyst-query-checked",
 +) -> Dict[str, Any]:
 +    final_checks = deepcopy(checks or [])
@@ -1626,6 +1647,8 @@ index 0000000..ca82e98
 +        },
 +        "provenance": _provenance(profile_id, extension),
 +    }
++    if diagnostic_candidate is not None:
++        result["diagnosticCandidate"] = deepcopy(diagnostic_candidate)
 +    error = _validation_error(_FINAL_VALIDATOR, result, "rejected query contract")
 +    if str(error):  # pragma: no cover - fixed fields are covered by contract tests
 +        raise error
@@ -1754,11 +1777,22 @@ index 0000000..ca82e98
 +            )
 +        except Exception as exc:
 +            logger.warning("Catalyst query generation failed: %s", exc)
++            diagnostic_candidate = None
++            if isinstance(exc, QueryGenerationError):
++                diagnostic_candidate = {
++                    "executable": False,
++                    "attempts": exc.history,
++                }
++                if exc.candidate is not None:
++                    diagnostic_candidate["candidate"] = exc.candidate
++                elif exc.raw_output is not None:
++                    diagnostic_candidate["rawOutput"] = exc.raw_output
 +            result = _rejected(
 +                question,
 +                extension,
 +                message="Query generation failed its structured-output contract.",
 +                check_name="query_generate",
++                diagnostic_candidate=diagnostic_candidate,
 +                profile_id=request.profile.id,
 +            )
 +            steps.append(
@@ -1788,6 +1822,10 @@ index 0000000..ca82e98
 +                        "Generated query did not echo the approved catalog target."
 +                    ),
 +                    check_name="catalog_target",
++                    diagnostic_candidate={
++                        "executable": False,
++                        "candidate": candidate,
++                    },
 +                    profile_id=request.profile.id,
 +                )
 +                steps.append({"role": "catalog_target", "status": "failed"})
@@ -1829,6 +1867,10 @@ index 0000000..ca82e98
 +                            message=review["message"],
 +                            check_name="query_review",
 +                            checks=list(review["checks"]),
++                            diagnostic_candidate={
++                                "executable": False,
++                                "candidate": candidate,
++                            },
 +                            profile_id=request.profile.id,
 +                        )
 +                    elif review["decision"] == "repair":
@@ -1928,6 +1970,10 @@ index 0000000..ca82e98
 +                            "Query review failed; no unreviewed query was returned."
 +                        ),
 +                        check_name="query_review",
++                        diagnostic_candidate={
++                            "executable": False,
++                            "candidate": locals().get("repaired", candidate),
++                        },
 +                        profile_id=request.profile.id,
 +                    )
 +                    steps.append({"role": "query_review", "status": "failed"})
@@ -2376,10 +2422,10 @@ index 0000000..39b63e2
 +    return [finding.as_dict() for finding in findings]
 diff --git a/server/contracts/catalyst-query-v1.schema.json b/server/contracts/catalyst-query-v1.schema.json
 new file mode 100644
-index 0000000..5cde907
+index 0000000..57f930c
 --- /dev/null
 +++ b/server/contracts/catalyst-query-v1.schema.json
-@@ -0,0 +1,589 @@
+@@ -0,0 +1,799 @@
 +{
 +  "$schema": "https://json-schema.org/draft/2020-12/schema",
 +  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-v1.schema.json",
@@ -2444,6 +2490,9 @@ index 0000000..5cde907
 +      "type": "string",
 +      "minLength": 1
 +    },
++    "diagnosticCandidate": {
++      "$ref": "#/$defs/diagnosticCandidate"
++    },
 +    "validation": {
 +      "$ref": "#/$defs/validation"
 +    },
@@ -2492,6 +2541,11 @@ index 0000000..5cde907
 +          {
 +            "required": [
 +              "message"
++            ]
++          },
++          {
++            "required": [
++              "diagnosticCandidate"
 +            ]
 +          }
 +        ]
@@ -2547,6 +2601,11 @@ index 0000000..5cde907
 +            "required": [
 +              "message"
 +            ]
++          },
++          {
++            "required": [
++              "diagnosticCandidate"
++            ]
 +          }
 +        ]
 +      }
@@ -2600,6 +2659,11 @@ index 0000000..5cde907
 +          {
 +            "required": [
 +              "clarification"
++            ]
++          },
++          {
++            "required": [
++              "diagnosticCandidate"
 +            ]
 +          }
 +        ]
@@ -2894,6 +2958,198 @@ index 0000000..5cde907
 +        }
 +      }
 +    },
++    "generatedCandidate": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "status"
++      ],
++      "properties": {
++        "status": {
++          "enum": [
++            "ready",
++            "needs_clarification",
++            "unsupported",
++            "rejected"
++          ]
++        },
++        "target": {
++          "$ref": "#/$defs/target"
++        },
++        "sql": {
++          "type": "string",
++          "minLength": 1
++        },
++        "parameters": {
++          "type": "array",
++          "uniqueItems": true,
++          "items": {
++            "$ref": "#/$defs/parameter"
++          }
++        },
++        "expectedColumns": {
++          "type": "array",
++          "items": {
++            "$ref": "#/$defs/column"
++          }
++        },
++        "clarification": {
++          "type": "string",
++          "minLength": 1
++        },
++        "message": {
++          "type": "string",
++          "minLength": 1
++        }
++      },
++      "oneOf": [
++        {
++          "properties": {
++            "status": {
++              "const": "ready"
++            }
++          },
++          "required": [
++            "target",
++            "sql",
++            "parameters",
++            "expectedColumns"
++          ]
++        },
++        {
++          "properties": {
++            "status": {
++              "const": "needs_clarification"
++            }
++          },
++          "required": [
++            "clarification"
++          ]
++        },
++        {
++          "properties": {
++            "status": {
++              "enum": [
++                "unsupported",
++                "rejected"
++              ]
++            }
++          },
++          "required": [
++            "message"
++          ]
++        }
++      ]
++    },
++    "diagnosticFinding": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "code",
++        "stage",
++        "severity",
++        "path",
++        "message"
++      ],
++      "properties": {
++        "code": {
++          "type": "string",
++          "minLength": 1
++        },
++        "stage": {
++          "type": "string",
++          "minLength": 1
++        },
++        "severity": {
++          "enum": [
++            "warning",
++            "error"
++          ]
++        },
++        "path": {
++          "type": "string"
++        },
++        "message": {
++          "type": "string",
++          "minLength": 1
++        },
++        "evidence": {
++          "type": "string"
++        },
++        "suggestedAction": {
++          "type": "string"
++        }
++      }
++    },
++    "diagnosticCandidate": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "executable"
++      ],
++      "properties": {
++        "executable": {
++          "const": false
++        },
++        "candidate": {
++          "$ref": "#/$defs/generatedCandidate"
++        },
++        "rawOutput": {
++          "type": "string",
++          "minLength": 1
++        },
++        "attempts": {
++          "type": "array",
++          "items": {
++            "type": "object",
++            "additionalProperties": false,
++            "required": [
++              "attempt",
++              "status",
++              "finding_codes",
++              "findings"
++            ],
++            "properties": {
++              "attempt": {
++                "type": "integer",
++                "minimum": 1
++              },
++              "status": {
++                "enum": [
++                  "passed",
++                  "failed"
++                ]
++              },
++              "finding_codes": {
++                "type": "array",
++                "items": {
++                  "type": "string",
++                  "minLength": 1
++                }
++              },
++              "findings": {
++                "type": "array",
++                "items": {
++                  "$ref": "#/$defs/diagnosticFinding"
++                }
++              }
++            }
++          }
++        }
++      },
++      "anyOf": [
++        {
++          "required": [
++            "candidate"
++          ]
++        },
++        {
++          "required": [
++            "rawOutput"
++          ]
++        }
++      ]
++    },
 +    "validation": {
 +      "type": "object",
 +      "additionalProperties": false,
@@ -3051,10 +3307,10 @@ index 0000000..ba35711
 +alone is not sufficient in a multi-analyte view.
 diff --git a/tests/test_catalyst_query.py b/tests/test_catalyst_query.py
 new file mode 100644
-index 0000000..32184d7
+index 0000000..6860e0f
 --- /dev/null
 +++ b/tests/test_catalyst_query.py
-@@ -0,0 +1,855 @@
+@@ -0,0 +1,866 @@
 +from __future__ import annotations
 +
 +import copy
@@ -3590,6 +3846,11 @@ index 0000000..32184d7
 +    assert payload["status"] == "rejected"
 +    assert payload["validation"]["status"] == "rejected"
 +    assert payload["validation"]["checks"][0]["status"] == "failed"
++    assert payload["diagnosticCandidate"]["executable"] is False
++    assert payload["diagnosticCandidate"]["rawOutput"] == bad_generation
++    assert payload["diagnosticCandidate"]["attempts"][-1]["findings"][0][
++        "code"
++    ] in {"contract.invalid_candidate", "generation.unchanged_candidate"}
 +    assert len(calls) == 2
 +
 +
@@ -3707,6 +3968,12 @@ index 0000000..32184d7
 +    payload = _content(response)
 +    assert payload["status"] == "rejected"
 +    assert payload["validation"]["checks"][0]["name"] == "query_generate"
++    diagnostic = payload["diagnosticCandidate"]
++    assert diagnostic["executable"] is False
++    assert diagnostic["candidate"]["sql"] == _ready_candidate()["sql"]
++    assert diagnostic["attempts"][-1]["findings"][0]["code"] == (
++        "generation.unchanged_candidate"
++    )
 +    assert len(calls) == 2
 +    trace = json.loads((tmp_path / "trace.jsonl").read_text(encoding="utf-8"))
 +    lint_steps = [step for step in trace["steps"] if step["role"] == "query_lint"]

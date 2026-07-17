@@ -130,6 +130,37 @@ export const queryOutcome = (
   ...(status === "needs_clarification"
     ? { clarification: "Which facility should be included?" }
     : { message: `The question was ${status}.` }),
+  ...(status === "rejected"
+    ? {
+        diagnosticCandidate: {
+          executable: false as const,
+          candidate: {
+            status: "ready" as const,
+            target: preview.target,
+            sql: "SELECT * FROM analytics.lab_result_fact_v1 WHERE result_value > 1000",
+            parameters: [],
+            expectedColumns: preview.expectedColumns,
+          },
+          attempts: [
+            {
+              attempt: 1,
+              status: "failed" as const,
+              finding_codes: ["policy.unbound_predicate_literal"],
+              findings: [
+                {
+                  code: "policy.unbound_predicate_literal",
+                  stage: "query_lint",
+                  severity: "error" as const,
+                  path: "$.sql",
+                  message: "The numeric threshold must be a bound parameter.",
+                  suggestedAction: "Replace 1000 with a named parameter.",
+                },
+              ],
+            },
+          ],
+        },
+      }
+    : {}),
   validation: {
     status: status === "needs_clarification" ? "warned" : "rejected",
     checks: [],

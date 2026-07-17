@@ -38,7 +38,7 @@ The query-to-table sandbox implements that path with:
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
 - Hub-owned Gemma and Qwen generation/review profiles selectable in the UI;
-- deterministic Catalyst SQL policy, expiring preview acceptance, read-only
+- deterministic Catalyst SQL policy, explicit preview acceptance, read-only
   execution, typed table contracts, and provenance;
 - a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
 

@@ -75,6 +75,38 @@ export interface QueryProvenance {
   contextSourceIds: string[];
 }
 
+export interface GeneratedQueryCandidate {
+  status: "ready" | "needs_clarification" | "unsupported" | "rejected";
+  target?: QueryTarget;
+  sql?: string;
+  parameters?: BoundParameter[];
+  expectedColumns?: Column[];
+  clarification?: string;
+  message?: string;
+}
+
+export interface DiagnosticFinding {
+  code: string;
+  stage: string;
+  severity: "warning" | "error";
+  path: string;
+  message: string;
+  evidence?: string;
+  suggestedAction?: string;
+}
+
+export interface DiagnosticCandidate {
+  executable: false;
+  candidate?: GeneratedQueryCandidate;
+  rawOutput?: string;
+  attempts?: Array<{
+    attempt: number;
+    status: "passed" | "failed";
+    finding_codes: string[];
+    findings: DiagnosticFinding[];
+  }>;
+}
+
 export interface CatalystQueryOutcome {
   contractVersion: "catalyst.query.v1";
   deploymentMode: DeploymentMode;
@@ -82,6 +114,7 @@ export interface CatalystQueryOutcome {
   question: string;
   clarification?: string;
   message?: string;
+  diagnosticCandidate?: DiagnosticCandidate;
   validation: {
     status: "warned" | "rejected";
     checks: ValidationCheck[];

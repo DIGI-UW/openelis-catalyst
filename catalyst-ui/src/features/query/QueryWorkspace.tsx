@@ -1,5 +1,5 @@
 import { Renew } from "@carbon/icons-react";
-import { Button } from "@carbon/react";
+import { Button, CodeSnippet, Tag } from "@carbon/react";
 import { useEffect, useState } from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
@@ -87,6 +87,8 @@ const QueryOutcomeState = ({ outcome }: { outcome: CatalystQueryOutcome }) => {
       kind: "error" as const,
     },
   }[outcome.status];
+  const diagnostic = outcome.diagnosticCandidate;
+  const candidate = diagnostic?.candidate;
 
   return (
     <ExecutionState
@@ -94,9 +96,98 @@ const QueryOutcomeState = ({ outcome }: { outcome: CatalystQueryOutcome }) => {
       message={content.message}
       kind={content.kind}
       details={
-        <p className="trace-line">
-          Hub trace: <span>{outcome.provenance.traceId}</span>
-        </p>
+        <div className="outcome-details">
+          {diagnostic && (
+            <section
+              className="diagnostic-candidate"
+              aria-labelledby="diagnostic-candidate-title"
+            >
+              <div className="diagnostic-candidate__heading">
+                <h3 id="diagnostic-candidate-title">
+                  Generated candidate
+                </h3>
+                <Tag type="red">Not executable</Tag>
+              </div>
+              <p className="muted">
+                This is the model output retained for diagnosis. It did not pass
+                validation and cannot be accepted or run.
+              </p>
+              {candidate?.sql && (
+                <div className="preview-block">
+                  <h3>SQL</h3>
+                  <div aria-label="Rejected generated SQL">
+                    <CodeSnippet type="multi" feedback="Copied">
+                      {candidate.sql}
+                    </CodeSnippet>
+                  </div>
+                </div>
+              )}
+              {candidate?.parameters && (
+                <div className="preview-block">
+                  <h3>Typed parameters</h3>
+                  {candidate.parameters.length === 0 ? (
+                    <p className="muted">No bound parameters.</p>
+                  ) : (
+                    <dl className="diagnostic-parameters">
+                      {candidate.parameters.map((parameter) => (
+                        <div key={parameter.name}>
+                          <dt>{parameter.name}</dt>
+                          <dd>
+                            <Tag size="sm" type="cool-gray">
+                              {parameter.type}
+                            </Tag>{" "}
+                            {Array.isArray(parameter.value)
+                              ? JSON.stringify(parameter.value)
+                              : String(parameter.value)}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </div>
+              )}
+              {!candidate && diagnostic.rawOutput && (
+                <div className="preview-block">
+                  <h3>Raw model output</h3>
+                  <div aria-label="Rejected raw model output">
+                    <CodeSnippet type="multi" feedback="Copied">
+                      {diagnostic.rawOutput}
+                    </CodeSnippet>
+                  </div>
+                </div>
+              )}
+              {diagnostic.attempts && diagnostic.attempts.length > 0 && (
+                <div className="preview-block">
+                  <h3>Validation feedback</h3>
+                  <ol className="diagnostic-attempts">
+                    {diagnostic.attempts.map((attempt) => (
+                      <li key={attempt.attempt}>
+                        <strong>Attempt {attempt.attempt}</strong>
+                        {attempt.findings.length === 0 ? (
+                          <p>No deterministic findings.</p>
+                        ) : (
+                          <ul>
+                            {attempt.findings.map((finding) => (
+                              <li key={`${attempt.attempt}-${finding.code}`}>
+                                <code>{finding.code}</code> — {finding.message}
+                                {finding.suggestedAction && (
+                                  <p>Suggested update: {finding.suggestedAction}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </section>
+          )}
+          <p className="trace-line">
+            Hub trace: <span>{outcome.provenance.traceId}</span>
+          </p>
+        </div>
       }
     />
   );

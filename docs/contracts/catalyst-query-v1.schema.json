@@ -62,6 +62,9 @@
       "type": "string",
       "minLength": 1
     },
+    "diagnosticCandidate": {
+      "$ref": "#/$defs/diagnosticCandidate"
+    },
     "validation": {
       "$ref": "#/$defs/validation"
     },
@@ -110,6 +113,11 @@
           {
             "required": [
               "message"
+            ]
+          },
+          {
+            "required": [
+              "diagnosticCandidate"
             ]
           }
         ]
@@ -165,6 +173,11 @@
             "required": [
               "message"
             ]
+          },
+          {
+            "required": [
+              "diagnosticCandidate"
+            ]
           }
         ]
       }
@@ -218,6 +231,11 @@
           {
             "required": [
               "clarification"
+            ]
+          },
+          {
+            "required": [
+              "diagnosticCandidate"
             ]
           }
         ]
@@ -511,6 +529,198 @@
           "type": "string"
         }
       }
+    },
+    "generatedCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "needs_clarification",
+            "unsupported",
+            "rejected"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "sql": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parameters": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "expectedColumns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "clarification": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "ready"
+            }
+          },
+          "required": [
+            "target",
+            "sql",
+            "parameters",
+            "expectedColumns"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "needs_clarification"
+            }
+          },
+          "required": [
+            "clarification"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "enum": [
+                "unsupported",
+                "rejected"
+              ]
+            }
+          },
+          "required": [
+            "message"
+          ]
+        }
+      ]
+    },
+    "diagnosticFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "stage",
+        "severity",
+        "path",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "warning",
+            "error"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "suggestedAction": {
+          "type": "string"
+        }
+      }
+    },
+    "diagnosticCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable"
+      ],
+      "properties": {
+        "executable": {
+          "const": false
+        },
+        "candidate": {
+          "$ref": "#/$defs/generatedCandidate"
+        },
+        "rawOutput": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attempt",
+              "status",
+              "finding_codes",
+              "findings"
+            ],
+            "properties": {
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "status": {
+                "enum": [
+                  "passed",
+                  "failed"
+                ]
+              },
+              "finding_codes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/diagnosticFinding"
+                }
+              }
+            }
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "candidate"
+          ]
+        },
+        {
+          "required": [
+            "rawOutput"
+          ]
+        }
+      ]
     },
     "validation": {
       "type": "object",

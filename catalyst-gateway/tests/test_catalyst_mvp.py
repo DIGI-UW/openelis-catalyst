@@ -139,6 +139,37 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
         query["clarification"] = "Which date range?"
     else:
         query["message"] = f"Question is {status}"
+    if status == "rejected":
+        generated = ready_query(question)
+        query["diagnosticCandidate"] = {
+            "executable": False,
+            "candidate": {
+                field: deepcopy(generated[field])
+                for field in (
+                    "status",
+                    "target",
+                    "sql",
+                    "parameters",
+                    "expectedColumns",
+                )
+            },
+            "attempts": [
+                {
+                    "attempt": 1,
+                    "status": "failed",
+                    "finding_codes": ["policy.unbound_predicate_literal"],
+                    "findings": [
+                        {
+                            "code": "policy.unbound_predicate_literal",
+                            "stage": "query_lint",
+                            "severity": "error",
+                            "path": "$.sql",
+                            "message": "A predicate literal was not bound.",
+                        }
+                    ],
+                }
+            ],
+        }
     return query
 
 
@@ -1008,6 +1039,9 @@ def test_query_route_returns_every_non_ready_contract_status(
     assert response.status_code == expected_status
     registry.validate("catalyst-query-v1.schema.json", response.json())
     assert response.json()["status"] == status
+    if status == "rejected":
+        assert response.json()["diagnosticCandidate"]["executable"] is False
+        assert response.json()["diagnosticCandidate"]["candidate"]["sql"]
 
 
 def test_query_route_builds_ready_preview(tmp_path: Path):
