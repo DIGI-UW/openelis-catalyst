@@ -107,11 +107,14 @@ check_mart() {
     analytics_psql --command="
       SELECT
         count(*)::text || '|' ||
-        string_agg(result_value::numeric::text, ',' ORDER BY result_value) || '|' ||
-        string_agg(round(receipt_to_release_minutes)::text, ',' ORDER BY observed_at)
+        count(DISTINCT patient_id)::text || '|' ||
+        count(DISTINCT test_name)::text || '|' ||
+        count(*) FILTER (WHERE test_name = 'Viral Load')::text || '|' ||
+        min(observed_at)::date::text || '|' ||
+        max(observed_at)::date::text
       FROM analytics.lab_result_fact_v1;
     "
-  )" = "3|80,450,1200|60,60,60" &&
+  )" = "1152|96|9|384|2025-07-15|2026-04-27" &&
     test "$(
       analytics_psql --command="
         SELECT count(*)

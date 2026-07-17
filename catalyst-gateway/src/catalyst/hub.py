@@ -135,7 +135,17 @@ class HubClient:
 
         if hub_ready:
             try:
-                profile = await self.discover_query_profile()
+                profiles = await self.list_query_profiles()
+                available_profile_id = next(
+                    (
+                        str(profile["id"])
+                        for profile in profiles
+                        if profile.get("available") is True
+                        and isinstance(profile.get("id"), str)
+                    ),
+                    QUERY_PROFILE_ID,
+                )
+                profile = await self.discover_query_profile(available_profile_id)
                 profile_ready = True
                 capabilities = profile.get("capabilities", {})
                 model_router = capabilities.get("modelRouter")

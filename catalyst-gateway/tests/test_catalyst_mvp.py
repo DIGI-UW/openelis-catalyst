@@ -441,6 +441,43 @@ async def test_hub_discovery_and_completion_are_strict():
 
 
 @pytest.mark.asyncio
+async def test_hub_readiness_accepts_an_available_nondefault_profile():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ready"})
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "catalyst-query-gemma-e4b",
+                        "available": False,
+                        "outputContracts": ["catalyst.query.v1"],
+                    },
+                    {
+                        "id": "catalyst-query-checked",
+                        "available": True,
+                        "outputContracts": ["catalyst.query.v1"],
+                        "capabilities": {"modelRouter": True},
+                    },
+                ]
+            },
+        )
+
+    client = HubClient(
+        "http://hub",
+        ContractRegistry.load(CONTRACTS),
+        transport=httpx.MockTransport(handler),
+    )
+    assert await client.readiness() == {
+        "hub": {"ready": True},
+        "queryProfile": {"ready": True},
+        "modelRouter": {"ready": True},
+    }
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("response", "code"),
     [
