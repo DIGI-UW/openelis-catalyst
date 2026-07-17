@@ -5,7 +5,7 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -64,7 +64,6 @@ class PreviewStore:
                     preview_json TEXT NOT NULL,
                     query_json TEXT NOT NULL,
                     state TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
                     accepted_at TEXT,
                     execution_started_at TEXT,
                     idempotency_key TEXT,
@@ -85,12 +84,74 @@ class PreviewStore:
                     "ALTER TABLE catalyst_previews "
                     "ADD COLUMN execution_started_at TEXT"
                 )
+            if "expires_at" in columns:
+                self._remove_legacy_expiration_column()
+
+    def _remove_legacy_expiration_column(self) -> None:
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            self._connection.execute(
+                "DROP TABLE IF EXISTS catalyst_previews_without_expiration"
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE catalyst_previews_without_expiration (
+                    preview_id TEXT PRIMARY KEY,
+                    query_digest TEXT NOT NULL,
+                    preview_json TEXT NOT NULL,
+                    query_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    accepted_at TEXT,
+                    execution_started_at TEXT,
+                    idempotency_key TEXT,
+                    outcome_json TEXT,
+                    outcome_status INTEGER,
+                    catalyst_trace_id TEXT NOT NULL
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                INSERT INTO catalyst_previews_without_expiration (
+                    preview_id, query_digest, preview_json, query_json, state,
+                    accepted_at, execution_started_at, idempotency_key,
+                    outcome_json, outcome_status, catalyst_trace_id
+                )
+                SELECT
+                    preview_id, query_digest, preview_json, query_json,
+                    CASE WHEN state = 'expired' THEN 'awaiting_acceptance' ELSE state END,
+                    accepted_at, execution_started_at, idempotency_key,
+                    outcome_json, outcome_status, catalyst_trace_id
+                FROM catalyst_previews
+                """
+            )
+            self._connection.execute("DROP TABLE catalyst_previews")
+            self._connection.execute(
+                "ALTER TABLE catalyst_previews_without_expiration "
+                "RENAME TO catalyst_previews"
+            )
+            for row in self._connection.execute(
+                "SELECT preview_id, preview_json FROM catalyst_previews"
+            ).fetchall():
+                preview = json.loads(row["preview_json"])
+                if preview.pop("expiresAt", None) is not None:
+                    self._connection.execute(
+                        "UPDATE catalyst_previews SET preview_json = ? "
+                        "WHERE preview_id = ?",
+                        (
+                            json.dumps(preview, separators=(",", ":")),
+                            row["preview_id"],
+                        ),
+                    )
+            self._connection.execute("COMMIT")
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
 
     def create_preview(
         self,
         query: dict[str, Any],
         *,
-        ttl_seconds: int,
         catalyst_trace_id: str | None = None,
         profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -117,7 +178,6 @@ class PreviewStore:
                 "checks": query["validation"]["checks"],
             },
             "createdAt": _timestamp(now),
-            "expiresAt": _timestamp(now + timedelta(seconds=ttl_seconds)),
             "state": "awaiting_acceptance",
         }
         with self._transaction() as connection:
@@ -125,15 +185,14 @@ class PreviewStore:
                 """
                 INSERT INTO catalyst_previews (
                     preview_id, query_digest, preview_json, query_json, state,
-                    expires_at, catalyst_trace_id
-                ) VALUES (?, ?, ?, ?, 'awaiting_acceptance', ?, ?)
+                    catalyst_trace_id
+                ) VALUES (?, ?, ?, ?, 'awaiting_acceptance', ?)
                 """,
                 (
                     preview_id,
                     digest,
                     json.dumps(preview, separators=(",", ":")),
                     json.dumps(query, separators=(",", ":")),
-                    preview["expiresAt"],
                     trace_id,
                 ),
             )
@@ -172,34 +231,14 @@ class PreviewStore:
 
             state = row["state"]
             stored_key = row["idempotency_key"]
-            if state == "awaiting_acceptance":
-                expires_at = datetime.fromisoformat(
-                    row["expires_at"].replace("Z", "+00:00")
-                )
-                if self._now() >= expires_at:
-                    connection.execute(
-                        """
-                        UPDATE catalyst_previews
-                        SET state = 'expired'
-                        WHERE preview_id = ? AND state = 'awaiting_acceptance'
-                        """,
-                        (preview_id,),
-                    )
-                    return self._outcome_decision(
-                        410,
-                        preview_id,
-                        idempotency_key,
-                        status="expired",
-                        error_code="preview_expired",
-                        message="Preview expired before acceptance.",
-                    )
+            if state in {"awaiting_acceptance", "expired"}:
                 accepted_at = _timestamp(self._now())
                 connection.execute(
                     """
                     UPDATE catalyst_previews
                     SET state = 'consuming', idempotency_key = ?,
                         accepted_at = ?, execution_started_at = ?
-                    WHERE preview_id = ? AND state = 'awaiting_acceptance'
+                    WHERE preview_id = ? AND state IN ('awaiting_acceptance', 'expired')
                     """,
                     (idempotency_key, accepted_at, accepted_at, preview_id),
                 )
@@ -210,16 +249,6 @@ class PreviewStore:
                     query=json.loads(row["query_json"]),
                     accepted_at=accepted_at,
                     catalyst_trace_id=row["catalyst_trace_id"],
-                )
-
-            if state == "expired":
-                return self._outcome_decision(
-                    410,
-                    preview_id,
-                    idempotency_key,
-                    status="expired",
-                    error_code="preview_expired",
-                    message="Preview expired before acceptance.",
                 )
 
             if stored_key != idempotency_key:

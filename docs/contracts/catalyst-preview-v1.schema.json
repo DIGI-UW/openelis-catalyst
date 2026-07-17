@@ -15,7 +15,6 @@
     "parameters",
     "expectedColumns",
     "createdAt",
-    "expiresAt",
     "state"
   ],
   "properties": {
@@ -118,10 +117,6 @@
       "$ref": "#/$defs/reasoningTrace"
     },
     "createdAt": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "expiresAt": {
       "type": "string",
       "format": "date-time"
     },

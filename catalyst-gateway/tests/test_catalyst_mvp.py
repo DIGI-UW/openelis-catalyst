@@ -260,7 +260,6 @@ def make_service(
     hub: FakeHub | None = None,
     analytics: FakeAnalytics | None = None,
     clock: Clock | None = None,
-    ttl_seconds: int = 60,
     execution_lease_seconds: int = 60,
 ) -> tuple[CatalystService, FakeHub, FakeAnalytics, ContractRegistry]:
     registry = ContractRegistry.load(CONTRACTS)
@@ -280,7 +279,6 @@ def make_service(
         sql_policy=SqlPolicy(max_rows=2),
         max_rows=2,
         statement_timeout_ms=500,
-        preview_ttl_seconds=ttl_seconds,
     )
     return service, actual_hub, actual_analytics, registry
 
@@ -671,10 +669,10 @@ def test_rfc8785_sha256_vectors(value: dict, expected: str):
     assert canonical_sha256(value) == expected
 
 
-def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
+def test_preview_store_is_transactional_idempotent_and_does_not_expire(tmp_path: Path):
     clock = Clock()
     store = PreviewStore(tmp_path / "state.sqlite3", now=clock)
-    preview = store.create_preview(ready_query(), ttl_seconds=5)
+    preview = store.create_preview(ready_query())
 
     claim = store.begin_execution(
         preview["previewId"],
@@ -711,15 +709,14 @@ def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
     assert replay.status_code == 200
     assert replay.body == table
 
-    expiring = store.create_preview(ready_query(), ttl_seconds=5)
-    clock.advance(6)
-    expired = store.begin_execution(
-        expiring["previewId"],
-        expiring["queryDigest"],
-        "expiry-key",
+    delayed = store.create_preview(ready_query())
+    clock.advance(60 * 60 * 24 * 365)
+    accepted = store.begin_execution(
+        delayed["previewId"],
+        delayed["queryDigest"],
+        "delayed-key",
     )
-    assert expired.status_code == 410
-    assert expired.body["status"] == "expired"
+    assert accepted.action == "execute"
 
     missing = store.begin_execution("unknown", "digest", "key")
     assert missing.status_code == 404
@@ -729,7 +726,7 @@ def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
 
 def test_preview_store_replays_failure_and_poll_does_not_execute(tmp_path: Path):
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(ready_query(), ttl_seconds=30)
+    preview = store.create_preview(ready_query())
     claim = store.begin_execution(preview["previewId"], preview["queryDigest"], "key")
     assert claim.action == "execute"
     failed = store.finish_failure(preview["previewId"], "key", "database down")
@@ -750,7 +747,7 @@ def test_preview_store_terminates_a_stale_execution_lease(tmp_path: Path):
         now=clock,
         execution_lease_seconds=5,
     )
-    preview = store.create_preview(ready_query(), ttl_seconds=30)
+    preview = store.create_preview(ready_query())
     store.begin_execution(preview["previewId"], preview["queryDigest"], "lease-key")
 
     clock.advance(6)
@@ -778,7 +775,7 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
         {"name": "at", "logicalType": "date-time", "nullable": True},
     ]
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(query, ttl_seconds=30)
+    preview = store.create_preview(query)
     result = AnalyticsResult(
         column_names=["text", "count", "ratio", "flag", "day", "at"],
         rows=[
@@ -857,7 +854,7 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
 def test_table_builder_rejects_row_shape_and_type(tmp_path: Path, rows: list):
     query = ready_query()
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(query, ttl_seconds=30)
+    preview = store.create_preview(query)
     with pytest.raises(TableError):
         build_table(
             preview=preview,
@@ -1179,9 +1176,9 @@ def test_execute_route_success_replay_conflict_and_poll(tmp_path: Path):
     registry.validate("catalyst-execution-outcome-v1.schema.json", conflict.json())
 
 
-def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path):
+def test_execute_route_in_progress_not_found_delayed_and_bad_path(tmp_path: Path):
     clock = Clock()
-    service, _, _, registry = make_service(tmp_path, clock=clock, ttl_seconds=1)
+    service, _, _, registry = make_service(tmp_path, clock=clock)
     client = TestClient(gateway.create_app(catalyst_service=service))
     missing = client.get(
         "/v1/catalyst/executions/missing",
@@ -1190,7 +1187,7 @@ def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path)
     assert missing.status_code == 404
     registry.validate("catalyst-execution-outcome-v1.schema.json", missing.json())
 
-    preview = service.store.create_preview(ready_query(), ttl_seconds=10)
+    preview = service.store.create_preview(ready_query())
     service.store.begin_execution(
         preview["previewId"], preview["queryDigest"], "active"
     )
@@ -1201,14 +1198,13 @@ def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path)
     assert active.status_code == 202
     assert active.json()["status"] == "in_progress"
 
-    expiring = service.store.create_preview(ready_query(), ttl_seconds=1)
-    clock.advance(2)
-    expired = client.post(
-        f"/v1/catalyst/previews/{expiring['previewId']}/execute",
-        json=execute_body(expiring, "expired"),
+    delayed = service.store.create_preview(ready_query())
+    clock.advance(60 * 60 * 24 * 365)
+    accepted = client.post(
+        f"/v1/catalyst/previews/{delayed['previewId']}/execute",
+        json=execute_body(delayed, "delayed"),
     )
-    assert expired.status_code == 410
-    assert expired.json()["status"] == "expired"
+    assert accepted.status_code == 200
 
     mismatch = execute_body(preview, "mismatch")
     mismatch["previewId"] = "other"
@@ -1223,7 +1219,7 @@ def test_execute_route_stores_and_replays_execution_failure(tmp_path: Path):
     analytics = FakeAnalytics(error=RuntimeError("database unavailable"))
     service, _, _, registry = make_service(tmp_path, analytics=analytics)
     client = TestClient(gateway.create_app(catalyst_service=service))
-    preview = service.store.create_preview(ready_query(), ttl_seconds=30)
+    preview = service.store.create_preview(ready_query())
     body = execute_body(preview, "failure")
     response = client.post(
         f"/v1/catalyst/previews/{preview['previewId']}/execute",
@@ -1247,7 +1243,7 @@ def test_execute_route_stores_and_replays_execution_failure(tmp_path: Path):
 async def test_execute_cancellation_is_reraised_and_stored(tmp_path: Path):
     analytics = FakeAnalytics(error=asyncio.CancelledError())
     service, _, _, registry = make_service(tmp_path, analytics=analytics)
-    preview = service.store.create_preview(ready_query(), ttl_seconds=30)
+    preview = service.store.create_preview(ready_query())
     body = execute_body(preview, "cancelled")
 
     with pytest.raises(asyncio.CancelledError):

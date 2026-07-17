@@ -51,7 +51,6 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByText("minimum_result")).toBeVisible();
     expect(screen.getByText("integer")).toBeVisible();
     expect(screen.getByText("80")).toBeVisible();
-    expect(screen.getByText("Jul 16, 2026, 12:05 AM UTC")).toBeVisible();
     expect(screen.getByRole("button", { name: "Accept and run" })).toBeEnabled();
     const trace = screen.getByLabelText("Reasoning trace");
     expect(within(trace).getAllByText("google/gemma-4-e4b")).toHaveLength(2);
@@ -249,7 +248,6 @@ describe("Catalyst query workflow", () => {
 
   it.each([
     ["conflict", "Execution conflict"],
-    ["expired", "Preview expired"],
     ["failed", "Execution failed"],
   ] as const)("renders the terminal %s state", async (status, heading) => {
     const api = makeApi();

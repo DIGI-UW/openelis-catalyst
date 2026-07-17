@@ -77,7 +77,6 @@ class CatalystService:
         sql_policy: SqlPolicy,
         max_rows: int,
         statement_timeout_ms: int,
-        preview_ttl_seconds: int,
     ) -> None:
         self.contracts = contracts
         self.catalog = catalog
@@ -87,7 +86,6 @@ class CatalystService:
         self.sql_policy = sql_policy
         self.max_rows = max_rows
         self.statement_timeout_ms = statement_timeout_ms
-        self.preview_ttl_seconds = preview_ttl_seconds
 
     async def query_options(self) -> ServiceResponse:
         try:
@@ -219,7 +217,6 @@ class CatalystService:
 
         preview = self.store.create_preview(
             query,
-            ttl_seconds=self.preview_ttl_seconds,
             catalyst_trace_id=catalyst_trace_id,
             profile=selected_profile,
         )

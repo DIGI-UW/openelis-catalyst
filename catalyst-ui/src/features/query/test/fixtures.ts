@@ -55,7 +55,6 @@ export const preview: CatalystPreview = {
     checks: [{ name: "review", status: "passed", message: "Candidate approved." }],
   },
   createdAt: "2026-07-16T00:00:00Z",
-  expiresAt: "2026-07-16T00:05:00Z",
   state: "awaiting_acceptance",
 };
 
@@ -167,10 +166,6 @@ export const executionOutcome = (
     },
     not_found: {
       errorCode: "execution_not_found" as const,
-      retryable: false,
-    },
-    expired: {
-      errorCode: "preview_expired" as const,
       retryable: false,
     },
     conflict: {

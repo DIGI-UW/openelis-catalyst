@@ -55,7 +55,6 @@ const executionHeading = (outcome: CatalystExecutionOutcome) =>
   ({
     in_progress: "Query running",
     not_found: "Execution not found",
-    expired: "Preview expired",
     conflict: "Execution conflict",
     failed: "Execution failed",
   })[outcome.status];
@@ -64,7 +63,7 @@ const executionKind = (
   outcome: CatalystExecutionOutcome,
 ): "info" | "warning" | "error" => {
   if (outcome.status === "in_progress") return "info";
-  if (outcome.status === "expired" || outcome.status === "conflict") {
+  if (outcome.status === "conflict") {
     return "warning";
   }
   return "error";

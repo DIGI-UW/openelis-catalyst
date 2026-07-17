@@ -35,7 +35,6 @@
       "enum": [
         "in_progress",
         "not_found",
-        "expired",
         "conflict",
         "failed"
       ]
@@ -44,7 +43,6 @@
       "enum": [
         "execution_in_progress",
         "execution_not_found",
-        "preview_expired",
         "preview_consumed",
         "idempotency_conflict",
         "execution_failed"
@@ -86,19 +84,6 @@
         },
         "retryable": {
           "const": true
-        }
-      }
-    },
-    {
-      "properties": {
-        "status": {
-          "const": "expired"
-        },
-        "errorCode": {
-          "const": "preview_expired"
-        },
-        "retryable": {
-          "const": false
         }
       }
     },

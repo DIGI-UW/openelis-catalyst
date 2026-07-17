@@ -20,7 +20,6 @@ class GatewayConfig:
     preview_store_path: str
     max_rows: int
     statement_timeout_ms: int
-    preview_ttl_seconds: int
     execution_lease_seconds: int
     hub_timeout_seconds: float
 
@@ -41,7 +40,6 @@ def load_config() -> GatewayConfig:
         ),
         max_rows=int(os.getenv("CATALYST_QUERY_MAX_ROWS", "500")),
         statement_timeout_ms=int(os.getenv("CATALYST_STATEMENT_TIMEOUT_MS", "10000")),
-        preview_ttl_seconds=int(os.getenv("CATALYST_PREVIEW_TTL_SECONDS", "300")),
         execution_lease_seconds=int(
             os.getenv("CATALYST_EXECUTION_LEASE_SECONDS", "60")
         ),

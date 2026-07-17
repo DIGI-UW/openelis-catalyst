@@ -26,17 +26,6 @@ const formatValue = (parameter: BoundParameter) => {
   return String(parameter.value);
 };
 
-const formatExpiry = (value: string) =>
-  new Intl.DateTimeFormat("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(value));
-
 export const QueryPreview = ({
   preview,
   executing,
@@ -63,12 +52,6 @@ export const QueryPreview = ({
       <div>
         <dt>Dialect</dt>
         <dd>{preview.target.dialect}</dd>
-      </div>
-      <div>
-        <dt>Expires</dt>
-        <dd>
-          <time dateTime={preview.expiresAt}>{formatExpiry(preview.expiresAt)}</time>
-        </dd>
       </div>
     </dl>
 
@@ -142,7 +125,7 @@ export const QueryPreview = ({
       hideCloseButton
       kind="warning"
       title="Review before running"
-      subtitle="Accepting runs this exact digest once, subject to expiry and Catalyst policy."
+      subtitle="Accepting runs this exact reviewed digest once, subject to Catalyst policy."
     />
     <div className="preview-actions">
       <Button renderIcon={PlayFilledAlt} disabled={executing} onClick={onAccept}>

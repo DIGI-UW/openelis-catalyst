@@ -51,7 +51,6 @@ export interface CatalystPreview {
   expectedColumns: Column[];
   reasoningTrace?: ReasoningTrace;
   createdAt: string;
-  expiresAt: string;
   state: "awaiting_acceptance";
 }
 
@@ -223,11 +222,10 @@ export interface CatalystExecutionOutcome {
   deploymentMode: DeploymentMode;
   previewId: string;
   idempotencyKey: string;
-  status: "in_progress" | "not_found" | "expired" | "conflict" | "failed";
+  status: "in_progress" | "not_found" | "conflict" | "failed";
   errorCode:
     | "execution_in_progress"
     | "execution_not_found"
-    | "preview_expired"
     | "preview_consumed"
     | "idempotency_conflict"
     | "execution_failed";
