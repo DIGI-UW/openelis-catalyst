@@ -5,7 +5,7 @@
   "dataSource": "openelis-fhir-postgresql",
   "dialect": "postgresql",
   "schemaVersion": "analytics-v1",
-  "description": "Narrow demo-only analytics vocabulary over OHS FHIR Data Pipes projections.",
+  "description": "Synthetic multi-analyte laboratory vocabulary over OHS FHIR Data Pipes projections.",
   "freshness": {
     "relation": "analytics.pipeline_run_v1",
     "contract": "catalyst.analytics.pipeline-run.v1",
@@ -27,6 +27,24 @@
         "public.specimen_flat_v1"
       ],
       "columns": [
+        {
+          "name": "patient_id",
+          "logicalType": "string",
+          "nullable": false,
+          "description": "Synthetic FHIR Patient resource identifier; safe only within this demo dataset."
+        },
+        {
+          "name": "test_code",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "OpenELIS/FHIR test code for the observation."
+        },
+        {
+          "name": "test_name",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "OpenELIS test display name. A question naming an analyte must constrain this field rather than assume the view contains only that analyte."
+        },
         {
           "name": "result_value",
           "logicalType": "decimal",
@@ -60,11 +78,61 @@
         }
       ],
       "allowedFilters": [
+        "patient_id",
+        "test_code",
+        "test_name",
         "observed_at",
         "result_unit"
       ],
       "allowedGroupings": [
+        "patient_id",
+        "test_code",
+        "test_name",
         "result_unit"
+      ],
+      "semanticDimensions": [
+        {
+          "field": "test_name",
+          "semanticType": "analyte",
+          "values": [
+            {
+              "canonical": "Viral Load",
+              "aliases": ["viral load", "HIV viral load"]
+            },
+            {
+              "canonical": "CD4 absolute count",
+              "aliases": ["CD4 absolute count", "CD4 count"]
+            },
+            {
+              "canonical": "CD4 percent  (%)",
+              "aliases": ["CD4 percent", "CD4 percentage", "CD4%"]
+            },
+            {
+              "canonical": "Hemoglobin",
+              "aliases": ["hemoglobin", "haemoglobin"]
+            },
+            {
+              "canonical": "Platelets",
+              "aliases": ["platelets", "platelet count"]
+            },
+            {
+              "canonical": "White Blood Cells Count (WBC)",
+              "aliases": ["white blood cell count", "white blood cells count", "WBC"]
+            },
+            {
+              "canonical": "Creatinine",
+              "aliases": ["creatinine"]
+            },
+            {
+              "canonical": "GPT/ALAT",
+              "aliases": ["GPT/ALAT", "ALT", "alanine aminotransferase"]
+            },
+            {
+              "canonical": "Glucose",
+              "aliases": ["glucose"]
+            }
+          ]
+        }
       ],
       "requiredConstraints": {
         "dateColumn": "observed_at",
@@ -72,8 +140,9 @@
         "maxResultRows": 1000
       },
       "terminology": [
-        "This first catalog is intentionally limited to the synthetic Viral Load demo fixture.",
-        "The seed resolves the OpenELIS test by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects copies/mL."
+        "The synthetic cohort contains Viral Load, CD4 absolute count, CD4 percent (%), Hemoglobin, Platelets, White Blood Cells Count (WBC), Creatinine, GPT/ALAT, and Glucose.",
+        "The seed resolves Viral Load by stable OpenELIS GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects copies/ml.",
+        "When a question names a test, constrain test_name with a named parameter; never rely on the dataset containing only one test type."
       ],
       "freshness": {
         "relation": "analytics.pipeline_run_v1",
@@ -83,8 +152,12 @@
       "examples": [
         {
           "question": "Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time.",
-          "sql": "SELECT result_value, result_unit, issued_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE observed_at >= :start_at ORDER BY observed_at",
+          "sql": "SELECT patient_id, result_value, result_unit, issued_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE test_name = :test_name AND observed_at >= :start_at ORDER BY observed_at",
           "parameters": {
+            "test_name": {
+              "logicalType": "string",
+              "value": "Viral Load"
+            },
             "start_at": {
               "logicalType": "date"
             }

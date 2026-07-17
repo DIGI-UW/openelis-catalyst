@@ -19,6 +19,11 @@
     "question": {
       "type": "string",
       "minLength": 1
+    },
+    "profileId": {
+      "type": "string",
+      "pattern": "^catalyst-query-",
+      "minLength": 1
     }
   }
 }

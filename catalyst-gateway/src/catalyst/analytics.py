@@ -7,6 +7,9 @@ from decimal import Decimal
 from typing import Any, Callable, Sequence
 
 import psycopg
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError
 
 
 class AnalyticsError(RuntimeError):
@@ -18,6 +21,7 @@ class AnalyticsResult:
     column_names: list[str]
     rows: list[Sequence[Any]]
     truncated: bool
+    truncation_reason: str | None = None
 
 
 class PostgresAnalyticsAdapter:
@@ -74,6 +78,35 @@ class PostgresAnalyticsAdapter:
                 f"PostgreSQL freshness lookup failed: {error}"
             ) from error
 
+    async def dataset_overview(self) -> dict[str, Any]:
+        try:
+            return await asyncio.to_thread(self._dataset_overview_sync)
+        except AnalyticsError:
+            raise
+        except Exception as error:
+            raise AnalyticsError(f"Dataset overview failed: {error}") from error
+
+    async def dataset_rows(
+        self,
+        *,
+        test_name: str | None,
+        patient_id: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        try:
+            return await asyncio.to_thread(
+                self._dataset_rows_sync,
+                test_name,
+                patient_id,
+                limit,
+                offset,
+            )
+        except AnalyticsError:
+            raise
+        except Exception as error:
+            raise AnalyticsError(f"Dataset row lookup failed: {error}") from error
+
     def _execute_sync(
         self,
         sql: str,
@@ -101,11 +134,34 @@ class PostgresAnalyticsAdapter:
                 description = cursor.description or ()
                 column_names = [column.name for column in description]
         truncated = len(rows) > max_rows
+        truncation_reason = "configured_limit" if truncated else None
+        sql_limit = self._literal_sql_limit(sql)
+        if not truncated and sql_limit is not None and len(rows) >= sql_limit:
+            truncated = True
+            truncation_reason = "query_limit_reached"
         return AnalyticsResult(
             column_names=column_names,
             rows=rows[:max_rows],
             truncated=truncated,
+            truncation_reason=truncation_reason,
         )
+
+    @staticmethod
+    def _literal_sql_limit(sql: str) -> int | None:
+        try:
+            statement = sqlglot.parse_one(sql, read="postgres")
+        except ParseError:
+            return None
+        limit = statement.args.get("limit")
+        if not isinstance(limit, exp.Limit):
+            return None
+        value = limit.args.get("expression")
+        if not isinstance(value, exp.Literal) or value.is_string:
+            return None
+        try:
+            return int(value.this)
+        except ValueError:
+            return None
 
     def _check_ready_sync(self) -> None:
         with self._connect(
@@ -153,6 +209,154 @@ class PostgresAnalyticsAdapter:
             "completionState": "complete",
             "observedLagSeconds": max(0, int(observed_lag_seconds)),
         }
+
+    def _dataset_overview_sync(self) -> dict[str, Any]:
+        with self._connect(
+            self.dsn,
+            connect_timeout=self.connect_timeout_seconds,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute(
+                    """
+                    SELECT
+                        count(DISTINCT patient_id),
+                        count(*),
+                        count(DISTINCT test_name),
+                        min(observed_at),
+                        max(observed_at)
+                    FROM analytics.lab_result_fact_v1
+                    """
+                )
+                patients, results, test_types, first_at, last_at = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT
+                        test_name,
+                        result_unit,
+                        count(*),
+                        count(DISTINCT patient_id),
+                        min(result_value),
+                        percentile_cont(0.5) WITHIN GROUP (ORDER BY result_value),
+                        max(result_value)
+                    FROM analytics.lab_result_fact_v1
+                    GROUP BY test_name, result_unit
+                    ORDER BY count(*) DESC, test_name
+                    """
+                )
+                tests = cursor.fetchall()
+        return {
+            "contractVersion": "catalyst.dataset-overview.v1",
+            "datasetId": "catalyst-openelis-cohort-v1",
+            "synthetic": True,
+            "patients": int(patients),
+            "results": int(results),
+            "testTypes": int(test_types),
+            "firstObservedAt": self._iso(first_at),
+            "lastObservedAt": self._iso(last_at),
+            "tests": [
+                {
+                    "testName": str(test_name),
+                    "unit": str(unit) if unit is not None else None,
+                    "results": int(count),
+                    "patients": int(patient_count),
+                    "minimum": self._number_text(minimum),
+                    "median": self._number_text(median),
+                    "maximum": self._number_text(maximum),
+                }
+                for (
+                    test_name,
+                    unit,
+                    count,
+                    patient_count,
+                    minimum,
+                    median,
+                    maximum,
+                ) in tests
+            ],
+            "exampleQuestions": [
+                "Show viral load results since 2026-01-01 with patient, value, unit, and date",
+                "Count suppressed and unsuppressed viral load results since 2025-07-01",
+                "Show the latest viral load result for each patient since 2025-07-01",
+                "Compare median CD4 absolute count by month since 2026-01-01",
+                "Show viral load results with receipt-to-release time over 24 hours since 2025-07-01",
+            ],
+        }
+
+    def _dataset_rows_sync(
+        self,
+        test_name: str | None,
+        patient_id: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        conditions: list[str] = []
+        bindings: dict[str, Any] = {"limit": limit, "offset": offset}
+        if test_name:
+            conditions.append("test_name = %(test_name)s")
+            bindings["test_name"] = test_name
+        if patient_id:
+            conditions.append("patient_id = %(patient_id)s")
+            bindings["patient_id"] = patient_id
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        with self._connect(
+            self.dsn,
+            connect_timeout=self.connect_timeout_seconds,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute(
+                    "SELECT count(*) FROM analytics.lab_result_fact_v1" + where,
+                    {
+                        key: value
+                        for key, value in bindings.items()
+                        if key not in {"limit", "offset"}
+                    },
+                )
+                total = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    SELECT patient_id, test_name, result_value, result_unit,
+                           observed_at, issued_at, receipt_to_release_minutes
+                    FROM analytics.lab_result_fact_v1
+                    """
+                    + where
+                    + " ORDER BY observed_at DESC, patient_id, test_name LIMIT %(limit)s OFFSET %(offset)s",
+                    bindings,
+                )
+                rows = cursor.fetchall()
+        return {
+            "contractVersion": "catalyst.dataset-rows.v1",
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "rows": [
+                {
+                    "patientId": str(row[0]),
+                    "testName": str(row[1]),
+                    "value": self._number_text(row[2]),
+                    "unit": str(row[3]) if row[3] is not None else None,
+                    "observedAt": self._iso(row[4]),
+                    "issuedAt": self._iso(row[5]),
+                    "turnaroundMinutes": self._number_text(row[6]),
+                }
+                for row in rows
+            ],
+        }
+
+    @staticmethod
+    def _number_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        return format(value, "f") if isinstance(value, Decimal) else str(value)
+
+    @staticmethod
+    def _iso(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat().replace("+00:00", "Z")
+        return str(value)
 
     @staticmethod
     def _binding_value(parameter: dict[str, Any]) -> Any:

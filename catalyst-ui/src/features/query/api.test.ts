@@ -42,6 +42,42 @@ describe("Catalyst API client", () => {
     });
   });
 
+  it("submits the selected Hub profile without local model configuration", async () => {
+    fetcher.mockResolvedValue(jsonResponse(preview, 201));
+
+    await api.submitQuestion(QUESTION, "catalyst-query-gemma-e4b");
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+      contractVersion: "catalyst.question.request.v1",
+      deploymentMode: "demo",
+      question: QUESTION,
+      profileId: "catalyst-query-gemma-e4b",
+    });
+  });
+
+  it("reads dataset overview and filtered rows", async () => {
+    fetcher
+      .mockResolvedValueOnce(
+        jsonResponse({ contractVersion: "catalyst.dataset-overview.v1" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ contractVersion: "catalyst.dataset-rows.v1" }),
+      );
+
+    await api.getDatasetOverview?.();
+    await api.getDatasetRows?.({ testName: "Viral Load", limit: 25, offset: 25 });
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/v1/catalyst/dataset", {
+      headers: { Accept: "application/json" },
+      signal: undefined,
+    });
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/v1/catalyst/dataset/rows?testName=Viral+Load&limit=25&offset=25",
+      { headers: { Accept: "application/json" }, signal: undefined },
+    );
+  });
+
   it("returns a versioned policy rejection from a non-2xx response", async () => {
     fetcher.mockResolvedValue(jsonResponse(policyOutcome, 422));
 

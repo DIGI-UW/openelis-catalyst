@@ -57,12 +57,37 @@ class Catalog:
                 if "unit" in column:
                     field["unit"] = column["unit"]
                 fields.append(field)
+            semantic_dimensions = deepcopy(source_view.get("semanticDimensions", []))
+            field_names = {field["name"] for field in fields}
+            for dimension in semantic_dimensions:
+                if dimension.get("field") not in field_names:
+                    raise ValueError(
+                        "Semantic dimension references a field outside its view: "
+                        f"{dimension.get('field')}"
+                    )
+                canonical_values = [
+                    value.get("canonical") for value in dimension.get("values", [])
+                ]
+                if len(canonical_values) != len(set(canonical_values)):
+                    raise ValueError(
+                        "Semantic dimension canonical values must be unique: "
+                        f"{dimension.get('field')}"
+                    )
             views.append(
                 {
                     "name": source_view["name"],
                     "version": source_view["version"],
                     "grain": source_view["grain"],
                     "fields": fields,
+                    **(
+                        {
+                            "semanticDimensions": deepcopy(
+                                source_view["semanticDimensions"]
+                            )
+                        }
+                        if semantic_dimensions
+                        else {}
+                    ),
                 }
             )
         if not views:

@@ -41,6 +41,30 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
             return payload
         return _json_response(await service.submit_question(payload))
 
+    @app.get("/v1/catalyst/query-options")
+    async def query_options() -> JSONResponse:
+        return _json_response(await service.query_options())
+
+    @app.get("/v1/catalyst/dataset")
+    async def dataset_overview() -> JSONResponse:
+        return _json_response(await service.dataset_overview())
+
+    @app.get("/v1/catalyst/dataset/rows")
+    async def dataset_rows(
+        test_name: str | None = Query(default=None, alias="testName", min_length=1),
+        patient_id: str | None = Query(default=None, alias="patientId", min_length=1),
+        limit: int = Query(default=25, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> JSONResponse:
+        return _json_response(
+            await service.dataset_rows(
+                test_name=test_name,
+                patient_id=patient_id,
+                limit=limit,
+                offset=offset,
+            )
+        )
+
     @app.post("/v1/catalyst/previews/{preview_id}/execute")
     async def execute_preview(preview_id: str, request: Request) -> JSONResponse:
         payload = await _request_object(request)

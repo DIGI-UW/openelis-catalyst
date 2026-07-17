@@ -2,11 +2,15 @@ import type {
   CatalystExecutionResponse,
   CatalystPreview,
   CatalystSubmission,
+  DatasetOverview,
+  DatasetRows,
+  QueryOptions,
 } from "./types";
 
 export interface CatalystApi {
   submitQuestion(
     question: string,
+    profileId?: string,
     signal?: AbortSignal,
   ): Promise<CatalystSubmission>;
   executePreview(
@@ -19,6 +23,12 @@ export interface CatalystApi {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<CatalystExecutionResponse>;
+  getQueryOptions?(signal?: AbortSignal): Promise<QueryOptions>;
+  getDatasetOverview?(signal?: AbortSignal): Promise<DatasetOverview>;
+  getDatasetRows?(
+    filters?: { testName?: string; patientId?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ): Promise<DatasetRows>;
 }
 
 export class CatalystApiError extends Error {
@@ -82,7 +92,7 @@ export const createCatalystApi = ({
   const root = baseUrl.replace(/\/+$/, "");
 
   return {
-    async submitQuestion(question, signal) {
+    async submitQuestion(question, profileId, signal) {
       const response = await fetcher(`${root}/queries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,6 +100,7 @@ export const createCatalystApi = ({
           contractVersion: "catalyst.question.request.v1",
           deploymentMode: "demo",
           question,
+          ...(profileId ? { profileId } : {}),
         }),
         signal,
       });
@@ -147,6 +158,47 @@ export const createCatalystApi = ({
         );
       }
       return body;
+    },
+
+    async getQueryOptions(signal) {
+      const response = await fetcher(`${root}/query-options`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isRecord(body) || body.contractVersion !== "catalyst.query-options.v1") {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as QueryOptions;
+    },
+
+    async getDatasetOverview(signal) {
+      const response = await fetcher(`${root}/dataset`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isRecord(body) || body.contractVersion !== "catalyst.dataset-overview.v1") {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as DatasetOverview;
+    },
+
+    async getDatasetRows(filters = {}, signal) {
+      const parameters = new URLSearchParams();
+      if (filters.testName) parameters.set("testName", filters.testName);
+      if (filters.patientId) parameters.set("patientId", filters.patientId);
+      parameters.set("limit", String(filters.limit ?? 25));
+      parameters.set("offset", String(filters.offset ?? 0));
+      const response = await fetcher(`${root}/dataset/rows?${parameters.toString()}`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isRecord(body) || body.contractVersion !== "catalyst.dataset-rows.v1") {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as DatasetRows;
     },
   };
 };

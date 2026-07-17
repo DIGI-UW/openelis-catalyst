@@ -49,6 +49,7 @@ export interface CatalystPreview {
   sql: string;
   parameters: BoundParameter[];
   expectedColumns: Column[];
+  reasoningTrace?: ReasoningTrace;
   createdAt: string;
   expiresAt: string;
   state: "awaiting_acceptance";
@@ -60,8 +61,17 @@ export interface ValidationCheck {
   message?: string;
 }
 
+export interface ReasoningTrace {
+  traceId: string;
+  profileId: string;
+  status: "passed" | "warned" | "rejected";
+  stages: string[];
+  roleModels: Record<string, string>;
+  checks: ValidationCheck[];
+}
+
 export interface QueryProvenance {
-  profileId: "catalyst-query-checked";
+  profileId: string;
   traceId: string;
   contextSourceIds: string[];
 }
@@ -145,9 +155,67 @@ export interface CatalystTable {
   provenance: {
     catalystTraceId: string;
     hubTraceId: string;
-    profileId: "catalyst-query-checked";
+    profileId: string;
   };
+  reasoningTrace?: ReasoningTrace;
   warnings: string[];
+}
+
+export interface QueryProfile {
+  id: string;
+  label: string;
+  available: boolean;
+  requiredModels: string[];
+  roleModels: Record<string, string>;
+  stages: string[];
+  unavailableReasons: string[];
+}
+
+export interface QueryOptions {
+  contractVersion: "catalyst.query-options.v1";
+  defaultProfileId: string;
+  profiles: QueryProfile[];
+}
+
+export interface DatasetTestSummary {
+  testName: string;
+  unit: string | null;
+  results: number;
+  patients: number;
+  minimum: string | null;
+  median: string | null;
+  maximum: string | null;
+}
+
+export interface DatasetOverview {
+  contractVersion: "catalyst.dataset-overview.v1";
+  datasetId: string;
+  synthetic: boolean;
+  patients: number;
+  results: number;
+  testTypes: number;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  tests: DatasetTestSummary[];
+  exampleQuestions: string[];
+}
+
+export interface DatasetRow {
+  patientId: string;
+  testName: string;
+  value: string | null;
+  unit: string | null;
+  observedAt: string;
+  issuedAt: string;
+  turnaroundMinutes: string | null;
+}
+
+export interface DatasetRows {
+  contractVersion: "catalyst.dataset-rows.v1";
+  total: number;
+  limit: number;
+  offset: number;
+  rows: DatasetRow[];
 }
 
 export interface CatalystExecutionOutcome {

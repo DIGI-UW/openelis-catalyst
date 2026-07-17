@@ -53,6 +53,87 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByText("80")).toBeVisible();
     expect(screen.getByText("Jul 16, 2026, 12:05 AM UTC")).toBeVisible();
     expect(screen.getByRole("button", { name: "Accept and run" })).toBeEnabled();
+    const trace = screen.getByLabelText("Reasoning trace");
+    expect(within(trace).getAllByText("google/gemma-4-e4b")).toHaveLength(2);
+    expect(within(trace).getAllByText("query review")).toHaveLength(2);
+    expect(within(trace).getByText(/structured stage and validation summary/i)).toBeVisible();
+  });
+
+  it("shows the dataset browser and uses the Hub-owned available profile", async () => {
+    const api = makeApi();
+    api.getQueryOptions = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.query-options.v1",
+      defaultProfileId: "catalyst-query-gemma-e4b",
+      profiles: [
+        {
+          id: "catalyst-query-gemma-e4b",
+          label: "Catalyst governed query — Gemma 4 E4B",
+          available: true,
+          requiredModels: ["google/gemma-4-e4b"],
+          roleModels: {
+            query_generate: "google/gemma-4-e4b",
+            query_review: "google/gemma-4-e4b",
+          },
+          stages: ["context", "query_generate", "query_review", "query_finalize"],
+          unavailableReasons: [],
+        },
+      ],
+    });
+    api.getDatasetOverview = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.dataset-overview.v1",
+      datasetId: "catalyst-openelis-cohort-v1",
+      synthetic: true,
+      patients: 96,
+      results: 1152,
+      testTypes: 9,
+      firstObservedAt: "2025-07-15T04:00:00Z",
+      lastObservedAt: "2026-04-27T04:00:00Z",
+      tests: [
+        {
+          testName: "Viral Load",
+          unit: "copies/ml",
+          results: 384,
+          patients: 96,
+          minimum: "30",
+          median: "900",
+          maximum: "35000",
+        },
+      ],
+      exampleQuestions: ["Show viral load results since 2026-01-01"],
+    });
+    api.getDatasetRows = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.dataset-rows.v1",
+      total: 1,
+      limit: 25,
+      offset: 0,
+      rows: [
+        {
+          patientId: "patient-123456789",
+          testName: "Viral Load",
+          value: "9000",
+          unit: "copies/ml",
+          observedAt: "2026-04-27T04:00:00Z",
+          issuedAt: "2026-04-27T04:00:00Z",
+          turnaroundMinutes: "120",
+        },
+      ],
+    });
+    vi.mocked(api.submitQuestion).mockResolvedValue(preview);
+    render(<App api={api} />);
+
+    expect(await screen.findByText("1,152")).toBeVisible();
+    expect(screen.getByText("9000 copies/ml")).toBeVisible();
+    expect(screen.getByLabelText("Med-Agent Hub profile")).toHaveValue(
+      "catalyst-query-gemma-e4b",
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Show viral load results since 2026-01-01" }));
+    await user.click(screen.getByRole("button", { name: "Generate preview" }));
+    expect(api.submitQuestion).toHaveBeenCalledWith(
+      "Show viral load results since 2026-01-01",
+      "catalyst-query-gemma-e4b",
+    );
   });
 
   it("shows clarification without exposing an acceptance action", async () => {
@@ -129,7 +210,7 @@ describe("Catalyst query workflow", () => {
     expect(within(provenance).getByText("cat-trace-123")).toBeVisible();
     expect(within(provenance).getByText("hub-trace-456")).toBeVisible();
     expect(within(provenance).getByText("pipeline-run-77")).toBeVisible();
-    expect(within(provenance).getByText("catalyst-query-checked")).toBeVisible();
+    expect(within(provenance).getByText("catalyst-query-gemma-e4b")).toBeVisible();
     expect(screen.getByText("Demo environment")).toBeVisible();
   });
 

@@ -19,7 +19,9 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select,
+input {
   font: inherit;
 }
 
@@ -89,6 +91,175 @@ textarea {
   display: grid;
   gap: 2rem;
   grid-template-columns: minmax(15rem, 0.75fr) minmax(20rem, 1.25fr);
+}
+
+.dataset-browser {
+  border-top-color: #8a3ffc;
+}
+
+.dataset-metrics {
+  display: grid;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: #e0e0e0;
+}
+
+.dataset-metrics > div {
+  padding: 1rem;
+  background: #f4f4f4;
+}
+
+.dataset-metrics dt {
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.dataset-metrics dd {
+  margin: 0.35rem 0 0;
+  font-size: 1.25rem;
+}
+
+.dataset-browser__summary-table,
+.dataset-browser__rows {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+}
+
+.dataset-browser table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.dataset-browser caption {
+  padding: 0.75rem 1rem;
+  color: #525252;
+  text-align: left;
+}
+
+.dataset-browser th,
+.dataset-browser td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e0e0e0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dataset-browser thead th {
+  background: #e8e8e8;
+}
+
+.dataset-browser tbody tr:nth-child(even) {
+  background: #f4f4f4;
+}
+
+.example-questions {
+  margin: 1.5rem 0;
+}
+
+.example-questions h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.example-questions > div {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.example-questions .cds--btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.dataset-filters {
+  display: grid;
+  align-items: end;
+  gap: 1rem;
+  grid-template-columns: 1fr 1fr auto;
+  margin: 1.5rem 0 1rem;
+}
+
+.dataset-filters label,
+.profile-selector {
+  display: grid;
+  gap: 0.4rem;
+  color: #525252;
+  font-size: 0.875rem;
+}
+
+.dataset-filters select,
+.dataset-filters input,
+.profile-selector select {
+  min-height: 2.5rem;
+  padding: 0.5rem;
+  border: 0;
+  border-bottom: 1px solid #8d8d8d;
+  background: #f4f4f4;
+}
+
+.dataset-pagination {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dataset-browser__message {
+  padding: 0.75rem;
+  border-left: 3px solid #da1e28;
+  background: #fff1f1;
+}
+
+.reasoning-trace {
+  padding: 1rem;
+  border-left: 3px solid #8a3ffc;
+  background: #f7f2ff;
+}
+
+.reasoning-stages {
+  display: flex;
+  padding: 0;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.reasoning-stages li {
+  padding: 0.4rem 0.6rem;
+  background: #e8daff;
+  font-size: 0.8rem;
+}
+
+.reasoning-models {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reasoning-models div {
+  padding: 0.5rem 0;
+}
+
+.reasoning-models dt {
+  color: #6f6f6f;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.reasoning-models dd {
+  margin: 0.2rem 0 0;
+}
+
+.reasoning-checks {
+  padding: 0;
+  list-style: none;
+}
+
+.reasoning-checks li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
 }
 
 .section-heading {
@@ -288,6 +459,18 @@ textarea {
 
   .query-card--question {
     grid-template-columns: 1fr;
+  }
+
+  .dataset-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dataset-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .reasoning-stages {
+    flex-direction: column;
   }
 
   .preview-metadata,

@@ -19,7 +19,9 @@
       "const": "chat.completion"
     },
     "model": {
-      "const": "catalyst-query-checked"
+      "type": "string",
+      "pattern": "^catalyst-query-",
+      "minLength": 1
     },
     "choices": {
       "type": "array",

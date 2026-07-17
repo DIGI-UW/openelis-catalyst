@@ -92,6 +92,7 @@ class PreviewStore:
         *,
         ttl_seconds: int,
         catalyst_trace_id: str | None = None,
+        profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = self._now()
         preview_id = str(uuid.uuid4())
@@ -107,6 +108,14 @@ class PreviewStore:
             "sql": query["sql"],
             "parameters": query["parameters"],
             "expectedColumns": query["expectedColumns"],
+            "reasoningTrace": {
+                "traceId": query["provenance"]["traceId"],
+                "profileId": query["provenance"]["profileId"],
+                "status": query["validation"]["status"],
+                "stages": list((profile or {}).get("stages", [])),
+                "roleModels": dict((profile or {}).get("role_models", {})),
+                "checks": query["validation"]["checks"],
+            },
             "createdAt": _timestamp(now),
             "expiresAt": _timestamp(now + timedelta(seconds=ttl_seconds)),
             "state": "awaiting_acceptance",

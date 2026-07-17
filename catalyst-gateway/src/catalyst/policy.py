@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 import sqlglot
@@ -21,6 +22,81 @@ class QueryInvariantError(ValueError):
     def __init__(self, violations: list[Violation]) -> None:
         self.violations = violations
         super().__init__("; ".join(item.message for item in violations))
+
+
+def _phrase_in_question(question: str, phrase: str) -> bool:
+    pattern = rf"(?<!\w){re.escape(phrase.strip())}(?!\w)"
+    return re.search(pattern, question, flags=re.IGNORECASE) is not None
+
+
+_DESTRUCTIVE_QUESTION_PATTERNS = (
+    re.compile(r"\bdelete\s+(?:all\b|from\b)", re.IGNORECASE),
+    re.compile(r"\bdrop\s+(?:table|view|schema|database)\b", re.IGNORECASE),
+    re.compile(r"\btruncate(?:\s+table)?\s+[A-Za-z_]", re.IGNORECASE),
+    re.compile(r"\binsert\s+into\b", re.IGNORECASE),
+    re.compile(r"\bupdate\s+[A-Za-z_][A-Za-z0-9_.]*\s+set\b", re.IGNORECASE),
+    re.compile(r"\balter\s+(?:table|view|schema|database)\b", re.IGNORECASE),
+)
+
+
+def question_policy_violations(question: str) -> list[Violation]:
+    """Reject explicit write instructions before any model can reinterpret them."""
+    if any(pattern.search(question) for pattern in _DESTRUCTIVE_QUESTION_PATTERNS):
+        return [
+            Violation(
+                "destructive_intent",
+                "Catalyst only accepts read-only clinical analytics questions.",
+            )
+        ]
+    return []
+
+
+def _named_semantic_requirements(
+    question: str, catalog: dict[str, Any]
+) -> list[tuple[str, str]]:
+    requirements: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for view in catalog.get("views", []):
+        for dimension in view.get("semanticDimensions", []):
+            if dimension.get("semanticType") != "analyte":
+                continue
+            field = str(dimension.get("field", ""))
+            for value in dimension.get("values", []):
+                canonical = str(value.get("canonical", ""))
+                phrases = [canonical, *value.get("aliases", [])]
+                if not canonical or not any(
+                    _phrase_in_question(question, phrase) for phrase in phrases
+                ):
+                    continue
+                key = (field.casefold(), canonical.casefold())
+                if key not in seen:
+                    requirements.append((field, canonical))
+                    seen.add(key)
+    return requirements
+
+
+def _predicate_parameter_names(statement: exp.Expression, field: str) -> set[str]:
+    names: set[str] = set()
+
+    def is_field(node: exp.Expression | None) -> bool:
+        return isinstance(node, exp.Column) and node.name.casefold() == field.casefold()
+
+    for predicate in statement.find_all(exp.EQ):
+        left = predicate.args.get("this")
+        right = predicate.args.get("expression")
+        if is_field(left) and isinstance(right, exp.Placeholder) and right.name:
+            names.add(right.name)
+        elif is_field(right) and isinstance(left, exp.Placeholder) and left.name:
+            names.add(left.name)
+    for predicate in statement.find_all(exp.In):
+        if not is_field(predicate.args.get("this")):
+            continue
+        names.update(
+            placeholder.name
+            for placeholder in predicate.expressions
+            if isinstance(placeholder, exp.Placeholder) and placeholder.name
+        )
+    return names
 
 
 def validate_query_invariants(
@@ -85,8 +161,12 @@ def validate_query_invariants(
             )
 
         placeholders: set[str] = set()
+        statements: list[exp.Expression | None] = []
         try:
-            for statement in sqlglot.parse(query.get("sql", ""), read="postgres"):
+            statements = sqlglot.parse(query.get("sql", ""), read="postgres")
+            for statement in statements:
+                if statement is None:
+                    continue
                 placeholders.update(
                     node.name
                     for node in statement.find_all(exp.Placeholder)
@@ -102,6 +182,28 @@ def validate_query_invariants(
                     "SQL placeholders and bound parameter names must match exactly.",
                 )
             )
+
+        if len(statements) == 1 and statements[0] is not None:
+            parameter_values = {
+                parameter.get("name"): parameter.get("value")
+                for parameter in parameters
+            }
+            for field, canonical in _named_semantic_requirements(
+                expected_question, context["catalog"]
+            ):
+                bound_names = _predicate_parameter_names(statements[0], field)
+                if not any(
+                    str(parameter_values.get(name, "")).casefold()
+                    == canonical.casefold()
+                    for name in bound_names
+                ):
+                    violations.append(
+                        Violation(
+                            "missing_semantic_filter",
+                            f"The named analyte {canonical!r} must be constrained "
+                            f"by {field} using its canonical bound value.",
+                        )
+                    )
 
     if violations:
         raise QueryInvariantError(violations)

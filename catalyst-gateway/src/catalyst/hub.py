@@ -35,7 +35,7 @@ class HubClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def discover_query_profile(self) -> dict[str, Any]:
+    async def list_query_profiles(self) -> list[dict[str, Any]]:
         response = await self._request("GET", "/v1/models")
         body = self._json_object(response, "profile discovery")
         models = body.get("data")
@@ -44,18 +44,28 @@ class HubClient:
                 "profile_incompatible",
                 "Hub model discovery must contain a data array.",
             )
+        return [
+            model
+            for model in models
+            if isinstance(model, dict)
+            and str(model.get("id", "")).startswith("catalyst-query-")
+        ]
+
+    async def discover_query_profile(
+        self, profile_id: str = QUERY_PROFILE_ID
+    ) -> dict[str, Any]:
         profile = next(
             (
                 model
-                for model in models
-                if isinstance(model, dict) and model.get("id") == QUERY_PROFILE_ID
+                for model in await self.list_query_profiles()
+                if model.get("id") == profile_id
             ),
             None,
         )
         if profile is None or profile.get("available") is not True:
             raise HubError(
                 "profile_unavailable",
-                f"Hub does not advertise available profile {QUERY_PROFILE_ID}.",
+                f"Hub does not advertise available profile {profile_id}.",
             )
         capabilities = profile.get("capabilities")
         output_contracts = profile.get("outputContracts")
@@ -68,8 +78,7 @@ class HubClient:
         ):
             raise HubError(
                 "profile_incompatible",
-                f"Profile {QUERY_PROFILE_ID} does not advertise "
-                f"{QUERY_OUTPUT_CONTRACT}.",
+                f"Profile {profile_id} does not advertise " f"{QUERY_OUTPUT_CONTRACT}.",
             )
         return profile
 
@@ -82,7 +91,7 @@ class HubClient:
         except ContractError as error:
             raise HubError("profile_incompatible", str(error)) from error
 
-        await self.discover_query_profile()
+        await self.discover_query_profile(str(request["model"]))
         response = await self._request(
             "POST",
             "/v1/chat/completions",

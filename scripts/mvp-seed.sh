@@ -89,6 +89,13 @@ done
     --set="openelis_version=${OPENELIS_VERSION}" \
   < "${ROOT_DIR}/analytics/openelis/seed-openelis-3.2.1.sql"
 
+"${compose[@]}" exec -T \
+  -e "PGPASSWORD=${OE_DB_PASSWORD}" \
+  "${DB_SERVICE}" \
+  psql --username clinlims --dbname clinlims \
+    --set=ON_ERROR_STOP=1 \
+  < "${ROOT_DIR}/analytics/openelis/seed-catalyst-cohort-v1.sql"
+
 if [ "${SKIP_HAPI_BACKFILL:-false}" = "true" ]; then
   echo "WARN: HAPI backfill skipped; Data Pipes will not see direct SQL seed rows yet" >&2
   exit 0
@@ -100,6 +107,29 @@ HAPI_CLIENT_CERT="${HAPI_CLIENT_CERT:-${hapi_client_pem}}" \
 OE_TLS_INSECURE=true \
 HAPI_TLS_INSECURE=true \
   "${ROOT_DIR}/analytics/openelis/backfill-hapi.sh"
+
+"${compose[@]}" exec -T \
+  -e "PGPASSWORD=${OE_DB_PASSWORD}" \
+  "${DB_SERVICE}" \
+  psql --username clinlims --dbname clinlims --no-psqlrc \
+    --tuples-only --no-align --field-separator=$'\t' \
+    --command="
+      SELECT sample.accession_number,
+             round(EXTRACT(EPOCH FROM (
+               analysis.completed_date - sample.received_date
+             )) / 60)::integer
+      FROM clinlims.sample AS sample
+      JOIN clinlims.sample_item AS sample_item ON sample_item.samp_id = sample.id
+      JOIN clinlims.analysis AS analysis ON analysis.sampitem_id = sample_item.id
+      WHERE sample.accession_number LIKE 'CAT%'
+      ORDER BY sample.accession_number;
+    " |
+  python3 "${ROOT_DIR}/analytics/openelis/normalize-catalyst-specimen-times.py" \
+    --fhir-url "${HAPI_FHIR_URL:-https://localhost:${HAPI_HTTPS_PORT:-8444}/fhir}" \
+    --client-cert "${HAPI_CLIENT_CERT:-${hapi_client_pem}}" \
+    --turnaround-map - \
+    --expected 1152 \
+    --insecure
 
 wait_for_url "FHIR Data Pipes controller" \
   "http://localhost:${DATA_PIPES_PORT:-8090}/actuator/health"
@@ -143,8 +173,8 @@ fact_count="$(
     --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
     --command="SELECT count(*) FROM analytics.lab_result_fact_v1;"
 )"
-if [ "${fact_count}" != "3" ]; then
-  echo "ERROR: expected exactly 3 analytics mart rows, got ${fact_count}" >&2
+if [ "${fact_count}" != "1152" ]; then
+  echo "ERROR: expected exactly 1,152 analytics mart rows, got ${fact_count}" >&2
   exit 1
 fi
 
@@ -169,7 +199,7 @@ SELECT
     clock_timestamp(),
     clock_timestamp(),
     '${PINNED_COMMIT}',
-    '{"Patient":1,"Observation":3,"ServiceRequest":3,"Specimen":3,"DiagnosticReport":3}'::jsonb
+    '{"Patient":96,"Observation":1152,"ServiceRequest":1152,"Specimen":1152,"DiagnosticReport":1152}'::jsonb
 FROM analytics.lab_result_fact_v1;
 SQL
 

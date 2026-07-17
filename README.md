@@ -32,12 +32,12 @@ OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
   → optional med-agent-hub report profile
 ```
 
-The query-to-table MVP implements that path with:
+The query-to-table sandbox implements that path with:
 
-- a pinned synthetic OpenELIS viral-load fixture;
+- a pinned synthetic multi-analyte OpenELIS cohort;
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- a hub-owned `catalyst-query-checked` generation/review profile;
+- Hub-owned Gemma and Qwen generation/review profiles selectable in the UI;
 - deterministic Catalyst SQL policy, expiring preview acceptance, read-only
   execution, typed table contracts, and provenance;
 - a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
@@ -98,6 +98,20 @@ cp env.recommended .env
 
 The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
 Open the sidecar at `http://localhost:3000`.
+
+To use an already-running OpenAI-compatible server instead of the bundled
+router, set the server root without a trailing `/v1`:
+
+```bash
+MVP_MODEL_BACKEND=external \
+MVP_HUB_LLM_BASE_URL=http://host.docker.internal:1234 \
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
+
+The server's advertised model ID must exactly match a configured Hub profile.
+The UI marks profiles unavailable until their required model is served.
 
 Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
 

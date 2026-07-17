@@ -5,7 +5,7 @@ from typing import Any
 from .catalog import Catalog
 
 
-QUERY_PROFILE_ID = "catalyst-query-checked"
+QUERY_PROFILE_ID = "catalyst-query-gemma-e4b"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 
@@ -17,9 +17,10 @@ def build_query_request(
     statement_timeout_ms: int,
     request_id: str,
     trace_id: str,
+    profile_id: str = QUERY_PROFILE_ID,
 ) -> dict[str, Any]:
     return {
-        "model": QUERY_PROFILE_ID,
+        "model": profile_id,
         "stream": False,
         "messages": [{"role": "user", "content": question}],
         "catalystQuery": {

@@ -117,6 +117,18 @@ The annual cron in the sample config is a placeholder, not a freshness SLA.
 
 ## Semantic catalog and freshness
 
+### Synthetic Specimen receipt-time compatibility transform
+
+OpenELIS 3.2.1.x's legacy `OEToFhir` transform preserves collection time for
+directly seeded samples but stamps `Specimen.receivedTime` at export time. The
+versioned Catalyst fixture defines a receipt-to-release interval in OpenELIS.
+`normalize-catalyst-specimen-times.py` reads that interval from each synthetic
+OpenELIS sample/analysis pair and applies it relative to the actual FHIR
+Observation issued time, only for `CAT*` accessions, through HAPI's transaction
+API before Data Pipes runs.
+The transform is deterministic and idempotent; it is not used for non-fixture
+records.
+
 `catalog/analytics-catalog-v1.json` is the profile-facing allowlist. It records
 the stable view/version, one-Observation grain, typed columns and units,
 allowed filters/groupings, terminology caveats, mandatory date/result limits,

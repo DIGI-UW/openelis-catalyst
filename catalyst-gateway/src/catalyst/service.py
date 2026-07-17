@@ -11,13 +11,21 @@ from .catalog import Catalog
 from .contracts import ContractError, ContractRegistry
 from .digest import query_digest
 from .hub import HubError
-from .policy import QueryInvariantError, SqlPolicy, Violation, validate_query_invariants
-from .request import build_query_request
+from .policy import (
+    QueryInvariantError,
+    SqlPolicy,
+    Violation,
+    question_policy_violations,
+    validate_query_invariants,
+)
+from .request import QUERY_PROFILE_ID, build_query_request
 from .storage import ExecutionDecision, PreviewStore
 from .table import build_table
 
 
 class HubProtocol(Protocol):
+    async def list_query_profiles(self) -> list[dict[str, Any]]: ...
+
     async def generate_query(self, request: dict[str, Any]) -> dict[str, Any]: ...
 
     async def readiness(self) -> dict[str, dict[str, Any]]: ...
@@ -38,6 +46,17 @@ class AnalyticsProtocol(Protocol):
     async def freshness(self) -> dict[str, Any]: ...
 
     async def readiness(self) -> dict[str, Any]: ...
+
+    async def dataset_overview(self) -> dict[str, Any]: ...
+
+    async def dataset_rows(
+        self,
+        *,
+        test_name: str | None,
+        patient_id: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -70,6 +89,56 @@ class CatalystService:
         self.statement_timeout_ms = statement_timeout_ms
         self.preview_ttl_seconds = preview_ttl_seconds
 
+    async def query_options(self) -> ServiceResponse:
+        try:
+            profiles = await self.hub.list_query_profiles()
+        except HubError as error:
+            return self._error(502, error.code, str(error))
+        return ServiceResponse(
+            200,
+            {
+                "contractVersion": "catalyst.query-options.v1",
+                "defaultProfileId": QUERY_PROFILE_ID,
+                "profiles": [
+                    {
+                        "id": profile.get("id"),
+                        "label": profile.get("label") or profile.get("id"),
+                        "available": profile.get("available") is True,
+                        "requiredModels": profile.get("required_models", []),
+                        "roleModels": profile.get("role_models", {}),
+                        "stages": profile.get("stages", []),
+                        "unavailableReasons": profile.get("unavailable_reasons", []),
+                    }
+                    for profile in profiles
+                ],
+            },
+        )
+
+    async def dataset_overview(self) -> ServiceResponse:
+        try:
+            return ServiceResponse(200, await self.analytics.dataset_overview())
+        except Exception as error:
+            return self._error(502, "dataset_unavailable", str(error))
+
+    async def dataset_rows(
+        self,
+        *,
+        test_name: str | None,
+        patient_id: str | None,
+        limit: int,
+        offset: int,
+    ) -> ServiceResponse:
+        try:
+            body = await self.analytics.dataset_rows(
+                test_name=test_name,
+                patient_id=patient_id,
+                limit=limit,
+                offset=offset,
+            )
+            return ServiceResponse(200, body)
+        except Exception as error:
+            return self._error(502, "dataset_unavailable", str(error))
+
     async def submit_question(self, payload: dict[str, Any]) -> ServiceResponse:
         try:
             self.contracts.validate(
@@ -77,13 +146,40 @@ class CatalystService:
                 payload,
             )
             question = payload["question"]
+            profile_id = payload.get("profileId", QUERY_PROFILE_ID)
             if not question.strip():
                 raise ContractError("Question must contain non-whitespace text.")
         except (ContractError, KeyError, TypeError) as error:
             return self._error(400, "invalid_request", str(error))
 
-        request_id = str(uuid.uuid4())
         catalyst_trace_id = str(uuid.uuid4())
+        question_violations = question_policy_violations(question)
+        if question_violations:
+            outcome = self._policy_outcome(question_violations, catalyst_trace_id)
+            self.contracts.validate(
+                "catalyst-policy-outcome-v1.schema.json",
+                outcome,
+            )
+            return ServiceResponse(422, outcome)
+
+        try:
+            profiles = await self.hub.list_query_profiles()
+            selected_profile = next(
+                (profile for profile in profiles if profile.get("id") == profile_id),
+                None,
+            )
+            if (
+                selected_profile is None
+                or selected_profile.get("available") is not True
+            ):
+                raise HubError(
+                    "profile_unavailable",
+                    f"Hub does not advertise available profile {profile_id}.",
+                )
+        except HubError as error:
+            return self._error(502, error.code, str(error))
+
+        request_id = str(uuid.uuid4())
         request = build_query_request(
             question,
             self.catalog,
@@ -91,6 +187,7 @@ class CatalystService:
             statement_timeout_ms=self.statement_timeout_ms,
             request_id=request_id,
             trace_id=catalyst_trace_id,
+            profile_id=profile_id,
         )
         try:
             self.contracts.validate(
@@ -124,6 +221,7 @@ class CatalystService:
             query,
             ttl_seconds=self.preview_ttl_seconds,
             catalyst_trace_id=catalyst_trace_id,
+            profile=selected_profile,
         )
         self.contracts.validate("catalyst-preview-v1.schema.json", preview)
         return ServiceResponse(201, preview)

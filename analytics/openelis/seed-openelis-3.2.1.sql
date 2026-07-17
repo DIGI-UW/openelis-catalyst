@@ -183,7 +183,7 @@ BEGIN
                 'H', 2, 0, v_row.observed_at - interval '2 hours',
                 v_row.observed_at - interval '1 hour',
                 v_row.observed_at - interval '3 hours',
-                'F', v_row.observed_at, 1, v_row.observed_at,
+                v_sample_status_id::text, v_row.observed_at, 1, v_row.observed_at,
                 v_sample_status_id
             );
         ELSIF (SELECT fhir_uuid FROM clinlims.sample WHERE id = v_sample_id) IS DISTINCT FROM v_row.sample_fhir_uuid THEN

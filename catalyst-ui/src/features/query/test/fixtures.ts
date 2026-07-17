@@ -43,6 +43,17 @@ export const preview: CatalystPreview = {
       unit: "copies/mL",
     },
   ],
+  reasoningTrace: {
+    traceId: "hub-trace-456",
+    profileId: "catalyst-query-gemma-e4b",
+    status: "passed",
+    stages: ["context", "query_generate", "query_review", "query_finalize"],
+    roleModels: {
+      query_generate: "google/gemma-4-e4b",
+      query_review: "google/gemma-4-e4b",
+    },
+    checks: [{ name: "review", status: "passed", message: "Candidate approved." }],
+  },
   createdAt: "2026-07-16T00:00:00Z",
   expiresAt: "2026-07-16T00:05:00Z",
   state: "awaiting_acceptance",
@@ -104,8 +115,9 @@ export const table: CatalystTable = {
   provenance: {
     catalystTraceId: "cat-trace-123",
     hubTraceId: "hub-trace-456",
-    profileId: "catalyst-query-checked",
+    profileId: "catalyst-query-gemma-e4b",
   },
+  reasoningTrace: preview.reasoningTrace,
   warnings: [],
 };
 
@@ -124,7 +136,7 @@ export const queryOutcome = (
     checks: [],
   },
   provenance: {
-    profileId: "catalyst-query-checked",
+    profileId: "catalyst-query-gemma-e4b",
     traceId: "hub-trace-456",
     contextSourceIds: ["catalog:2026.07"],
   },

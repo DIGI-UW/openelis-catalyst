@@ -22,17 +22,37 @@ set +a
 "${ROOT_DIR}/scripts/bootstrap-med-agent-hub.sh"
 
 compose=(docker compose --env-file "${ROOT_DIR}/.env" -f "${COMPOSE_FILE}")
-router_service="model-router"
+model_services=()
+model_backend="${MVP_MODEL_BACKEND:-local}"
 if [ "${MVP_FAKE_BACKEND:-false}" = "true" ]; then
-  compose+=(--profile fake)
-  router_service="model-router-fake"
-  export MVP_HUB_LLM_BASE_URL="http://model-router-fake:8077"
-  echo "Using deterministic fake model backend"
-else
-  "${ROOT_DIR}/scripts/mvp-download-model.sh"
-  export MVP_HUB_LLM_BASE_URL="${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
-  echo "Using live qwen2.5-coder-14b llama.cpp backend"
+  model_backend="fake"
 fi
+
+case "${model_backend}" in
+  fake)
+    compose+=(--profile fake)
+    model_services+=(model-router-fake)
+    export MVP_HUB_LLM_BASE_URL="http://model-router-fake:8077"
+    echo "Using deterministic fake model backend"
+    ;;
+  local)
+    "${ROOT_DIR}/scripts/mvp-download-model.sh"
+    model_services+=(model-router)
+    export MVP_HUB_LLM_BASE_URL="${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
+    echo "Using bundled qwen2.5-coder-14b llama.cpp backend"
+    ;;
+  external)
+    if [ -z "${MVP_HUB_LLM_BASE_URL:-}" ]; then
+      echo "ERROR: external model backend requires MVP_HUB_LLM_BASE_URL." >&2
+      exit 2
+    fi
+    echo "Using external OpenAI-compatible backend at ${MVP_HUB_LLM_BASE_URL}"
+    ;;
+  *)
+    echo "ERROR: MVP_MODEL_BACKEND must be local, external, or fake." >&2
+    exit 2
+    ;;
+esac
 
 "${compose[@]}" up -d --build \
   certs \
@@ -41,7 +61,7 @@ fi
   fhir.openelis.org \
   analytics-db \
   fhir-data-pipes \
-  "${router_service}" \
+  "${model_services[@]}" \
   med-agent-hub \
   catalyst-gateway \
   catalyst-ui

@@ -1,6 +1,7 @@
 import { ArrowRight } from "@carbon/icons-react";
 import { Button, Form, Stack, TextArea } from "@carbon/react";
 import type { FormEvent } from "react";
+import type { QueryProfile } from "../types";
 
 interface QuestionFormProps {
   question: string;
@@ -8,6 +9,9 @@ interface QuestionFormProps {
   disabled?: boolean;
   onQuestionChange: (question: string) => void;
   onSubmit: (question: string) => void;
+  profiles?: QueryProfile[];
+  selectedProfileId?: string;
+  onProfileChange?: (profileId: string) => void;
 }
 
 export const QuestionForm = ({
@@ -16,6 +20,9 @@ export const QuestionForm = ({
   disabled = false,
   onQuestionChange,
   onSubmit,
+  profiles = [],
+  selectedProfileId,
+  onProfileChange,
 }: QuestionFormProps) => {
   const normalizedQuestion = question.trim();
 
@@ -37,6 +44,22 @@ export const QuestionForm = ({
       </div>
       <Form onSubmit={handleSubmit}>
         <Stack gap={6}>
+          {profiles.length > 0 && (
+            <label className="profile-selector">
+              Med-Agent Hub profile
+              <select
+                value={selectedProfileId}
+                disabled={busy || disabled}
+                onChange={(event) => onProfileChange?.(event.currentTarget.value)}
+              >
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id} disabled={!profile.available}>
+                    {profile.label}{profile.available ? "" : " (unavailable)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <TextArea
             id="catalyst-question"
             labelText="Question"

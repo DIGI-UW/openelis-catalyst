@@ -1,0 +1,57 @@
+{
+  "contractVersion": "catalyst.dataset-manifest.v1",
+  "datasetId": "catalyst-openelis-cohort-v1",
+  "seed": 20260716,
+  "synthetic": true,
+  "intendedUse": "Local query-generation and execution validation only; not clinical decision support.",
+  "sourcePath": "OpenELIS 3.2.1.x to HAPI FHIR to OHS FHIR Data Pipes",
+  "expected": {
+    "patients": 96,
+    "results": 1152,
+    "testTypes": 9,
+    "viralLoadResults": 384,
+    "resultsPerComplementaryTest": 96
+  },
+  "dateWindow": {
+    "firstObservedAt": "2025-07-15T09:00:00",
+    "lastObservedAt": "2026-04-27T09:00:00"
+  },
+  "viralLoad": {
+    "openelisTestGuid": "b50d156e-0f6f-40cd-921c-4e831602a623",
+    "unit": "copies/ml",
+    "terminologyGuidance": "LOINC 20447-9",
+    "trajectories": [
+      "sustained-suppression",
+      "improving-to-suppression",
+      "persistent-unsuppressed",
+      "rebound"
+    ],
+    "thresholdCases": [50, 1000]
+  },
+  "complementaryTests": [
+    "CD4 absolute count",
+    "CD4 percent (%)",
+    "Hemoglobin",
+    "Platelets",
+    "White Blood Cells Count (WBC)",
+    "Creatinine",
+    "GPT/ALAT",
+    "Glucose"
+  ],
+  "sourceResearch": {
+    "openmrsDemo": {
+      "patients": 5284,
+      "observations": 427874,
+      "viralLoadObservations": 3,
+      "use": "Concept mix and result-shape input only",
+      "rejectedCharacteristics": [
+        "dates outside the plausible MVP window",
+        "implausible numeric outliers",
+        "insufficient longitudinal viral-load coverage"
+      ]
+    },
+    "synthea": "Breadth reference only; not a runtime dependency",
+    "who": "Threshold and trajectory semantics",
+    "loinc": "Terminology guidance only unless a direct mapping is separately verified"
+  }
+}

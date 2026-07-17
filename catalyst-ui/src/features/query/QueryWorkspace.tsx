@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
+import { DatasetBrowser } from "./components/DatasetBrowser";
 import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
@@ -16,6 +17,7 @@ import {
   type CatalystPreview,
   type CatalystQueryOutcome,
   type CatalystTable,
+  type QueryOptions,
 } from "./types";
 
 type WorkflowState =
@@ -107,6 +109,23 @@ export const QueryWorkspace = ({
 }: QueryWorkspaceProps) => {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
+  const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
+  const [profileId, setProfileId] = useState("");
+
+  useEffect(() => {
+    if (!api.getQueryOptions) return;
+    const controller = new AbortController();
+    api.getQueryOptions(controller.signal)
+      .then((options) => {
+        setQueryOptions(options);
+        const defaultProfile = options.profiles.find(
+          (profile) => profile.id === options.defaultProfileId && profile.available,
+        );
+        setProfileId(defaultProfile?.id ?? options.profiles.find((profile) => profile.available)?.id ?? "");
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [api]);
 
   useEffect(() => {
     if (state.kind !== "polling") return;
@@ -142,7 +161,9 @@ export const QueryWorkspace = ({
   const submitQuestion = async (normalizedQuestion: string) => {
     setState({ kind: "submitting" });
     try {
-      const response = await api.submitQuestion(normalizedQuestion);
+      const response = queryOptions && profileId
+        ? await api.submitQuestion(normalizedQuestion, profileId)
+        : await api.submitQuestion(normalizedQuestion);
       if (isPreview(response)) {
         setState({ kind: "preview", preview: response, executing: false });
       } else if (response.contractVersion === "catalyst.query.v1") {
@@ -197,12 +218,21 @@ export const QueryWorkspace = ({
         <p>Governed query review and typed table results</p>
       </div>
 
+      <DatasetBrowser
+        api={api}
+        disabled={questionIsLocked}
+        onQuestionSelect={setQuestion}
+      />
+
       <QuestionForm
         question={question}
         busy={state.kind === "submitting"}
         disabled={questionIsLocked}
         onQuestionChange={setQuestion}
         onSubmit={submitQuestion}
+        profiles={queryOptions?.profiles ?? []}
+        selectedProfileId={profileId}
+        onProfileChange={setProfileId}
       />
 
       {state.kind === "submitting" && (
