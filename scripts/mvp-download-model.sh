@@ -13,7 +13,7 @@ MODEL_URL="${MVP_MODEL_URL:-https://huggingface.co/${MODEL_REPO}/resolve/main/${
 mkdir -p "${MODEL_DIR}"
 
 verify_model() {
-  printf '%s  %s\n' "${MODEL_SHA256}" "${MODEL_PATH}" | sha256sum --check --status
+  printf '%s  %s\n' "${MODEL_SHA256}" "${MODEL_PATH}" | sha256sum --check >/dev/null 2>&1
 }
 
 if [ -f "${MODEL_PATH}" ] && verify_model; then
