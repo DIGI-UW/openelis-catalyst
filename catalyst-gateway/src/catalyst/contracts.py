@@ -18,6 +18,11 @@ NORMATIVE_SCHEMAS = (
     "catalyst-query-v1.schema.json",
     "catalyst-question-request-v1.schema.json",
     "catalyst-table-v1.schema.json",
+    "catalyst-workbench-execute-request-v1.schema.json",
+    "catalyst-workbench-finding-v1.schema.json",
+    "catalyst-workbench-session-request-v1.schema.json",
+    "catalyst-workbench-session-v1.schema.json",
+    "catalyst-workbench-version-request-v1.schema.json",
 )
 
 

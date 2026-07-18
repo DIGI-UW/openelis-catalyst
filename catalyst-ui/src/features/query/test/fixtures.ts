@@ -49,8 +49,8 @@ export const preview: CatalystPreview = {
     status: "passed",
     stages: ["context", "query_generate", "query_review", "query_finalize"],
     roleModels: {
-      query_generate: "google/gemma-4-e4b",
-      query_review: "google/gemma-4-e4b",
+      query_generate: "gemma-e4b",
+      query_review: "gemma-e4b",
     },
     checks: [{ name: "review", status: "passed", message: "Candidate approved." }],
   },

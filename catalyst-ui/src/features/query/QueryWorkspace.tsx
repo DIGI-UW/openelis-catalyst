@@ -297,9 +297,7 @@ export const QueryWorkspace = ({
 
   const questionIsLocked =
     state.kind === "preview" ||
-    state.kind === "polling" ||
-    state.kind === "execution-outcome" ||
-    state.kind === "result";
+    state.kind === "polling";
 
   return (
     <main className="app-shell">
@@ -308,11 +306,7 @@ export const QueryWorkspace = ({
         <p>Governed query review and typed table results</p>
       </div>
 
-      <DatasetBrowser
-        api={api}
-        disabled={questionIsLocked}
-        onQuestionSelect={setQuestion}
-      />
+      <DatasetBrowser api={api} />
 
       <QuestionForm
         question={question}

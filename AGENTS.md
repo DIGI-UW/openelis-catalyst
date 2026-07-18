@@ -58,11 +58,11 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The first live run downloads and verifies the local coder model. The React
+The recommended live run uses the configured external Gemma router. The React
 sidecar is at `http://localhost:3000`.
 
-Use `MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh` for deterministic CI-style
-assembly without the GGUF.
+Use `MVP_MODEL_BACKEND=fake ./scripts/mvp-up.sh` and the same explicit mode for
+`mvp-health.sh` for deterministic CI-style assembly without the GGUF.
 
 #### Full stack
 

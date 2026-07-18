@@ -1,29 +1,34 @@
-import { Button, InlineLoading, Tag } from "@carbon/react";
+import { Accordion, AccordionItem, Button, InlineLoading, Tag } from "@carbon/react";
 import { useEffect, useState } from "react";
 import type { CatalystApi } from "../api";
 import type { DatasetOverview, DatasetRows } from "../types";
 
 interface DatasetBrowserProps {
   api: CatalystApi;
-  onQuestionSelect: (question: string) => void;
-  disabled?: boolean;
 }
 
-const displayDate = (value: string) =>
-  new Intl.DateTimeFormat("en-US", {
+const displayDate = (value: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat("en-US", {
     timeZone: "UTC",
     year: "numeric",
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
+  }).format(date);
+};
+
+const displayDateRange = (first: string | null, last: string | null) => {
+  if (!first && !last) return "No observations";
+  if (!first || first === last) return displayDate(last ?? first);
+  if (!last) return displayDate(first);
+  return `${displayDate(first)} – ${displayDate(last)}`;
+};
 
 const shortPatient = (value: string) => value.length > 12 ? value.slice(0, 12) : value;
 
-export const DatasetBrowser = ({
-  api,
-  onQuestionSelect,
-  disabled = false,
-}: DatasetBrowserProps) => {
+export const DatasetBrowser = ({ api }: DatasetBrowserProps) => {
   const [overview, setOverview] = useState<DatasetOverview | null>(null);
   const [rows, setRows] = useState<DatasetRows | null>(null);
   const [testName, setTestName] = useState("");
@@ -34,6 +39,7 @@ export const DatasetBrowser = ({
   const loadRows = async (offset = 0) => {
     if (!api.getDatasetRows) return;
     setLoading(true);
+    setRows(null);
     try {
       setRows(
         await api.getDatasetRows({
@@ -45,6 +51,7 @@ export const DatasetBrowser = ({
       );
       setMessage(null);
     } catch (error) {
+      setRows(null);
       setMessage(error instanceof Error ? error.message : "Dataset rows are unavailable.");
     } finally {
       setLoading(false);
@@ -80,11 +87,11 @@ export const DatasetBrowser = ({
     <section className="query-card dataset-browser" aria-labelledby="dataset-title">
       <div className="section-heading section-heading--row">
         <div>
-          <p className="eyebrow">Know what you can ask</p>
-          <h1 id="dataset-title">Synthetic laboratory dataset</h1>
+          <p className="eyebrow">Know what to ask</p>
+          <h1 id="dataset-title">Available OpenELIS laboratory data</h1>
           <p>
-            Browse the exact OpenELIS records available to Catalyst before forming a
-            question. Values are synthetic and are not for clinical decisions.
+            Explore the laboratory records currently available to Catalyst from
+            OpenELIS through FHIR before forming a question.
           </p>
         </div>
         <Tag type="purple">OpenELIS → FHIR</Tag>
@@ -101,96 +108,65 @@ export const DatasetBrowser = ({
             <div><dt>Test types</dt><dd>{overview.testTypes}</dd></div>
             <div>
               <dt>Date range</dt>
-              <dd>{displayDate(overview.firstObservedAt)} – {displayDate(overview.lastObservedAt)}</dd>
+              <dd>{displayDateRange(overview.firstObservedAt, overview.lastObservedAt)}</dd>
             </div>
           </dl>
 
-          <div className="dataset-browser__summary-table">
-            <table>
-              <caption>Test types and numeric distributions in the synthetic cohort</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Test</th><th scope="col">Unit</th>
-                  <th scope="col">Results</th><th scope="col">Patients</th>
-                  <th scope="col">Min</th><th scope="col">Median</th><th scope="col">Max</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.tests.map((test) => (
-                  <tr key={test.testName}>
-                    <th scope="row">{test.testName}</th><td>{test.unit ?? "—"}</td>
-                    <td>{test.results}</td><td>{test.patients}</td>
-                    <td>{test.minimum ?? "—"}</td><td>{test.median ?? "—"}</td>
-                    <td>{test.maximum ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="example-questions" aria-labelledby="examples-title">
-            <h2 id="examples-title">Example questions</h2>
-            <div>
-              {overview.exampleQuestions.map((question) => (
-                <Button
-                  key={question}
-                  kind="ghost"
-                  size="sm"
-                  disabled={disabled}
-                  onClick={() => onQuestionSelect(question)}
-                >
-                  {question}
-                </Button>
-              ))}
-            </div>
-          </div>
         </>
       )}
 
       {overview && (
-        <div className="dataset-filters">
-          <label>
-            Test type
-            <select value={testName} onChange={(event) => setTestName(event.currentTarget.value)}>
-              <option value="">All tests</option>
-              {overview.tests.map((test) => <option key={test.testName}>{test.testName}</option>)}
-            </select>
-          </label>
-          <label>
-            Patient FHIR ID
-            <input value={patientId} onChange={(event) => setPatientId(event.currentTarget.value)} placeholder="Optional exact ID" />
-          </label>
-          <Button kind="secondary" size="sm" disabled={loading} onClick={() => void loadRows(0)}>
-            Apply filters
-          </Button>
-        </div>
-      )}
+        <Accordion className="dataset-browser__details">
+          <AccordionItem title="Browse available laboratory records">
+            <div className="dataset-filters">
+              <label>
+                Test type
+                <select value={testName} onChange={(event) => setTestName(event.currentTarget.value)}>
+                  <option value="">All tests</option>
+                  {overview.tests.map((test) => <option key={test.testName}>{test.testName}</option>)}
+                </select>
+              </label>
+              <label>
+                Patient FHIR ID
+                <input value={patientId} onChange={(event) => setPatientId(event.currentTarget.value)} placeholder="Optional exact ID" />
+              </label>
+              <Button kind="secondary" size="sm" disabled={loading} onClick={() => void loadRows(0)}>
+                Apply filters
+              </Button>
+            </div>
 
-      {rows && (
-        <>
-          <div className="dataset-browser__rows">
-            <table>
-              <caption>{rows.total.toLocaleString()} matching laboratory results; showing {rows.offset + 1}–{Math.min(rows.offset + rows.rows.length, rows.total)}</caption>
-              <thead><tr>
-                <th scope="col">Patient</th><th scope="col">Test</th><th scope="col">Value</th>
-                <th scope="col">Observed</th><th scope="col">Turnaround</th>
-              </tr></thead>
-              <tbody>
-                {rows.rows.map((row) => (
-                  <tr key={`${row.patientId}-${row.testName}-${row.observedAt}`}>
-                    <td title={row.patientId}>{shortPatient(row.patientId)}</td>
-                    <td>{row.testName}</td><td>{row.value ?? "—"} {row.unit ?? ""}</td>
-                    <td>{displayDate(row.observedAt)}</td><td>{row.turnaroundMinutes ? `${Math.round(Number(row.turnaroundMinutes))} min` : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="dataset-pagination">
-            <Button kind="ghost" size="sm" disabled={loading || rows.offset === 0} onClick={() => void loadRows(Math.max(0, rows.offset - rows.limit))}>Previous</Button>
-            <Button kind="ghost" size="sm" disabled={loading || rows.offset + rows.limit >= rows.total} onClick={() => void loadRows(rows.offset + rows.limit)}>Next</Button>
-          </div>
-        </>
+            {rows && (
+              rows.total === 0 ? (
+                <p className="dataset-browser__empty">
+                  No laboratory records match these filters.
+                </p>
+              ) : <>
+                <div className="dataset-browser__rows">
+                  <table>
+                    <caption>{rows.total.toLocaleString()} matching laboratory results; showing {rows.offset + 1}–{Math.min(rows.offset + rows.rows.length, rows.total)}</caption>
+                    <thead><tr>
+                      <th scope="col">Patient</th><th scope="col">Test</th><th scope="col">Value</th>
+                      <th scope="col">Observed</th><th scope="col">Turnaround</th>
+                    </tr></thead>
+                    <tbody>
+                      {rows.rows.map((row) => (
+                        <tr key={row.observationId}>
+                          <td title={row.patientId}>{shortPatient(row.patientId)}</td>
+                          <td>{row.testName}</td><td>{row.value ?? "—"} {row.unit ?? ""}</td>
+                          <td>{displayDate(row.observedAt)}</td><td>{row.turnaroundMinutes !== null ? `${Math.round(Number(row.turnaroundMinutes))} min` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="dataset-pagination">
+                  <Button kind="ghost" size="sm" disabled={loading || rows.offset === 0} onClick={() => void loadRows(Math.max(0, rows.offset - rows.limit))}>Previous</Button>
+                  <Button kind="ghost" size="sm" disabled={loading || rows.offset + rows.limit >= rows.total} onClick={() => void loadRows(rows.offset + rows.limit)}>Next</Button>
+                </div>
+              </>
+            )}
+          </AccordionItem>
+        </Accordion>
       )}
     </section>
   );

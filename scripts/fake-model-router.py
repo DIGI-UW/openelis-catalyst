@@ -9,7 +9,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 
-MODEL = "qwen2.5-coder-14b"
+MODELS = tuple(
+    model.strip()
+    for model in os.getenv(
+        "MODEL_ROUTER_MODEL_IDS",
+        "gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
+    ).split(",")
+    if model.strip()
+)
+MODEL = MODELS[0]
 
 
 def generation(payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,7 +125,10 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "object": "list",
-                    "data": [{"id": MODEL, "object": "model", "owned_by": "ci"}],
+                    "data": [
+                        {"id": model, "object": "model", "owned_by": "ci"}
+                        for model in MODELS
+                    ],
                 },
             )
         else:
@@ -140,5 +151,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.getenv("MODEL_ROUTER_PORT", "8077"))
-    print(f"fake-model-router: serving {MODEL} on :{port}", flush=True)
+    print(f"fake-model-router: simulating {', '.join(MODELS)} on :{port}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

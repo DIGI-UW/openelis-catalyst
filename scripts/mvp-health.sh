@@ -5,6 +5,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+model_backend_override="${MVP_MODEL_BACKEND:-}"
+external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
+local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
+fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
+external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
+external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -13,6 +19,24 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
+if [ -n "${model_backend_override}" ]; then
+  export MVP_MODEL_BACKEND="${model_backend_override}"
+fi
+if [ -n "${external_router_url_override}" ]; then
+  export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
+fi
+if [ -n "${local_router_url_override}" ]; then
+  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
+fi
+if [ -n "${fake_router_url_override}" ]; then
+  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
+fi
+if [ -n "${external_model_override}" ]; then
+  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
+fi
+if [ -n "${external_profile_override}" ]; then
+  export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
+fi
 
 compose=(
   docker compose
@@ -126,17 +150,40 @@ check_mart() {
     )" -ge 1
 }
 
-running_services="$("${compose[@]}" ps --services --status running)"
-router_host="model-router"
-router_mode="live"
-if printf '%s\n' "${running_services}" | awk '$0 == "model-router-fake" { found=1 } END { exit !found }'; then
-  router_host="model-router-fake"
-  router_mode="fake"
-fi
+model_backend="${MVP_MODEL_BACKEND:-external}"
+external_router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
+local_router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"
+fake_router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"
+
+case "${model_backend}" in
+  fake)
+    router_mode="fake"
+    router_url="${fake_router_url}"
+    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_FAKE_MODEL_ID:-gemma-e4b}}"
+    profile_id="${MVP_PROFILE_ID:-${MVP_FAKE_PROFILE_ID:-catalyst-query-gemma-e4b}}"
+    ;;
+  local)
+    router_mode="local"
+    router_url="${local_router_url}"
+    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_BUNDLED_MODEL_ID:-qwen2.5-coder-1.5b-instruct-q4_k_m}}"
+    profile_id="${MVP_PROFILE_ID:-${MVP_BUNDLED_PROFILE_ID:-catalyst-query-qwen-coder-1.5b}}"
+    ;;
+  external)
+    router_mode="external"
+    router_url="${external_router_url}"
+    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_EXTERNAL_MODEL_ID:-gemma-e4b}}"
+    profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-e4b}}"
+    ;;
+  *)
+    echo "ERROR: MVP_MODEL_BACKEND must be local, external, or fake." >&2
+    exit 2
+    ;;
+esac
 
 check_router() {
   "${compose[@]}" exec -T \
-    -e "ROUTER_URL=http://${router_host}:8077" \
+    -e "ROUTER_URL=${router_url}" \
+    -e "EXPECTED_MODEL_ID=${model_id}" \
     med-agent-hub python - <<'PY'
 import json
 import os
@@ -146,24 +193,51 @@ with urllib.request.urlopen(
     os.environ["ROUTER_URL"] + "/v1/models", timeout=5
 ) as response:
     models = json.load(response).get("data", [])
-if "qwen2.5-coder-14b" not in {item.get("id") for item in models}:
-    raise SystemExit("qwen2.5-coder-14b alias is not served")
+expected = os.environ["EXPECTED_MODEL_ID"]
+if expected not in {item.get("id") for item in models}:
+    raise SystemExit(f"expected model {expected!r} is not served")
+PY
+}
+
+check_hub_router_config() {
+  "${compose[@]}" exec -T \
+    -e "EXPECTED_ROUTER_URL=${router_url}" \
+    med-agent-hub python - <<'PY'
+import os
+
+configured = os.environ.get("LLM_BASE_URL", "").rstrip("/")
+expected = os.environ["EXPECTED_ROUTER_URL"].rstrip("/")
+if configured != expected:
+    raise SystemExit(
+        f"Hub LLM_BASE_URL {configured!r} does not match selected router {expected!r}"
+    )
 PY
 }
 
 check_hub_profile() {
-  HUB_URL="http://localhost:${MED_AGENT_HUB_PORT:-8082}" python3 - <<'PY'
+  HUB_URL="http://localhost:${MED_AGENT_HUB_PORT:-8082}" \
+  PROFILE_ID="${profile_id}" \
+  EXPECTED_MODEL_ID="${model_id}" \
+  python3 - <<'PY'
 import json
 import os
 import urllib.request
 
 with urllib.request.urlopen(os.environ["HUB_URL"] + "/v1/models", timeout=5) as response:
     models = json.load(response).get("data", [])
-profile = next((item for item in models if item.get("id") == "catalyst-query-checked"), None)
+profile_id = os.environ["PROFILE_ID"]
+expected_model = os.environ["EXPECTED_MODEL_ID"]
+profile = next((item for item in models if item.get("id") == profile_id), None)
 if not profile or profile.get("available") is not True:
-    raise SystemExit("catalyst-query-checked is unavailable")
+    reasons = (profile or {}).get("unavailable_reasons", [])
+    raise SystemExit(f"{profile_id} is unavailable: {reasons}")
 if "catalyst.query.v1" not in profile.get("outputContracts", []):
     raise SystemExit("catalyst.query.v1 is not advertised")
+role_models = profile.get("role_models", {})
+if not role_models or set(role_models.values()) != {expected_model}:
+    raise SystemExit(
+        f"{profile_id} role models {role_models!r} do not match {expected_model!r}"
+    )
 PY
 }
 
@@ -190,6 +264,7 @@ wait_for "HAPI seed resources" check_hapi_seed
 wait_for "FHIR Data Pipes controller" check_data_pipes
 wait_for "analytics mart exact rows" check_mart
 wait_for "model router" check_router
+wait_for "hub router configuration" check_hub_router_config
 wait_for "hub query profile" check_hub_profile
 wait_for "Catalyst gateway" check_gateway
 wait_for "Catalyst UI" check_ui
@@ -220,6 +295,9 @@ OPENELIS_VERSION="${OPENELIS_VERSION:-unknown}" \
 DATA_PIPES_COMMIT="${PINNED_COMMIT}" \
 HUB_COMMIT="${hub_commit}" \
 ROUTER_MODE="${router_mode}" \
+ROUTER_URL="${router_url}" \
+MODEL_ID="${model_id}" \
+PROFILE_ID="${profile_id}" \
 MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
 MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
 python3 - <<'PY'
@@ -227,6 +305,20 @@ import datetime
 import json
 import os
 from pathlib import Path
+
+model_router = {
+    "mode": os.environ["ROUTER_MODE"],
+    "baseUrl": os.environ["ROUTER_URL"],
+    "modelId": os.environ["MODEL_ID"],
+    "profileId": os.environ["PROFILE_ID"],
+}
+if os.environ["ROUTER_MODE"] == "local":
+    model_router["artifact"] = {
+        "repository": os.environ["MODEL_REPO"],
+        "file": os.environ["MODEL_FILE"],
+    }
+elif os.environ["ROUTER_MODE"] == "fake":
+    model_router["simulated"] = True
 
 payload = {
     "contractVersion": "catalyst.mvp.provenance.v1",
@@ -239,12 +331,7 @@ payload = {
         "commit": os.environ["HUB_COMMIT"],
         "patch": "patches/med-agent-hub/catalyst-query-profile.patch",
     },
-    "modelRouter": {
-        "mode": os.environ["ROUTER_MODE"],
-        "alias": "qwen2.5-coder-14b",
-        "repository": os.environ["MODEL_REPO"],
-        "file": os.environ["MODEL_FILE"],
-    },
+    "modelRouter": model_router,
     "catalog": {
         "contractVersion": "catalyst.analytics.catalog.v1",
         "catalogVersion": "analytics-catalog-v1",

@@ -221,24 +221,27 @@ export interface DatasetTestSummary {
 
 export interface DatasetOverview {
   contractVersion: "catalyst.dataset-overview.v1";
-  datasetId: string;
-  synthetic: boolean;
+  datasetId: string | null;
+  dataSource?: string | null;
+  pipelineRunId?: string | null;
+  synthetic: boolean | null;
   patients: number;
   results: number;
   testTypes: number;
-  firstObservedAt: string;
-  lastObservedAt: string;
+  firstObservedAt: string | null;
+  lastObservedAt: string | null;
   tests: DatasetTestSummary[];
   exampleQuestions: string[];
 }
 
 export interface DatasetRow {
+  observationId: string;
   patientId: string;
   testName: string;
   value: string | null;
   unit: string | null;
-  observedAt: string;
-  issuedAt: string;
+  observedAt: string | null;
+  issuedAt: string | null;
   turnaroundMinutes: string | null;
 }
 

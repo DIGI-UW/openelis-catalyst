@@ -1,5 +1,6 @@
 import { WarningAltFilled } from "@carbon/icons-react";
 import { Tag } from "@carbon/react";
+import { AskOpenElisNavigation } from "./AskOpenElisNavigation";
 
 export const DemoBanner = () => (
   <aside className="demo-banner" aria-label="Demo environment notice">
@@ -8,7 +9,10 @@ export const DemoBanner = () => (
       <Tag type="warm-gray" size="sm">
         Demo environment
       </Tag>
-      <span>Demo data only; not for clinical decision-making.</span>
+      <span className="demo-banner__message">
+        Demo data only; not for clinical decision-making.
+      </span>
+      <AskOpenElisNavigation />
     </div>
   </aside>
 );

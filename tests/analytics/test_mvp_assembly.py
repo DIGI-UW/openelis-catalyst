@@ -14,6 +14,8 @@ class MvpComposeContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.compose = COMPOSE.read_text()
         cls.env = (ROOT / "env.recommended").read_text()
+        cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
+        cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
@@ -51,10 +53,11 @@ class MvpComposeContractTests(unittest.TestCase):
             proxy_config,
         )
 
-    def test_router_alias_hub_and_ui_ports_do_not_collide(self):
+    def test_router_identity_hub_and_ui_ports_do_not_collide(self):
         self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.env)
         self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
-        self.assertIn("qwen2.5-coder-14b", self.compose)
+        self.assertIn("qwen2.5-coder-1.5b-instruct-q4_k_m", self.compose)
+        self.assertNotIn("qwen2.5-coder-14b", self.compose)
         self.assertIn(
             "ghcr.io/ggml-org/llama.cpp@sha256:"
             "6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4",
@@ -81,6 +84,68 @@ class MvpComposeContractTests(unittest.TestCase):
             "proxy_read_timeout 420s",
             (ROOT / "catalyst-ui/nginx.conf").read_text(),
         )
+
+    def test_external_gemma_router_is_the_recommended_manual_backend(self):
+        self.assertIn("MVP_MODEL_BACKEND=external", self.env)
+        self.assertIn(
+            "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
+        )
+        self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-e4b", self.env)
+        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-e4b", self.env)
+        self.assertIn(
+            'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"',
+            self.compose,
+        )
+        self.assertIn("HUB_LLM_PROVIDER=llama.cpp", self.env)
+        self.assertIn(
+            'LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"', self.compose
+        )
+        self.assertIn("host.docker.internal:host-gateway", self.compose)
+        self.assertIn('model_backend="${MVP_MODEL_BACKEND:-external}"', self.up_script)
+        self.assertIn(
+            "gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
+            self.compose,
+        )
+
+    def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
+        for script in (self.up_script, self.health_script):
+            self.assertIn(
+                'external_router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
+                script,
+            )
+            self.assertIn(
+                'local_router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"',
+                script,
+            )
+            self.assertIn(
+                'fake_router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"',
+                script,
+            )
+            self.assertNotIn("MVP_HUB_LLM_BASE_URL", script)
+        self.assertNotIn("MVP_HUB_LLM_BASE_URL", self.env)
+        self.assertNotIn("MVP_HUB_LLM_BASE_URL", self.compose)
+        self.assertIn('export MVP_SELECTED_ROUTER_URL="${router_url}"', self.up_script)
+
+    def test_up_stops_routers_not_selected_by_the_configured_mode(self):
+        self.assertIn("stale_model_services", self.up_script)
+        self.assertIn('stale_model_services+=(model-router)', self.up_script)
+        self.assertIn('stale_model_services+=(model-router-fake)', self.up_script)
+        self.assertIn('stop "${stale_model_services[@]}"', self.up_script)
+
+    def test_health_never_infers_mode_from_leftover_router_containers(self):
+        self.assertNotIn("running_services", self.health_script)
+        self.assertNotIn("awk '$0 == \"model-router-fake\"", self.health_script)
+        self.assertIn("check_hub_router_config", self.health_script)
+        self.assertIn('os.environ.get("LLM_BASE_URL", "")', self.health_script)
+        self.assertIn('-e "EXPECTED_ROUTER_URL=${router_url}"', self.health_script)
+
+    def test_health_and_provenance_use_the_selected_router_identity(self):
+        self.assertIn("MVP_EXTERNAL_MODEL_ID", self.health_script)
+        self.assertIn("MVP_BUNDLED_MODEL_ID", self.health_script)
+        self.assertIn('"modelId": os.environ["MODEL_ID"]', self.health_script)
+        self.assertIn('"baseUrl": os.environ["ROUTER_URL"]', self.health_script)
+        self.assertNotIn("qwen2.5-coder-14b", self.health_script)
+        self.assertNotIn("qwen2.5-coder-14b", self.up_script)
 
     def test_gateway_image_contains_runtime_contracts_and_catalog(self):
         dockerfile = (ROOT / "catalyst-gateway/Dockerfile").read_text()

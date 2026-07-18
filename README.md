@@ -96,15 +96,19 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
+The recommended configuration connects the containerized Hub to the existing
+host llama.cpp router at `http://host.docker.internal:8077` and selects the
+`catalyst-query-gemma-e4b` profile backed by the exact `gemma-e4b` model ID.
 Open the sidecar at `http://localhost:3000`.
 
-To use an already-running OpenAI-compatible server instead of the bundled
-router, set the server root without a trailing `/v1`:
+To use a different OpenAI-compatible server, set its root without a trailing
+`/v1` together with the exact model and Hub profile IDs:
 
 ```bash
-MVP_MODEL_BACKEND=external \
-MVP_HUB_LLM_BASE_URL=http://host.docker.internal:1234 \
+export MVP_MODEL_BACKEND=external
+export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
+export MVP_EXTERNAL_MODEL_ID=my-exact-model-id
+export MVP_EXTERNAL_PROFILE_ID=my-hub-profile-id
 ./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
 ./scripts/mvp-health.sh
@@ -113,14 +117,24 @@ MVP_HUB_LLM_BASE_URL=http://host.docker.internal:1234 \
 The server's advertised model ID must exactly match a configured Hub profile.
 The UI marks profiles unavailable until their required model is served.
 
-Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
-
-Deterministic fake-backend mode:
+An optional bundled fallback downloads Qwen2.5-Coder 1.5B and advertises its
+truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
 
 ```bash
-MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh
+MVP_MODEL_BACKEND=local ./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
+MVP_MODEL_BACKEND=local ./scripts/mvp-health.sh
+```
+
+Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
+
+Deterministic fake-backend mode (the selected mode must be supplied to both
+startup and health checks, or recorded in `.env`):
+
+```bash
+MVP_MODEL_BACKEND=fake ./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+MVP_MODEL_BACKEND=fake ./scripts/mvp-health.sh
 ```
 
 Stop or reset disposable demo state:

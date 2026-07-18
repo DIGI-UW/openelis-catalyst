@@ -7,6 +7,13 @@ COMPOSE_FILE="${ROOT_DIR}/docker-compose.mvp.yml"
 
 cd "${ROOT_DIR}"
 
+model_backend_override="${MVP_MODEL_BACKEND:-}"
+external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
+local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
+fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
+external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
+external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
+
 if [ ! -f .env ]; then
   cp env.recommended .env
   echo "Created .env from env.recommended"
@@ -17,42 +24,67 @@ set -a
 . "${ROOT_DIR}/.env"
 set +a
 
+# Explicit invocation settings take precedence over values copied into .env.
+if [ -n "${model_backend_override}" ]; then
+  export MVP_MODEL_BACKEND="${model_backend_override}"
+fi
+if [ -n "${external_router_url_override}" ]; then
+  export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
+fi
+if [ -n "${local_router_url_override}" ]; then
+  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
+fi
+if [ -n "${fake_router_url_override}" ]; then
+  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
+fi
+if [ -n "${external_model_override}" ]; then
+  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
+fi
+if [ -n "${external_profile_override}" ]; then
+  export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
+fi
+
 "${ROOT_DIR}/scripts/bootstrap-openelis.sh"
 "${ROOT_DIR}/scripts/bootstrap-fhir-data-pipes.sh"
 "${ROOT_DIR}/scripts/bootstrap-med-agent-hub.sh"
 
 compose=(docker compose --env-file "${ROOT_DIR}/.env" -f "${COMPOSE_FILE}")
+compose_all_profiles=("${compose[@]}" --profile fake)
 model_services=()
-model_backend="${MVP_MODEL_BACKEND:-local}"
-if [ "${MVP_FAKE_BACKEND:-false}" = "true" ]; then
-  model_backend="fake"
-fi
+stale_model_services=()
+model_backend="${MVP_MODEL_BACKEND:-external}"
+external_router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
+local_router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"
+fake_router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"
 
 case "${model_backend}" in
   fake)
     compose+=(--profile fake)
     model_services+=(model-router-fake)
-    export MVP_HUB_LLM_BASE_URL="http://model-router-fake:8077"
+    stale_model_services+=(model-router)
+    router_url="${fake_router_url}"
     echo "Using deterministic fake model backend"
     ;;
   local)
     "${ROOT_DIR}/scripts/mvp-download-model.sh"
     model_services+=(model-router)
-    export MVP_HUB_LLM_BASE_URL="${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
-    echo "Using bundled qwen2.5-coder-14b llama.cpp backend"
+    stale_model_services+=(model-router-fake)
+    router_url="${local_router_url}"
+    echo "Using bundled ${MVP_BUNDLED_MODEL_ID:-qwen2.5-coder-1.5b-instruct-q4_k_m} llama.cpp backend"
     ;;
   external)
-    if [ -z "${MVP_HUB_LLM_BASE_URL:-}" ]; then
-      echo "ERROR: external model backend requires MVP_HUB_LLM_BASE_URL." >&2
-      exit 2
-    fi
-    echo "Using external OpenAI-compatible backend at ${MVP_HUB_LLM_BASE_URL}"
+    stale_model_services+=(model-router model-router-fake)
+    router_url="${external_router_url}"
+    echo "Using external ${MVP_EXTERNAL_MODEL_ID:-gemma-e4b} backend at ${router_url}"
     ;;
   *)
     echo "ERROR: MVP_MODEL_BACKEND must be local, external, or fake." >&2
     exit 2
     ;;
 esac
+
+export MVP_SELECTED_ROUTER_URL="${router_url}"
+"${compose_all_profiles[@]}" stop "${stale_model_services[@]}"
 
 "${compose[@]}" up -d --build \
   certs \

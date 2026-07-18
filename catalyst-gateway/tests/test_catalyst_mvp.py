@@ -324,9 +324,9 @@ def execute_body(preview: dict, key: str = "idem-1") -> dict:
     }
 
 
-def test_loads_and_checks_all_nine_normative_schemas():
+def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 9
+    assert len(registry.schemas) == 14
     assert set(registry.schemas) == {
         "catalyst-execute-request-v1.schema.json",
         "catalyst-execution-outcome-v1.schema.json",
@@ -337,6 +337,11 @@ def test_loads_and_checks_all_nine_normative_schemas():
         "catalyst-query-v1.schema.json",
         "catalyst-question-request-v1.schema.json",
         "catalyst-table-v1.schema.json",
+        "catalyst-workbench-execute-request-v1.schema.json",
+        "catalyst-workbench-finding-v1.schema.json",
+        "catalyst-workbench-session-request-v1.schema.json",
+        "catalyst-workbench-session-v1.schema.json",
+        "catalyst-workbench-version-request-v1.schema.json",
     }
     registry.validate(
         "catalyst-question-request-v1.schema.json",
@@ -355,6 +360,75 @@ def test_loads_and_checks_all_nine_normative_schemas():
                 "question": "",
             },
         )
+    registry.validate(
+        "catalyst-workbench-finding-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.finding.v1",
+            "findingId": "finding-" + "0" * 24,
+            "ruleCode": "gateway_sql_policy.unapproved_view",
+            "severity": "error",
+            "stage": "gateway_sql_policy",
+            "message": "Only approved analytics views may be queried.",
+            "path": "sql",
+            "astUnit": None,
+            "span": None,
+            "evidence": {"relation": "analytics.not_a_view"},
+            "suggestedAction": "Use an approved analytics view.",
+            "repairability": "manual",
+            "validatorRevision": "catalyst.workbench.validator.v1",
+        },
+    )
+    registry.validate(
+        "catalyst-workbench-session-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": "Count tests",
+            "profileId": "catalyst-query-checked",
+        },
+    )
+    registry.validate(
+        "catalyst-workbench-session-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.session.v1",
+            "sessionId": "8a9e8d3e-9e93-4151-bf3d-6fca75430caa",
+            "question": "Count tests",
+            "profileId": "catalyst-query-checked",
+            "datasetId": "openelis-catalyst-demo",
+            "datasetVersion": "v1",
+            "catalogVersion": "v1",
+            "currentVersionId": None,
+            "browserState": {},
+            "provenance": {},
+            "status": "active",
+            "createdAt": "2026-07-17T00:00:00Z",
+            "updatedAt": "2026-07-17T00:00:00Z",
+            "versions": [],
+            "currentVersion": None,
+            "validations": [],
+            "latestValidation": None,
+            "executions": [],
+        },
+    )
+    registry.validate(
+        "catalyst-workbench-version-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": "version-1",
+            "parentQueryDigest": "0" * 64,
+            "sql": "SELECT 1",
+            "parameters": [],
+        },
+    )
+    registry.validate(
+        "catalyst-workbench-execute-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.execute.request.v1",
+            "versionId": "version-1",
+            "queryDigest": "0" * 64,
+            "idempotencyKey": "manual-1",
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -470,7 +544,7 @@ async def test_hub_discovery_and_completion_are_strict():
 
 
 @pytest.mark.asyncio
-async def test_hub_readiness_accepts_an_available_nondefault_profile():
+async def test_hub_readiness_requires_the_default_gemma_profile():
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/health":
             return httpx.Response(200, json={"status": "ready"})
@@ -500,8 +574,13 @@ async def test_hub_readiness_accepts_an_available_nondefault_profile():
     )
     assert await client.readiness() == {
         "hub": {"ready": True},
-        "queryProfile": {"ready": True},
-        "modelRouter": {"ready": True},
+        "queryProfile": {
+            "ready": False,
+            "message": (
+                "Hub does not advertise available profile " "catalyst-query-gemma-e4b."
+            ),
+        },
+        "modelRouter": {"ready": False},
     }
     await client.aclose()
 
@@ -572,6 +651,104 @@ async def test_hub_rejects_invalid_completion(response: dict, code: str):
     with pytest.raises(HubError) as error:
         await client.generate_query(request)
     assert error.value.code == code
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hub_invalid_completion_preserves_raw_model_output():
+    raw_output = "SELECT test_name FROM analytics.lab_results"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "catalyst-query-gemma-e4b",
+                            "available": True,
+                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "completion-raw",
+                "object": "chat.completion",
+                "model": "catalyst-query-gemma-e4b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": raw_output},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    client = HubClient(
+        "http://hub",
+        ContractRegistry.load(CONTRACTS),
+        transport=httpx.MockTransport(handler),
+    )
+    request = build_query_request(
+        "Question",
+        catalog(),
+        max_rows=2,
+        statement_timeout_ms=500,
+        request_id="request-1",
+        trace_id="trace-1",
+    )
+
+    with pytest.raises(HubError) as error:
+        await client.generate_query(request)
+
+    assert error.value.code == "hub_invalid_response"
+    assert error.value.raw_output == raw_output
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hub_non_json_completion_preserves_raw_response_text():
+    raw_output = "SELECT test_name FROM analytics.lab_results"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "catalyst-query-gemma-e4b",
+                            "available": True,
+                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, text=raw_output)
+
+    client = HubClient(
+        "http://hub",
+        ContractRegistry.load(CONTRACTS),
+        transport=httpx.MockTransport(handler),
+    )
+    request = build_query_request(
+        "Question",
+        catalog(),
+        max_rows=2,
+        statement_timeout_ms=500,
+        request_id="request-1",
+        trace_id="trace-1",
+    )
+
+    with pytest.raises(HubError) as error:
+        await client.generate_query(request)
+
+    assert error.value.code == "hub_invalid_response"
+    assert error.value.raw_output == raw_output
     await client.aclose()
 
 
@@ -1010,6 +1187,134 @@ async def test_postgres_adapter_marks_a_reached_sql_limit_as_inexact():
     assert result.rows == [("patient-1",), ("patient-2",)]
     assert result.truncated is True
     assert result.truncation_reason == "query_limit_reached"
+
+
+@pytest.mark.asyncio
+async def test_dataset_rows_include_stable_observation_identity_and_ordering():
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+        def fetchone(self):
+            return (1,)
+
+        def fetchall(self):
+            return [
+                (
+                    "observation-1",
+                    "patient-1",
+                    "Viral Load",
+                    Decimal("9000"),
+                    "copies/ml",
+                    datetime(2026, 4, 27, 9, tzinfo=timezone.utc),
+                    datetime(2026, 4, 27, 11, tzinfo=timezone.utc),
+                    Decimal("120"),
+                )
+            ]
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: Connection(),
+    )
+
+    result = await adapter.dataset_rows(
+        test_name="Viral Load",
+        patient_id=None,
+        limit=25,
+        offset=0,
+    )
+
+    row_query, bindings = calls[2]
+    assert "SELECT observation_id, patient_id" in row_query
+    assert "ORDER BY observed_at DESC NULLS LAST, observation_id" in row_query
+    assert bindings == {
+        "limit": 25,
+        "offset": 0,
+        "test_name": "Viral Load",
+    }
+    assert result["rows"] == [
+        {
+            "observationId": "observation-1",
+            "patientId": "patient-1",
+            "testName": "Viral Load",
+            "value": "9000",
+            "unit": "copies/ml",
+            "observedAt": "2026-04-27T09:00:00Z",
+            "issuedAt": "2026-04-27T11:00:00Z",
+            "turnaroundMinutes": "120",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataset_overview_uses_live_pipeline_identity_without_claiming_classification():
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+        def fetchone(self):
+            return (
+                96,
+                1152,
+                9,
+                datetime(2025, 7, 15, 9, tzinfo=timezone.utc),
+                datetime(2026, 4, 27, 9, tzinfo=timezone.utc),
+                "full-20260717T120000Z",
+            )
+
+        def fetchall(self):
+            return []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        data_source_id="openelis-fhir-postgresql",
+        connect=lambda *args, **kwargs: Connection(),
+    )
+
+    overview = await adapter.dataset_overview()
+
+    assert "FROM analytics.pipeline_freshness_v1" in calls[1][0]
+    assert overview["datasetId"] == "full-20260717T120000Z"
+    assert overview["dataSource"] == "openelis-fhir-postgresql"
+    assert overview["pipelineRunId"] == "full-20260717T120000Z"
+    assert overview["synthetic"] is None
+    assert overview["exampleQuestions"] == []
 
 
 @pytest.mark.parametrize(

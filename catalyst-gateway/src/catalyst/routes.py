@@ -78,3 +78,52 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         idempotency_key: str = Query(alias="idempotencyKey", min_length=1),
     ) -> JSONResponse:
         return _json_response(service.poll_execution(preview_id, idempotency_key))
+
+    @app.post("/v1/catalyst/workbench/sessions")
+    async def create_workbench_session(request: Request) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(await service.create_workbench_session(payload))
+
+    @app.get("/v1/catalyst/workbench/sessions/{session_id}")
+    async def get_workbench_session(session_id: str) -> JSONResponse:
+        return _json_response(service.get_workbench_session(session_id))
+
+    @app.post("/v1/catalyst/workbench/sessions/{session_id}/versions")
+    async def create_workbench_version(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(service.create_workbench_version(session_id, payload))
+
+    @app.post("/v1/catalyst/workbench/versions/{version_id}/validate")
+    async def validate_workbench_version(version_id: str) -> JSONResponse:
+        return _json_response(service.validate_workbench_version(version_id))
+
+    @app.post("/v1/catalyst/workbench/versions/{version_id}/execute")
+    async def execute_workbench_version(
+        version_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(
+            await service.execute_workbench_version(version_id, payload)
+        )
+
+    @app.patch("/v1/catalyst/workbench/sessions/{session_id}/browser-state")
+    async def update_workbench_browser_state(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(
+            service.update_workbench_browser_state(session_id, payload)
+        )

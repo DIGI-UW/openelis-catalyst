@@ -10,7 +10,7 @@ from .catalyst.hub import HubClient
 from .catalyst.policy import SqlPolicy
 from .catalyst.routes import install_catalyst_routes
 from .catalyst.service import CatalystService
-from .catalyst.storage import PreviewStore
+from .catalyst.storage import PreviewStore, WorkbenchStore
 from .config import load_config
 
 
@@ -26,7 +26,10 @@ def _default_catalyst_service() -> CatalystService:
             contracts,
             timeout_seconds=config.hub_timeout_seconds,
         ),
-        analytics=PostgresAnalyticsAdapter(config.analytics_dsn),
+        analytics=PostgresAnalyticsAdapter(
+            config.analytics_dsn,
+            data_source_id=catalog.data_source,
+        ),
         store=PreviewStore(
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,
@@ -34,6 +37,7 @@ def _default_catalyst_service() -> CatalystService:
         sql_policy=SqlPolicy(max_rows=config.max_rows),
         max_rows=config.max_rows,
         statement_timeout_ms=config.statement_timeout_ms,
+        workbench_store=WorkbenchStore(config.preview_store_path),
     )
 
 

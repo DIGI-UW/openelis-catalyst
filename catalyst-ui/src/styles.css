@@ -2,6 +2,7 @@
   color: #161616;
   background: #f4f4f4;
   font-synthesis: none;
+  scroll-padding-block: 4rem 5rem;
   text-rendering: optimizeLegibility;
 }
 
@@ -55,6 +56,32 @@ input {
   margin: 0;
 }
 
+.demo-banner__message {
+  flex: 1 1 18rem;
+}
+
+.ask-openelis-navigation {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.ask-openelis-jump[data-visible="false"] {
+  display: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .app-shell {
   width: min(100% - 2rem, 76rem);
   padding: 2rem 0 5rem;
@@ -88,9 +115,56 @@ input {
 }
 
 .query-card--question {
-  display: grid;
-  gap: 2rem;
-  grid-template-columns: minmax(15rem, 0.75fr) minmax(20rem, 1.25fr);
+  scroll-margin-block: 4rem;
+}
+
+.query-composer__heading {
+  margin-bottom: 1rem;
+}
+
+.query-composer__heading h1 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+}
+
+.query-composer__heading h1:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: 0.25rem;
+}
+
+.query-composer-form {
+  max-width: 58rem;
+}
+
+.query-composer {
+  overflow: hidden;
+  border: 1px solid #8d8d8d;
+  background: #f4f4f4;
+}
+
+.query-composer__input {
+  padding: 1rem 1rem 0;
+  background: #fff;
+}
+
+.query-composer__input .cds--text-area {
+  min-height: 7.5rem;
+  border-bottom-color: transparent;
+  background: #fff;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.query-composer__toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #c6c6c6;
+}
+
+.query-composer__toolbar .profile-selector {
+  width: min(32rem, 100%);
 }
 
 .dataset-browser {
@@ -121,10 +195,13 @@ input {
   font-size: 1.25rem;
 }
 
-.dataset-browser__summary-table,
 .dataset-browser__rows {
   overflow-x: auto;
   border: 1px solid #e0e0e0;
+}
+
+.dataset-browser__details .cds--accordion__content {
+  padding-inline-end: 0;
 }
 
 .dataset-browser table {
@@ -153,26 +230,6 @@ input {
 
 .dataset-browser tbody tr:nth-child(even) {
   background: #f4f4f4;
-}
-
-.example-questions {
-  margin: 1.5rem 0;
-}
-
-.example-questions h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-}
-
-.example-questions > div {
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-}
-
-.example-questions .cds--btn {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .dataset-filters {
@@ -210,6 +267,13 @@ input {
   padding: 0.75rem;
   border-left: 3px solid #da1e28;
   background: #fff1f1;
+}
+
+.dataset-browser__empty {
+  padding: 2rem 1rem;
+  border: 1px dashed #8d8d8d;
+  color: #525252;
+  text-align: center;
 }
 
 .reasoning-trace {
@@ -500,12 +564,21 @@ input {
     display: block;
   }
 
+  .demo-banner__inner {
+    flex-wrap: wrap;
+  }
+
   .app-shell__intro p + p {
     margin-top: 0.375rem;
   }
 
-  .query-card--question {
-    grid-template-columns: 1fr;
+  .query-composer__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .query-composer__toolbar .cds--btn {
+    width: 100%;
   }
 
   .dataset-metrics {

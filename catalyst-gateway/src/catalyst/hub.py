@@ -11,8 +11,15 @@ from .request import QUERY_OUTPUT_CONTRACT, QUERY_PROFILE_ID
 
 
 class HubError(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        raw_output: str | None = None,
+    ) -> None:
         self.code = code
+        self.raw_output = raw_output
         super().__init__(message)
 
 
@@ -97,7 +104,15 @@ class HubClient:
             "/v1/chat/completions",
             json=request,
         )
-        completion = self._json_object(response, "query completion")
+        try:
+            completion = self._json_object(response, "query completion")
+        except HubError as error:
+            raise HubError(
+                error.code,
+                str(error),
+                raw_output=response.text,
+            ) from error
+        raw_output = self._completion_raw_output(completion)
         try:
             self.contracts.validate(
                 "catalyst-query-completion-v1.schema.json",
@@ -118,6 +133,7 @@ class HubClient:
             raise HubError(
                 "hub_invalid_response",
                 f"Hub returned an invalid structured query completion: {error}",
+                raw_output=raw_output,
             ) from error
         return query
 
@@ -135,17 +151,7 @@ class HubClient:
 
         if hub_ready:
             try:
-                profiles = await self.list_query_profiles()
-                available_profile_id = next(
-                    (
-                        str(profile["id"])
-                        for profile in profiles
-                        if profile.get("available") is True
-                        and isinstance(profile.get("id"), str)
-                    ),
-                    QUERY_PROFILE_ID,
-                )
-                profile = await self.discover_query_profile(available_profile_id)
+                profile = await self.discover_query_profile(QUERY_PROFILE_ID)
                 profile_ready = True
                 capabilities = profile.get("capabilities", {})
                 model_router = capabilities.get("modelRouter")
@@ -169,6 +175,16 @@ class HubClient:
             "queryProfile": profile_check,
             "modelRouter": {"ready": model_router_ready},
         }
+
+    @staticmethod
+    def _completion_raw_output(completion: dict[str, Any]) -> str | None:
+        """Best-effort extraction for manual recovery from malformed completions."""
+
+        try:
+            content = completion["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            return None
+        return content if isinstance(content, str) else None
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
