@@ -14,6 +14,45 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+const workbenchSession = {
+  contractVersion: "catalyst.workbench.session.v1" as const,
+  sessionId: "2bed91de-fa7d-4ffa-b4ae-0a454a883930",
+  question: QUESTION,
+  profileId: "catalyst-query-gemma-e4b",
+  datasetId: "analytics",
+  datasetVersion: "pipeline-1",
+  catalogVersion: "catalog-v1",
+  currentVersionId: "d801dc1d-fc94-435b-bee6-2b45c3173af1",
+  browserState: {},
+  provenance: {},
+  status: "active",
+  createdAt: "2026-07-17T00:00:00Z",
+  updatedAt: "2026-07-17T00:00:00Z",
+  versions: [],
+  currentVersion: null,
+  validations: [],
+  latestValidation: null,
+  executions: [],
+};
+
+const editorCatalog = {
+  contractVersion: "catalyst.workbench.editor-catalog.v1" as const,
+  catalogVersion: "catalog-v1",
+  schemaVersion: "schema-v1",
+  dialect: "postgresql" as const,
+  schemas: [
+    {
+      name: "analytics",
+      views: [
+        {
+          name: "lab_result_fact_v1",
+          columns: [{ name: "patient_id", logicalType: "string" }],
+        },
+      ],
+    },
+  ],
+};
+
 describe("Catalyst API client", () => {
   const fetcher = vi.fn<typeof fetch>();
   const api = createCatalystApi({
@@ -53,6 +92,140 @@ describe("Catalyst API client", () => {
       question: QUESTION,
       profileId: "catalyst-query-gemma-e4b",
     });
+  });
+
+  it("creates a manual workbench session through the real Hub profile", async () => {
+    fetcher.mockResolvedValue(jsonResponse(workbenchSession, 201));
+
+    await expect(
+      api.createWorkbenchSession?.(QUESTION, "catalyst-query-gemma-e4b"),
+    ).resolves.toEqual(workbenchSession);
+
+    expect(fetcher).toHaveBeenCalledWith("/v1/catalyst/workbench/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contractVersion: "catalyst.workbench.session.request.v1",
+        deploymentMode: "demo",
+        question: QUESTION,
+        profileId: "catalyst-query-gemma-e4b",
+      }),
+      signal: undefined,
+    });
+  });
+
+  it("loads completion identifiers from the gateway-owned editor catalog", async () => {
+    fetcher.mockResolvedValue(jsonResponse(editorCatalog));
+
+    await expect(api.getWorkbenchCatalog?.()).resolves.toEqual(editorCatalog);
+
+    expect(fetcher).toHaveBeenCalledWith("/v1/catalyst/workbench/catalog", {
+      headers: { Accept: "application/json" },
+      signal: undefined,
+    });
+  });
+
+  it("restores a persisted workbench session by ID", async () => {
+    fetcher.mockResolvedValue(jsonResponse(workbenchSession));
+
+    await expect(
+      api.getWorkbenchSession?.(workbenchSession.sessionId),
+    ).resolves.toEqual(workbenchSession);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `/v1/catalyst/workbench/sessions/${workbenchSession.sessionId}`,
+      {
+        headers: { Accept: "application/json" },
+        signal: undefined,
+      },
+    );
+  });
+
+  it("persists the exact SQL buffer as an immutable human child version", async () => {
+    fetcher.mockResolvedValue(jsonResponse(workbenchSession, 201));
+    const sql = "SELECT patient_id FROM analytics.lab_result_fact_v1";
+
+    await api.createWorkbenchVersion?.(workbenchSession.sessionId, {
+      parentVersionId: "version-parent",
+      parentQueryDigest: "a".repeat(64),
+      sql,
+      parameters: [
+        { name: "test_name", type: "string", source: "human", value: "Viral Load" },
+      ],
+      expectedColumns: [],
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `/v1/catalyst/workbench/sessions/${workbenchSession.sessionId}/versions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractVersion: "catalyst.workbench.version.request.v1",
+          parentVersionId: "version-parent",
+          parentQueryDigest: "a".repeat(64),
+          sql,
+          parameters: [
+            {
+              name: "test_name",
+              type: "string",
+              source: "human",
+              value: "Viral Load",
+            },
+          ],
+          expectedColumns: [],
+        }),
+        signal: undefined,
+      },
+    );
+  });
+
+  it("revalidates and runs an exact immutable version without a validation gate", async () => {
+    const validation = {
+      contractVersion: "catalyst.workbench.validation.v1",
+      validationId: "validation-1",
+      status: "invalid",
+    };
+    const execution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      executionId: "execution-1",
+      status: "failed",
+    };
+    fetcher
+      .mockResolvedValueOnce(jsonResponse(validation, 201))
+      .mockResolvedValueOnce(jsonResponse(execution));
+
+    await expect(
+      api.validateWorkbenchVersion?.("version-1"),
+    ).resolves.toEqual(validation);
+    await expect(
+      api.executeWorkbenchVersion?.("version-1", "b".repeat(64), "run-1"),
+    ).resolves.toEqual(execution);
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "/v1/catalyst/workbench/versions/version-1/validate",
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: undefined,
+      },
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/v1/catalyst/workbench/versions/version-1/execute",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractVersion: "catalyst.workbench.execute.request.v1",
+          versionId: "version-1",
+          queryDigest: "b".repeat(64),
+          idempotencyKey: "run-1",
+        }),
+        signal: undefined,
+      },
+    );
   });
 
   it("reads dataset overview and filtered rows", async () => {

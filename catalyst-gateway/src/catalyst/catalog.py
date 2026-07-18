@@ -11,6 +11,7 @@ from typing import Any
 class Catalog:
     data_source: str
     catalog_version: str
+    schema_version: str
     dialect: str
     context_source_id: str
     views: list[dict[str, Any]]
@@ -97,6 +98,7 @@ class Catalog:
         return cls(
             data_source=payload["dataSource"],
             catalog_version=catalog_version,
+            schema_version=payload["schemaVersion"],
             dialect=payload["dialect"],
             context_source_id=f"catalog:{catalog_version}",
             views=views,
@@ -108,6 +110,7 @@ class Catalog:
         return cls(
             data_source="openelis-demo-analytics",
             catalog_version="2026.07",
+            schema_version="analytics-v1",
             dialect="postgresql",
             context_source_id="catalog:openelis-demo-analytics:2026.07",
             views=[

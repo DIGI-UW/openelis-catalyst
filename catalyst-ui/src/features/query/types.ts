@@ -21,7 +21,7 @@ export type LogicalType =
 export interface BoundParameter {
   name: string;
   type: ParameterType;
-  source: "question";
+  source: "question" | "human";
   value: unknown;
 }
 
@@ -135,6 +135,14 @@ export interface CatalystPolicyOutcome {
   catalystTraceId: string;
 }
 
+export type JsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export type TaggedCell =
   | { type: "null" }
   | { type: "string"; value: string }
@@ -142,7 +150,12 @@ export type TaggedCell =
   | { type: "decimal"; value: string }
   | { type: "boolean"; value: boolean }
   | { type: "date"; value: string }
-  | { type: "date-time"; value: string };
+  | { type: "date-time"; value: string }
+  | { type: "time"; value: string }
+  | { type: "json"; value: JsonValue }
+  | { type: "array"; value: JsonValue[] }
+  | { type: "binary"; value: string }
+  | { type: "interval"; value: string };
 
 export interface CatalystTable {
   contractVersion: "catalyst.table.v1";
@@ -251,6 +264,158 @@ export interface DatasetRows {
   limit: number;
   offset: number;
   rows: DatasetRow[];
+}
+
+export interface WorkbenchEditorCatalogColumn {
+  name: string;
+  logicalType: string;
+}
+
+export interface WorkbenchEditorCatalogView {
+  name: string;
+  columns: WorkbenchEditorCatalogColumn[];
+}
+
+export interface WorkbenchEditorCatalogSchema {
+  name: string;
+  views: WorkbenchEditorCatalogView[];
+}
+
+export interface WorkbenchEditorCatalog {
+  contractVersion: "catalyst.workbench.editor-catalog.v1";
+  catalogVersion: string;
+  schemaVersion: string;
+  dialect: "postgresql";
+  schemas: WorkbenchEditorCatalogSchema[];
+}
+
+export interface WorkbenchFinding {
+  contractVersion: "catalyst.workbench.finding.v1";
+  findingId: string;
+  ruleCode: string;
+  severity: "error" | "warning" | "info";
+  stage: string;
+  message: string;
+  path: string;
+  astUnit: unknown;
+  span: unknown;
+  evidence: unknown;
+  suggestedAction: string | null;
+  repairability: "none" | "manual" | "deterministic" | "model";
+  validatorRevision: string;
+}
+
+export interface WorkbenchValidation {
+  contractVersion: "catalyst.workbench.validation.v1";
+  queryDigest: string;
+  validatorRevision: string;
+  validatorDigest: string;
+  status: "invalid" | "warning" | "valid";
+  advisory: true;
+  checks: Array<{
+    name: string;
+    status: "passed" | "warned" | "failed";
+    findingIds: string[];
+  }>;
+  findings: WorkbenchFinding[];
+  durationMs: number;
+  validationId: string;
+  sessionId: string;
+  versionId: string;
+  ordinal: number;
+  createdAt: string;
+}
+
+export interface WorkbenchQueryVersion {
+  contractVersion: "catalyst.workbench.query-version.v1";
+  versionId: string;
+  sessionId: string;
+  parentVersionId: string | null;
+  ordinal: number;
+  authorType: "model" | "human" | "deterministic_repair" | "model_repair";
+  sql: string;
+  parameters: BoundParameter[];
+  expectedColumns: Column[];
+  queryDigest: string;
+  provenance: Record<string, unknown>;
+  sourceFindingIds: string[];
+  repairProposalId: string | null;
+  createdAt: string;
+}
+
+export interface WorkbenchDatabaseDiagnostic {
+  sqlstate: string | null;
+  severity: string | null;
+  message: string;
+  detail: string | null;
+  hint: string | null;
+  position: number | null;
+}
+
+export interface WorkbenchExecution {
+  contractVersion: "catalyst.workbench.execution.v1";
+  queryDigest: string;
+  idempotencyKey: string;
+  validationStatus: "not_run" | "invalid" | "warning" | "valid";
+  query: {
+    sql: string;
+    parameters: BoundParameter[];
+  };
+  statementTimeoutMs: number;
+  maxRows: number;
+  replayed: boolean;
+  status: "succeeded" | "failed";
+  result?: {
+    columns: Array<{
+      ordinal: number;
+      name: string;
+      databaseType: string;
+      typeOid: number | null;
+      logicalType: string;
+    }>;
+    rows: TaggedCell[][];
+    rowCount: {
+      returned: number;
+      truncated: boolean;
+      truncationReason: string | null;
+    };
+  };
+  databaseDiagnostic?: WorkbenchDatabaseDiagnostic;
+  durationMs: number;
+  executionId: string;
+  sessionId: string;
+  versionId: string;
+  ordinal: number;
+  completedAt: string;
+}
+
+export interface WorkbenchSession {
+  contractVersion: "catalyst.workbench.session.v1";
+  sessionId: string;
+  question: string;
+  profileId: string;
+  datasetId: string;
+  datasetVersion: string;
+  catalogVersion: string;
+  currentVersionId: string | null;
+  browserState: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  versions: WorkbenchQueryVersion[];
+  currentVersion: WorkbenchQueryVersion | null;
+  validations: WorkbenchValidation[];
+  latestValidation: WorkbenchValidation | null;
+  executions: WorkbenchExecution[];
+}
+
+export interface WorkbenchVersionDraft {
+  parentVersionId?: string;
+  parentQueryDigest?: string;
+  sql: string;
+  parameters: BoundParameter[];
+  expectedColumns?: Column[];
 }
 
 export interface CatalystExecutionOutcome {

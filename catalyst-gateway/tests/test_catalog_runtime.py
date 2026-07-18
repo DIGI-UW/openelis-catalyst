@@ -19,6 +19,7 @@ def test_checked_in_analytics_catalog_is_the_gateway_context():
 
     assert catalog.data_source == "openelis-fhir-postgresql"
     assert catalog.catalog_version == "analytics-catalog-v1"
+    assert catalog.schema_version == "analytics-v1"
     assert catalog.context_source_id == "catalog:analytics-catalog-v1"
     assert catalog.approved_view_names == {"analytics.lab_result_fact_v1"}
     fields = {

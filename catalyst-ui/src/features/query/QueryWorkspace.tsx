@@ -9,15 +9,20 @@ import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
 import { ResultsTable } from "./components/ResultsTable";
+import { WorkbenchPanel } from "./components/WorkbenchPanel";
 import {
   isPreview,
   isTable,
+  type BoundParameter,
   type CatalystExecutionOutcome,
   type CatalystPolicyOutcome,
   type CatalystPreview,
   type CatalystQueryOutcome,
   type CatalystTable,
   type QueryOptions,
+  type WorkbenchEditorCatalog,
+  type WorkbenchQueryVersion,
+  type WorkbenchSession,
 } from "./types";
 
 type WorkflowState =
@@ -43,6 +48,32 @@ interface QueryWorkspaceProps {
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : "An unexpected request error occurred.";
+
+const ACTIVE_WORKBENCH_SESSION_KEY = "catalyst.workbench.activeSessionId";
+
+const readActiveWorkbenchSessionId = () => {
+  try {
+    return globalThis.localStorage?.getItem(ACTIVE_WORKBENCH_SESSION_KEY) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const rememberActiveWorkbenchSession = (sessionId: string) => {
+  try {
+    globalThis.localStorage?.setItem(ACTIVE_WORKBENCH_SESSION_KEY, sessionId);
+  } catch {
+    // Server persistence still works when browser storage is unavailable.
+  }
+};
+
+const forgetActiveWorkbenchSession = () => {
+  try {
+    globalThis.localStorage?.removeItem(ACTIVE_WORKBENCH_SESSION_KEY);
+  } catch {
+    // Nothing else is required when browser storage is unavailable.
+  }
+};
 
 const createIdempotencyKey = () => {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -146,7 +177,7 @@ const QueryOutcomeState = ({ outcome }: { outcome: CatalystQueryOutcome }) => {
                   )}
                 </div>
               )}
-              {!candidate && diagnostic.rawOutput && (
+              {diagnostic.rawOutput && (
                 <div className="preview-block">
                   <h3>Raw model output</h3>
                   <div aria-label="Rejected raw model output">
@@ -201,6 +232,25 @@ export const QueryWorkspace = ({
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
   const [profileId, setProfileId] = useState("");
+  const [workbenchSession, setWorkbenchSession] =
+    useState<WorkbenchSession | null>(null);
+  const [workbenchSql, setWorkbenchSql] = useState("");
+  const [workbenchParameters, setWorkbenchParameters] = useState<
+    BoundParameter[]
+  >([]);
+  const [workbenchCatalog, setWorkbenchCatalog] =
+    useState<WorkbenchEditorCatalog | null>(null);
+  const [workbenchCatalogFailed, setWorkbenchCatalogFailed] = useState(false);
+  const [workbenchWrapLines, setWorkbenchWrapLines] = useState(true);
+  const [workbenchBusy, setWorkbenchBusy] = useState<
+    "validating" | "running" | null
+  >(null);
+  const [workbenchError, setWorkbenchError] = useState<string | null>(null);
+  const usesWorkbench = Boolean(
+    api.createWorkbenchSession &&
+      api.createWorkbenchVersion &&
+      api.executeWorkbenchVersion,
+  );
 
   useEffect(() => {
     if (!api.getQueryOptions) return;
@@ -211,9 +261,57 @@ export const QueryWorkspace = ({
         const defaultProfile = options.profiles.find(
           (profile) => profile.id === options.defaultProfileId && profile.available,
         );
-        setProfileId(defaultProfile?.id ?? options.profiles.find((profile) => profile.available)?.id ?? "");
+        const fallbackProfileId =
+          defaultProfile?.id ??
+          options.profiles.find((profile) => profile.available)?.id ??
+          "";
+        setProfileId((currentProfileId) => currentProfileId || fallbackProfileId);
       })
       .catch(() => undefined);
+    return () => controller.abort();
+  }, [api]);
+
+  useEffect(() => {
+    if (!api.getWorkbenchCatalog) return;
+    const controller = new AbortController();
+    api.getWorkbenchCatalog(controller.signal)
+      .then((catalog) => {
+        setWorkbenchCatalog(catalog);
+        setWorkbenchCatalogFailed(false);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setWorkbenchCatalog(null);
+          setWorkbenchCatalogFailed(true);
+        }
+      });
+    return () => controller.abort();
+  }, [api]);
+
+  useEffect(() => {
+    if (!api.getWorkbenchSession) return;
+    const sessionId = readActiveWorkbenchSessionId();
+    if (!sessionId) return;
+    const controller = new AbortController();
+    api.getWorkbenchSession(sessionId, controller.signal)
+      .then((session) => {
+        setWorkbenchSession(session);
+        setQuestion(session.question);
+        setProfileId(session.profileId);
+        setWorkbenchSql(session.currentVersion?.sql ?? "");
+        setWorkbenchParameters(
+          session.currentVersion?.parameters.map((parameter) => ({ ...parameter })) ??
+            [],
+        );
+        setWorkbenchWrapLines(
+          typeof session.browserState.sqlWrapLines === "boolean"
+            ? session.browserState.sqlWrapLines
+            : true,
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) forgetActiveWorkbenchSession();
+      });
     return () => controller.abort();
   }, [api]);
 
@@ -250,7 +348,27 @@ export const QueryWorkspace = ({
 
   const submitQuestion = async (normalizedQuestion: string) => {
     setState({ kind: "submitting" });
+    setWorkbenchError(null);
     try {
+      if (usesWorkbench) {
+        const session = queryOptions && profileId
+          ? await api.createWorkbenchSession!(normalizedQuestion, profileId)
+          : await api.createWorkbenchSession!(normalizedQuestion);
+        setWorkbenchSession(session);
+        rememberActiveWorkbenchSession(session.sessionId);
+        setWorkbenchSql(session.currentVersion?.sql ?? "");
+        setWorkbenchParameters(
+          session.currentVersion?.parameters.map((parameter) => ({ ...parameter })) ??
+            [],
+        );
+        setWorkbenchWrapLines(
+          typeof session.browserState.sqlWrapLines === "boolean"
+            ? session.browserState.sqlWrapLines
+            : true,
+        );
+        setState({ kind: "idle" });
+        return;
+      }
       const response = queryOptions && profileId
         ? await api.submitQuestion(normalizedQuestion, profileId)
         : await api.submitQuestion(normalizedQuestion);
@@ -293,6 +411,92 @@ export const QueryWorkspace = ({
   const reset = () => {
     setQuestion("");
     setState({ kind: "idle" });
+    setWorkbenchSession(null);
+    setWorkbenchSql("");
+    setWorkbenchParameters([]);
+    setWorkbenchBusy(null);
+    setWorkbenchError(null);
+    forgetActiveWorkbenchSession();
+  };
+
+  const persistWorkbenchDraft = async (): Promise<{
+    session: WorkbenchSession;
+    version: WorkbenchQueryVersion;
+  }> => {
+    if (!workbenchSession || !api.createWorkbenchVersion) {
+      throw new Error("The manual workbench is not available.");
+    }
+    const parent = workbenchSession.currentVersion;
+    const session = await api.createWorkbenchVersion(workbenchSession.sessionId, {
+      ...(parent
+        ? {
+            parentVersionId: parent.versionId,
+            parentQueryDigest: parent.queryDigest,
+          }
+        : {}),
+      sql: workbenchSql,
+      parameters: workbenchParameters,
+      expectedColumns: parent?.expectedColumns ?? [],
+    });
+    if (!session.currentVersion) {
+      throw new Error("Catalyst did not return the saved query version.");
+    }
+    setWorkbenchSession(session);
+    return { session, version: session.currentVersion };
+  };
+
+  const validateWorkbenchDraft = async () => {
+    if (workbenchBusy) return;
+    setWorkbenchBusy("validating");
+    setWorkbenchError(null);
+    try {
+      await persistWorkbenchDraft();
+    } catch (error) {
+      setWorkbenchError(messageFromError(error));
+    } finally {
+      setWorkbenchBusy(null);
+    }
+  };
+
+  const runWorkbenchDraft = async () => {
+    if (workbenchBusy || !api.executeWorkbenchVersion) return;
+    setWorkbenchBusy("running");
+    setWorkbenchError(null);
+    try {
+      const { session, version } = await persistWorkbenchDraft();
+      const execution = await api.executeWorkbenchVersion(
+        version.versionId,
+        version.queryDigest,
+        createIdempotencyKey(),
+      );
+      setWorkbenchSession({
+        ...session,
+        executions: [...session.executions, execution],
+      });
+    } catch (error) {
+      setWorkbenchError(messageFromError(error));
+    } finally {
+      setWorkbenchBusy(null);
+    }
+  };
+
+  const updateWorkbenchWrapLines = (wrapLines: boolean) => {
+    setWorkbenchWrapLines(wrapLines);
+    if (!workbenchSession || !api.updateWorkbenchBrowserState) return;
+    const sessionId = workbenchSession.sessionId;
+    const browserState = {
+      ...workbenchSession.browserState,
+      sqlWrapLines: wrapLines,
+    };
+    void api.updateWorkbenchBrowserState(sessionId, browserState)
+      .then((restored) => {
+        setWorkbenchSession((current) =>
+          current?.sessionId === sessionId
+            ? { ...current, browserState: restored.browserState }
+            : current,
+        );
+      })
+      .catch(() => undefined);
   };
 
   const questionIsLocked =
@@ -321,9 +525,33 @@ export const QueryWorkspace = ({
 
       {state.kind === "submitting" && (
         <ExecutionState
-          title="Preparing preview"
-          message="Catalyst is validating the question and proposed query."
+          title={
+            usesWorkbench ? "Generating workbench draft" : "Preparing preview"
+          }
+          message={
+            usesWorkbench
+              ? "Med-Agent Hub is generating an editable SQL draft with the selected profile."
+              : "Catalyst is validating the question and proposed query."
+          }
           running
+        />
+      )}
+
+      {workbenchSession && (
+        <WorkbenchPanel
+          session={workbenchSession}
+          sql={workbenchSql}
+          parameters={workbenchParameters}
+          editorCatalog={workbenchCatalog}
+          catalogLoadingFailed={workbenchCatalogFailed}
+          wrapLines={workbenchWrapLines}
+          busy={workbenchBusy}
+          error={workbenchError}
+          onSqlChange={setWorkbenchSql}
+          onParametersChange={setWorkbenchParameters}
+          onWrapLinesChange={updateWorkbenchWrapLines}
+          onValidate={validateWorkbenchDraft}
+          onRun={runWorkbenchDraft}
         />
       )}
 

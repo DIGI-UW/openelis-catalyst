@@ -247,6 +247,9 @@ class SemanticContractTests(unittest.TestCase):
 
         self.assertEqual(
             [
+                "patient_id",
+                "test_code",
+                "test_name",
                 "result_value",
                 "result_unit",
                 "issued_at",

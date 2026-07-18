@@ -140,6 +140,96 @@ class CatalystService:
             },
         )
 
+    def workbench_editor_catalog(self) -> ServiceResponse:
+        try:
+            schemas_by_name: dict[str, list[dict[str, Any]]] = {}
+            seen_views: set[str] = set()
+            for source_view in self.catalog.views:
+                if not isinstance(source_view, dict):
+                    raise TypeError("Approved catalog views must be objects.")
+                qualified_name = source_view.get("name")
+                if not isinstance(qualified_name, str):
+                    raise TypeError("Approved catalog view names must be strings.")
+                name_parts = qualified_name.split(".")
+                if len(name_parts) != 2 or any(not part for part in name_parts):
+                    raise ValueError(
+                        "Approved catalog view names must be schema-qualified: "
+                        f"{qualified_name!r}."
+                    )
+                if qualified_name in seen_views:
+                    raise ValueError(
+                        f"Approved catalog view names must be unique: {qualified_name!r}."
+                    )
+                seen_views.add(qualified_name)
+
+                fields = source_view.get("fields")
+                if not isinstance(fields, list) or not fields:
+                    raise ValueError(
+                        "Approved catalog views must expose at least one column: "
+                        f"{qualified_name!r}."
+                    )
+                columns: list[dict[str, str]] = []
+                seen_columns: set[str] = set()
+                for field in fields:
+                    if not isinstance(field, dict):
+                        raise TypeError(
+                            f"Catalog columns for {qualified_name!r} must be objects."
+                        )
+                    column_name = field.get("name")
+                    logical_type = field.get("type")
+                    if not isinstance(column_name, str) or not column_name:
+                        raise ValueError(
+                            f"Catalog columns for {qualified_name!r} need names."
+                        )
+                    if column_name in seen_columns:
+                        raise ValueError(
+                            "Catalog column names must be unique within a view: "
+                            f"{qualified_name}.{column_name}."
+                        )
+                    if not isinstance(logical_type, str) or not logical_type:
+                        raise ValueError(
+                            "Catalog columns must declare logical types: "
+                            f"{qualified_name}.{column_name}."
+                        )
+                    seen_columns.add(column_name)
+                    columns.append({"name": column_name, "logicalType": logical_type})
+
+                schema_name, view_name = name_parts
+                schemas_by_name.setdefault(schema_name, []).append(
+                    {
+                        "name": view_name,
+                        "columns": sorted(columns, key=lambda column: column["name"]),
+                    }
+                )
+
+            body = {
+                "contractVersion": "catalyst.workbench.editor-catalog.v1",
+                "catalogVersion": self.catalog.catalog_version,
+                "schemaVersion": self.catalog.schema_version,
+                "dialect": self.catalog.dialect,
+                "schemas": [
+                    {
+                        "name": schema_name,
+                        "views": sorted(
+                            schemas_by_name[schema_name],
+                            key=lambda view: view["name"],
+                        ),
+                    }
+                    for schema_name in sorted(schemas_by_name)
+                ],
+            }
+            self.contracts.validate(
+                "catalyst-workbench-editor-catalog-v1.schema.json",
+                body,
+            )
+        except (ContractError, KeyError, TypeError, ValueError) as error:
+            return self._workbench_error(
+                503,
+                "editor_catalog_unavailable",
+                f"The approved editor catalog is unavailable: {error}",
+            )
+        return ServiceResponse(200, body)
+
     async def dataset_overview(self) -> ServiceResponse:
         try:
             return ServiceResponse(200, await self.analytics.dataset_overview())

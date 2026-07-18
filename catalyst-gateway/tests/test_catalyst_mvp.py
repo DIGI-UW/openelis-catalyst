@@ -36,6 +36,7 @@ def catalog() -> Catalog:
     return Catalog(
         data_source="openelis-demo",
         catalog_version="2026.07",
+        schema_version="analytics-v1",
         dialect="postgresql",
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
@@ -326,7 +327,7 @@ def execute_body(preview: dict, key: str = "idem-1") -> dict:
 
 def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 14
+    assert len(registry.schemas) == 15
     assert set(registry.schemas) == {
         "catalyst-execute-request-v1.schema.json",
         "catalyst-execution-outcome-v1.schema.json",
@@ -338,11 +339,37 @@ def test_loads_and_checks_all_normative_schemas():
         "catalyst-question-request-v1.schema.json",
         "catalyst-table-v1.schema.json",
         "catalyst-workbench-execute-request-v1.schema.json",
+        "catalyst-workbench-editor-catalog-v1.schema.json",
         "catalyst-workbench-finding-v1.schema.json",
         "catalyst-workbench-session-request-v1.schema.json",
         "catalyst-workbench-session-v1.schema.json",
         "catalyst-workbench-version-request-v1.schema.json",
     }
+    registry.validate(
+        "catalyst-workbench-editor-catalog-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.editor-catalog.v1",
+            "catalogVersion": "analytics-catalog-v1",
+            "schemaVersion": "analytics-v1",
+            "dialect": "postgresql",
+            "schemas": [
+                {
+                    "name": "analytics",
+                    "views": [
+                        {
+                            "name": "lab_result_fact_v1",
+                            "columns": [
+                                {
+                                    "name": "observed_at",
+                                    "logicalType": "date-time",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
     registry.validate(
         "catalyst-question-request-v1.schema.json",
         {

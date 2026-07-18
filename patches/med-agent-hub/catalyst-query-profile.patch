@@ -862,10 +862,10 @@ index 534ce71..291a55b 100644
  def test_only_one_configured_profile_is_default():
 diff --git a/server/catalyst_query.py b/server/catalyst_query.py
 new file mode 100644
-index 0000000..b47d22e
+index 0000000..87931e7
 --- /dev/null
 +++ b/server/catalyst_query.py
-@@ -0,0 +1,1551 @@
+@@ -0,0 +1,2190 @@
 +"""Fail-closed stages for the governed Catalyst analytics-query profile."""
 +
 +from __future__ import annotations
@@ -876,6 +876,7 @@ index 0000000..b47d22e
 +import re
 +from copy import deepcopy
 +from datetime import datetime, timezone
++from decimal import Decimal, InvalidOperation
 +from pathlib import Path
 +from typing import Any, AsyncIterator, Dict, Mapping, Optional, Tuple
 +
@@ -1039,6 +1040,14 @@ index 0000000..b47d22e
 +        super().__init__(message)
 +
 +
++class QueryPatchError(QueryContractError):
++    """A generation correction patch violated its strict local scope."""
++
++    def __init__(self, code: str, message: str) -> None:
++        self.code = code
++        super().__init__(message)
++
++
 +def _structured_format(name: str, schema: Mapping[str, Any]) -> Dict[str, Any]:
 +    return {
 +        "type": "json_schema",
@@ -1118,6 +1127,99 @@ index 0000000..b47d22e
 +)
 +_REVIEW_FORMAT = _structured_format("catalyst_query_review", _BACKEND_REVIEW_SCHEMA)
 +_REPAIR_FORMAT = _structured_format("catalyst_query_repair", _BACKEND_REPAIR_SCHEMA)
++
++_PATCH_OPERATION_SCHEMA: Dict[str, Any] = {
++    "oneOf": [
++        {
++            "type": "object",
++            "additionalProperties": False,
++            "required": [
++                "findingCode",
++                "op",
++                "path",
++                "oldValue",
++                "replacement",
++            ],
++            "properties": {
++                "findingCode": {"type": "string", "minLength": 1},
++                "op": {"const": "replace_text"},
++                "path": {"const": "/sql"},
++                "oldValue": {"type": "string", "minLength": 1},
++                "replacement": {"type": "string"},
++            },
++        },
++        {
++            "type": "object",
++            "additionalProperties": False,
++            "required": ["findingCode", "op", "path", "value"],
++            "properties": {
++                "findingCode": {"type": "string", "minLength": 1},
++                "op": {"enum": ["add", "replace"]},
++                "path": {"type": "string", "pattern": "^/"},
++                "value": {},
++            },
++        },
++    ]
++}
++_BACKEND_PATCH_SCHEMA: Dict[str, Any] = {
++    "type": "object",
++    "additionalProperties": False,
++    "required": ["patches"],
++    "properties": {
++        "patches": {
++            "type": "array",
++            "minItems": 1,
++            "maxItems": 12,
++            "items": _PATCH_OPERATION_SCHEMA,
++        }
++    },
++}
++Draft202012Validator.check_schema(_BACKEND_PATCH_SCHEMA)
++_PATCH_VALIDATOR = Draft202012Validator(
++    _BACKEND_PATCH_SCHEMA, format_checker=_FORMAT_CHECKER
++)
++
++
++def _patch_format(
++    allowed_paths: list[str],
++    finding_codes: list[str],
++    *,
++    add_only_paths: Optional[set[str]] = None,
++) -> Dict[str, Any]:
++    """Return a strict private response schema narrowed to current findings."""
++    codes = sorted(set(finding_codes))
++    add_only = add_only_paths or set()
++    operation_variants: list[dict[str, Any]] = []
++    if "/sql" in allowed_paths:
++        text_variant = deepcopy(_PATCH_OPERATION_SCHEMA["oneOf"][0])
++        text_variant["properties"]["findingCode"] = {"enum": codes}
++        operation_variants.append(text_variant)
++
++    for path in (path for path in allowed_paths if path != "/sql"):
++        leaf_variant = deepcopy(_PATCH_OPERATION_SCHEMA["oneOf"][1])
++        leaf_variant["properties"]["findingCode"] = {"enum": codes}
++        leaf_variant["properties"]["path"] = {"const": path}
++        if path == "/parameters/-":
++            leaf_variant["properties"]["op"] = {"const": "add"}
++            leaf_variant["properties"]["value"] = deepcopy(
++                _CANDIDATE_SCHEMA["$defs"]["parameter"]
++            )
++        elif re.fullmatch(r"/parameters/\d+/name", path):
++            if path in add_only:
++                leaf_variant["properties"]["op"] = {"const": "add"}
++            leaf_variant["properties"]["value"] = deepcopy(
++                _CANDIDATE_SCHEMA["$defs"]["parameter"]["properties"]["name"]
++            )
++        elif re.fullmatch(r"/expectedColumns/\d+/name", path):
++            leaf_variant["properties"]["op"] = {"const": "replace"}
++            leaf_variant["properties"]["value"] = deepcopy(
++                _CANDIDATE_SCHEMA["$defs"]["column"]["properties"]["name"]
++            )
++        operation_variants.append(leaf_variant)
++
++    schema = deepcopy(_BACKEND_PATCH_SCHEMA)
++    schema["properties"]["patches"]["items"]["oneOf"] = operation_variants
++    return _structured_format("catalyst_query_candidate_patch", schema)
 +
 +
 +def _validation_error(
@@ -1238,7 +1340,7 @@ index 0000000..b47d22e
 +    return normalized, True
 +
 +
-+def _parse_candidate(
++def _normalize_candidate_draft(
 +    content: str,
 +    question: str,
 +    extension: Mapping[str, Any],
@@ -1249,7 +1351,19 @@ index 0000000..b47d22e
 +    normalized, binding_normalized = _normalize_single_date_binding(value, question)
 +    grounded = _normalize_grounded_parameter_names(normalized, question, extension)
 +    binding_normalized = binding_normalized or grounded != normalized
-+    normalized = grounded
++    return grounded, binding_normalized
++
++
++def _parse_candidate(
++    content: str,
++    question: str,
++    extension: Mapping[str, Any],
++    *,
++    label: str,
++) -> tuple[Dict[str, Any], bool]:
++    normalized, binding_normalized = _normalize_candidate_draft(
++        content, question, extension, label=label
++    )
 +    error = _validation_error(_CANDIDATE_VALIDATOR, normalized, label)
 +    if str(error):
 +        raise error
@@ -1375,9 +1489,7 @@ index 0000000..b47d22e
 +)
 +
 +
-+def _unknown_result_analyte(
-+    question: str, extension: Mapping[str, Any]
-+) -> str | None:
++def _unknown_result_analyte(question: str, extension: Mapping[str, Any]) -> str | None:
 +    """Detect a narrow result-name request outside catalog terminology."""
 +    has_analyte_terminology = any(
 +        dimension.get("semanticType") == "analyte" and dimension.get("values")
@@ -1457,6 +1569,68 @@ index 0000000..b47d22e
 +    ):
 +        names.update(_NAMED_PARAMETER.findall(membership))
 +    return names
++
++
++_QUESTION_NUMBER_LITERAL = re.compile(r"(?<![\w.])[-+]?\d[\d,]*(?:\.\d+)?(?![\w.])")
++
++
++def _numeric_value_in_question(value: Any, question: str) -> bool:
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return False
++    try:
++        expected = Decimal(str(value))
++    except InvalidOperation:
++        return False
++    question_without_dates = _ISO_DATE_LITERAL.sub(" ", question)
++    for token in _QUESTION_NUMBER_LITERAL.findall(question_without_dates):
++        try:
++            if Decimal(token.replace(",", "")) == expected:
++                return True
++        except InvalidOperation:
++            continue
++    return False
++
++
++def _parameter_value_grounded_in_question(
++    parameter: Mapping[str, Any], question: str
++) -> bool:
++    """Verify a complete typed parameter value is stated in the question."""
++    if parameter.get("source") != "question" or "value" not in parameter:
++        return False
++    parameter_type = parameter.get("type")
++    value = parameter.get("value")
++    if parameter_type == "string":
++        return (
++            isinstance(value, str)
++            and bool(value)
++            and _phrase_in_question(question, value)
++        )
++    if parameter_type in {"integer", "number"}:
++        return _numeric_value_in_question(value, question)
++    if parameter_type == "boolean":
++        return isinstance(value, bool) and _phrase_in_question(
++            question, str(value).lower()
++        )
++    if parameter_type in {"date", "date-time"}:
++        return isinstance(value, str) and bool(value) and value in question
++    if parameter_type == "string-list":
++        return (
++            isinstance(value, list)
++            and bool(value)
++            and all(
++                isinstance(item, str)
++                and bool(item)
++                and _phrase_in_question(question, item)
++                for item in value
++            )
++        )
++    if parameter_type == "integer-list":
++        return (
++            isinstance(value, list)
++            and bool(value)
++            and all(_numeric_value_in_question(item, question) for item in value)
++        )
++    return False
 +
 +
 +def _normalize_grounded_parameter_names(
@@ -1540,25 +1714,34 @@ index 0000000..b47d22e
 +            assigned.add(name)
 +
 +    question_dates = set(_ISO_DATE_LITERAL.findall(question))
++    bound_question_dates = {
++        str(parameter.get("value"))
++        for parameter in parameters
++        if isinstance(parameter, Mapping)
++        and parameter.get("name")
++        and parameter.get("type") == "date"
++        and str(parameter.get("value", "")) in question_dates
++    }
++    unbound_question_dates = question_dates - bound_question_dates
 +    unnamed_dates = [
 +        parameter
 +        for parameter in parameters
 +        if isinstance(parameter, dict)
 +        and not parameter.get("name")
 +        and parameter.get("type") == "date"
-+        and str(parameter.get("value", "")) in question_dates
++        and str(parameter.get("value", "")) in unbound_question_dates
 +    ]
 +    available = placeholders - assigned
 +    if len(unnamed_dates) == 1 and len(available) == 1:
 +        unnamed_dates[0]["name"] = available.pop()
 +        unnamed_dates[0].setdefault("source", "question")
-+    elif not unnamed_dates and len(question_dates) == 1 and len(available) == 1:
++    elif not unnamed_dates and len(unbound_question_dates) == 1 and len(available) == 1:
 +        parameters.append(
 +            {
 +                "name": available.pop(),
 +                "type": "date",
 +                "source": "question",
-+                "value": next(iter(question_dates)),
++                "value": next(iter(unbound_question_dates)),
 +            }
 +        )
 +
@@ -1570,14 +1753,10 @@ index 0000000..b47d22e
 +        )
 +        name = r"([A-Za-z_][A-Za-z0-9_]*)"
 +        threshold_names = set(
-+            re.findall(
-+                rf"{qualified_field}\s*(?:>=|>)\s*:{name}\b", sql, re.IGNORECASE
-+            )
++            re.findall(rf"{qualified_field}\s*(?:>=|>)\s*:{name}\b", sql, re.IGNORECASE)
 +        )
 +        threshold_names.update(
-+            re.findall(
-+                rf":{name}\b\s*(?:<=|<)\s*{qualified_field}", sql, re.IGNORECASE
-+            )
++            re.findall(rf":{name}\b\s*(?:<=|<)\s*{qualified_field}", sql, re.IGNORECASE)
 +        )
 +        if len(threshold_names) == 1:
 +            threshold_name = next(iter(threshold_names))
@@ -1619,6 +1798,21 @@ index 0000000..b47d22e
 +        for parameter in parameters
 +        if isinstance(parameter, Mapping) and parameter.get("name")
 +    }
++    available = placeholders - assigned
++    unnamed = [
++        parameter
++        for parameter in parameters
++        if isinstance(parameter, dict) and not parameter.get("name")
++    ]
++    if (
++        len(available) == 1
++        and len(unnamed) == 1
++        and _parameter_value_grounded_in_question(unnamed[0], question)
++    ):
++        unnamed[0]["name"] = next(iter(available))
++        unnamed[0].setdefault("source", "question")
++        assigned.add(str(unnamed[0]["name"]))
++
 +    if not placeholders - assigned:
 +        parameters = [
 +            parameter
@@ -1719,6 +1913,325 @@ index 0000000..b47d22e
 +    }
 +
 +
++def _patch_lint_finding(error: QueryPatchError) -> dict[str, Any]:
++    return {
++        "code": error.code,
++        "stage": "query_correct",
++        "severity": "error",
++        "path": "$",
++        "message": str(error),
++        "evidence": "generation correction patch was rejected",
++        "suggestedAction": (
++            "Return only permitted patch operations against the supplied base candidate."
++        ),
++    }
++
++
++def _missing_parameter_name_paths(
++    candidate: Mapping[str, Any], extension: Mapping[str, Any]
++) -> list[str]:
++    """Return exact missing-name leaves only when they are the sole schema errors."""
++    if candidate.get("status") != "ready":
++        return []
++    if candidate.get("target") != _canonical_target(extension):
++        return []
++    parameters = candidate.get("parameters")
++    if not isinstance(parameters, list):
++        return []
++    errors = list(_CANDIDATE_VALIDATOR.iter_errors(candidate))
++    if not errors:
++        return []
++
++    paths: list[str] = []
++    for error in errors:
++        absolute_path = list(error.absolute_path)
++        schema_path = list(error.absolute_schema_path)
++        if (
++            error.validator != "required"
++            or len(absolute_path) != 2
++            or absolute_path[0] != "parameters"
++            or not isinstance(absolute_path[1], int)
++            or absolute_path[1] < 0
++            or absolute_path[1] >= len(parameters)
++            or schema_path[-4:] != ["properties", "parameters", "items", "required"]
++        ):
++            return []
++        parameter = parameters[absolute_path[1]]
++        if not isinstance(parameter, Mapping):
++            return []
++        missing = set(error.validator_value) - set(parameter)
++        if missing != {"name"}:
++            return []
++        paths.append(f"/parameters/{absolute_path[1]}/name")
++
++    unique_paths = sorted(set(paths))
++    placeholders = set(_NAMED_PARAMETER.findall(str(candidate.get("sql", ""))))
++    assigned_names = [
++        str(parameter.get("name"))
++        for parameter in parameters
++        if isinstance(parameter, Mapping) and parameter.get("name")
++    ]
++    assigned = set(assigned_names)
++    if (
++        len(unique_paths) != 1
++        or len(assigned_names) != len(assigned)
++        or not assigned.issubset(placeholders)
++        or len(placeholders - assigned) != 1
++    ):
++        return []
++    return unique_paths
++
++
++def _missing_name_findings(paths: list[str]) -> list[dict[str, Any]]:
++    return [
++        {
++            "code": "contract.parameter_name_required",
++            "stage": "output_contract",
++            "severity": "error",
++            "path": path,
++            "message": "A bound parameter is missing its required SQL placeholder name.",
++            "evidence": path,
++            "suggestedAction": (
++                "Add exactly the SQL placeholder name for this parameter without "
++                "changing any other field."
++            ),
++        }
++        for path in paths
++    ]
++
++
++def _candidate_parameter_name_paths(candidate: Mapping[str, Any]) -> list[str]:
++    sql_names = set(_NAMED_PARAMETER.findall(str(candidate.get("sql", ""))))
++    parameters = list(candidate.get("parameters") or [])
++    assigned = {
++        str(parameter.get("name"))
++        for parameter in parameters
++        if isinstance(parameter, Mapping) and parameter.get("name") in sql_names
++    }
++    unbound = sql_names - assigned
++    repairable_indices = [
++        index
++        for index, parameter in enumerate(parameters)
++        if isinstance(parameter, Mapping)
++        and (not parameter.get("name") or str(parameter.get("name")) not in sql_names)
++    ]
++    if repairable_indices and len(repairable_indices) == len(unbound):
++        return [f"/parameters/{index}/name" for index in repairable_indices]
++    return []
++
++
++def _allowed_patch_paths(
++    candidate: Mapping[str, Any], findings: list[dict[str, Any]]
++) -> list[str]:
++    paths: set[str] = set()
++    parameter_name_paths = _candidate_parameter_name_paths(candidate)
++    for finding in findings:
++        code = str(finding.get("code", ""))
++        path = str(finding.get("path", "")).removeprefix("$.")
++        if path == "sql" or code.startswith(("catalog.", "policy.", "semantic.")):
++            paths.add("/sql")
++        if path == "parameters" or code.startswith("binding."):
++            paths.update(parameter_name_paths)
++            if not parameter_name_paths:
++                paths.add("/parameters/-")
++        if code in {
++            "policy.unbound_predicate_literal",
++            "semantic.named_analyte_constraint",
++            "semantic.turnaround_threshold",
++        }:
++            paths.add("/parameters/-")
++        if path == "expectedColumns" or code == "output.projection_mismatch":
++            paths.add("/sql")
++            for index, column in enumerate(candidate.get("expectedColumns") or []):
++                if isinstance(column, Mapping) and "name" in column:
++                    paths.add(f"/expectedColumns/{index}/name")
++    return sorted(paths)
++
++
++def _decode_pointer(path: str) -> list[str]:
++    if not path.startswith("/"):
++        raise QueryPatchError(
++            "generation.patch_out_of_scope", "Patch path is not a JSON Pointer."
++        )
++    return [
++        segment.replace("~1", "/").replace("~0", "~") for segment in path[1:].split("/")
++    ]
++
++
++def _apply_leaf_patch(candidate: Dict[str, Any], operation: Mapping[str, Any]) -> None:
++    path = str(operation["path"])
++    segments = _decode_pointer(path)
++    parent: Any = candidate
++    for segment in segments[:-1]:
++        if isinstance(parent, list):
++            try:
++                parent = parent[int(segment)]
++            except (ValueError, IndexError) as error:
++                raise QueryPatchError(
++                    "generation.patch_out_of_scope",
++                    f"Patch path {path!r} does not exist in the base candidate.",
++                ) from error
++        elif isinstance(parent, dict) and segment in parent:
++            parent = parent[segment]
++        else:
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                f"Patch path {path!r} does not exist in the base candidate.",
++            )
++
++    leaf = segments[-1]
++    op = str(operation["op"])
++    value = deepcopy(operation.get("value"))
++    if isinstance(parent, list):
++        if leaf == "-" and op == "add":
++            parent.append(value)
++            return
++        try:
++            index = int(leaf)
++        except ValueError as error:
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                f"Patch path {path!r} is not a valid list index.",
++            ) from error
++        if index < 0 or index >= len(parent) or op != "replace":
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                f"Patch operation {op!r} cannot target {path!r}.",
++            )
++        parent[index] = value
++        return
++    if not isinstance(parent, dict):
++        raise QueryPatchError(
++            "generation.patch_out_of_scope",
++            f"Patch path {path!r} has no object parent.",
++        )
++    if op == "add":
++        if leaf in parent:
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                f"Patch add path {path!r} already exists.",
++            )
++        parent[leaf] = value
++        return
++    if op != "replace" or leaf not in parent:
++        raise QueryPatchError(
++            "generation.patch_out_of_scope",
++            f"Patch replace path {path!r} does not exist.",
++        )
++    parent[leaf] = value
++
++
++def _parse_and_apply_patch(
++    content: str,
++    base_candidate: Mapping[str, Any],
++    findings: list[dict[str, Any]],
++    allowed_paths: list[str],
++    *,
++    required_paths: Optional[set[str]] = None,
++) -> Dict[str, Any]:
++    try:
++        value = _decode_exact_object(content, label="query generation patch")
++        error = _validation_error(_PATCH_VALIDATOR, value, "query generation patch")
++        if str(error):
++            raise error
++    except QueryContractError as error:
++        raise QueryPatchError("contract.invalid_patch", str(error)) from error
++
++    current_codes = {str(finding.get("code")) for finding in findings}
++    allowed = set(allowed_paths)
++    operations = list(value["patches"])
++    for operation in operations:
++        if operation["findingCode"] not in current_codes:
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                "Patch findingCode does not match a current deterministic finding.",
++            )
++        if operation["path"] not in allowed:
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                f"Patch path {operation['path']!r} is outside the permitted scope.",
++            )
++
++    leaf_paths = [
++        str(operation["path"])
++        for operation in operations
++        if operation["op"] != "replace_text"
++    ]
++    if len(leaf_paths) != len(set(leaf_paths)):
++        raise QueryPatchError(
++            "generation.patch_ambiguous",
++            "Patch contains duplicate or overlapping JSON Pointer paths.",
++        )
++    if required_paths is not None and set(leaf_paths) != required_paths:
++        raise QueryPatchError(
++            "generation.patch_out_of_scope",
++            "Patch must address every and only the required missing-name path.",
++        )
++
++    patched = deepcopy(dict(base_candidate))
++    sql = str(patched.get("sql", ""))
++    text_edits: list[tuple[int, int, str]] = []
++    for operation in operations:
++        if operation["op"] != "replace_text":
++            continue
++        old_value = str(operation["oldValue"])
++        starts = [match.start() for match in re.finditer(re.escape(old_value), sql)]
++        if len(starts) != 1:
++            raise QueryPatchError(
++                "generation.patch_ambiguous",
++                f"Anchored SQL text {old_value!r} must occur exactly once.",
++            )
++        start = starts[0]
++        end = start + len(old_value)
++        if any(
++            start < other_end and other_start < end
++            for other_start, other_end, _ in text_edits
++        ):
++            raise QueryPatchError(
++                "generation.patch_ambiguous",
++                "SQL text patches overlap in the frozen base candidate.",
++            )
++        text_edits.append((start, end, str(operation["replacement"])))
++
++    for start, end, replacement in sorted(text_edits, reverse=True):
++        sql = f"{sql[:start]}{replacement}{sql[end:]}"
++    if text_edits:
++        patched["sql"] = sql
++
++    for operation in operations:
++        if operation["op"] != "replace_text":
++            _apply_leaf_patch(patched, operation)
++
++    if required_paths:
++        parameters = list(patched.get("parameters") or [])
++        repaired_indices = {int(path.split("/")[2]) for path in required_paths}
++        names = [
++            str(parameters[int(path.split("/")[2])].get("name", ""))
++            for path in sorted(required_paths)
++        ]
++        placeholders = set(_NAMED_PARAMETER.findall(str(patched.get("sql", ""))))
++        already_assigned_names = [
++            str(parameter.get("name"))
++            for index, parameter in enumerate(parameters)
++            if index not in repaired_indices
++            and isinstance(parameter, Mapping)
++            and parameter.get("name")
++        ]
++        already_assigned = set(already_assigned_names)
++        if (
++            len(names) != len(set(names))
++            or len(already_assigned_names) != len(already_assigned)
++            or not already_assigned.issubset(placeholders)
++            or set(names) != placeholders - already_assigned
++        ):
++            raise QueryPatchError(
++                "generation.patch_out_of_scope",
++                "Missing-name patches must map bijectively to the SQL placeholders.",
++            )
++
++    return patched
++
++
 +def _request_payload(
 +    request: Any,
 +    extension: Mapping[str, Any],
@@ -1792,13 +2305,27 @@ index 0000000..b47d22e
 +    binding_normalized = False
 +    last_candidate: Optional[Dict[str, Any]] = None
 +    last_output: Optional[str] = None
++    correction_base: Optional[Dict[str, Any]] = None
++    correction_findings: list[dict[str, Any]] = []
++    allowed_patch_paths: list[str] = []
++    required_patch_paths: Optional[set[str]] = None
 +
 +    for attempt in range(1, max_attempts + 1):
++        using_patch = correction_base is not None
++        response_format = (
++            _patch_format(
++                allowed_patch_paths,
++                [str(finding["code"]) for finding in correction_findings],
++                add_only_paths=required_patch_paths,
++            )
++            if using_patch
++            else _GENERATION_FORMAT
++        )
 +        content = await _backend_chat(
 +            client,
 +            profile.models["query_generate"],
 +            messages,
-+            response_format=_GENERATION_FORMAT,
++            response_format=response_format,
 +            temperature=float(profile.knobs["query_generate"]["temperature"]),
 +            max_tokens=request.max_tokens,
 +        )
@@ -1829,29 +2356,99 @@ index 0000000..b47d22e
 +            )
 +        seen_outputs.add(content)
 +
-+        try:
-+            parsed, normalized_this_attempt = _parse_candidate(
-+                content,
-+                question,
-+                extension,
-+                label=f"query generation attempt {attempt}",
-+            )
-+            bound = _bind_question_date_literals(parsed, question)
-+            normalized_this_attempt = normalized_this_attempt or bound != parsed
-+            parsed = bound
-+            last_candidate = deepcopy(parsed)
-+            findings = [
-+                *lint_candidate(parsed, extension),
-+                *_semantic_lint_findings(parsed, question, extension),
-+            ]
-+        except QueryContractError as error:
-+            logger.warning(
-+                "Catalyst query candidate failed deterministic validation: %s",
-+                error,
-+            )
-+            parsed = None
-+            normalized_this_attempt = False
-+            findings = [_contract_lint_finding(error)]
++        parsed: Optional[Dict[str, Any]] = None
++        normalized_this_attempt = False
++        patch_rejected: Optional[list[dict[str, Any]]] = None
++        partial_base = False
++        if using_patch:
++            try:
++                parsed = _parse_and_apply_patch(
++                    content,
++                    correction_base,
++                    correction_findings,
++                    allowed_patch_paths,
++                    required_paths=required_patch_paths,
++                )
++                grounded = _normalize_grounded_parameter_names(
++                    parsed, question, extension
++                )
++                normalized_this_attempt = grounded != parsed
++                parsed = grounded
++                candidate_error = _validation_error(
++                    _CANDIDATE_VALIDATOR,
++                    parsed,
++                    f"query generation patch attempt {attempt}",
++                )
++                if str(candidate_error):
++                    missing_paths = _missing_parameter_name_paths(parsed, extension)
++                    if not missing_paths:
++                        raise QueryPatchError(
++                            "contract.invalid_patch", str(candidate_error)
++                        )
++                    correction_base = deepcopy(parsed)
++                    correction_findings = _missing_name_findings(missing_paths)
++                    allowed_patch_paths = missing_paths
++                    required_patch_paths = set(missing_paths)
++                    findings = correction_findings
++                    partial_base = True
++                    parsed = None
++                else:
++                    if not _candidate_matches_catalog(
++                        parsed, _canonical_target(extension)
++                    ):
++                        raise QueryPatchError(
++                            "generation.patch_out_of_scope",
++                            "Patch reconstruction changed or retained a non-canonical target.",
++                        )
++                    last_candidate = deepcopy(parsed)
++                    findings = [
++                        *lint_candidate(parsed, extension),
++                        *_semantic_lint_findings(parsed, question, extension),
++                    ]
++            except QueryPatchError as error:
++                logger.warning("Catalyst query correction patch failed: %s", error)
++                findings = [_patch_lint_finding(error)]
++                patch_rejected = findings
++        else:
++            try:
++                parsed, normalized_this_attempt = _parse_candidate(
++                    content,
++                    question,
++                    extension,
++                    label=f"query generation attempt {attempt}",
++                )
++                bound = _bind_question_date_literals(parsed, question)
++                normalized_this_attempt = normalized_this_attempt or bound != parsed
++                parsed = bound
++                last_candidate = deepcopy(parsed)
++                findings = [
++                    *lint_candidate(parsed, extension),
++                    *_semantic_lint_findings(parsed, question, extension),
++                ]
++            except QueryContractError as error:
++                logger.warning(
++                    "Catalyst query candidate failed deterministic validation: %s",
++                    error,
++                )
++                findings = [_contract_lint_finding(error)]
++                try:
++                    draft, normalized_this_attempt = _normalize_candidate_draft(
++                        content,
++                        question,
++                        extension,
++                        label=f"query generation attempt {attempt}",
++                    )
++                    missing_paths = _missing_parameter_name_paths(draft, extension)
++                except QueryContractError:
++                    draft = None
++                    missing_paths = []
++                if draft is not None and missing_paths:
++                    correction_base = deepcopy(draft)
++                    correction_findings = _missing_name_findings(missing_paths)
++                    allowed_patch_paths = missing_paths
++                    required_patch_paths = set(missing_paths)
++                    findings = correction_findings
++                    partial_base = True
 +
 +        binding_normalized = binding_normalized or normalized_this_attempt
 +        history.append(
@@ -1873,18 +2470,60 @@ index 0000000..b47d22e
 +                raw_output=last_output,
 +            )
 +
-+        feedback = {
-+            "correctionRequest": {
++        if using_patch:
++            if patch_rejected is None and parsed is not None:
++                correction_base = deepcopy(parsed)
++                correction_findings = findings
++                allowed_patch_paths = _allowed_patch_paths(parsed, findings)
++                required_patch_paths = None
++            if not allowed_patch_paths:
++                raise QueryGenerationError(
++                    "query generation findings could not be localized to patch paths",
++                    history,
++                    candidate=last_candidate,
++                    raw_output=last_output,
++                )
++        elif parsed is not None:
++            correction_base = deepcopy(parsed)
++            correction_findings = findings
++            allowed_patch_paths = _allowed_patch_paths(parsed, findings)
++            required_patch_paths = None
++        elif not partial_base:
++            correction_base = None
++
++        if correction_base is not None:
++            if not allowed_patch_paths:
++                raise QueryGenerationError(
++                    "query generation findings could not be localized to patch paths",
++                    history,
++                    candidate=last_candidate,
++                    raw_output=last_output,
++                )
++            correction_request: Dict[str, Any] = {
 +                "attempt": attempt + 1,
 +                "instruction": (
-+                    "Return one complete replacement candidate. Resolve every "
-+                    "deterministic finding without changing the question, target, "
-+                    "catalog, or policy. Do not return an unchanged candidate. "
++                    "Return only typed patch operations for the permitted paths. "
++                    "Do not return the full candidate. Preserve every unaffected "
++                    "field and return JSON only."
++                ),
++                "baseCandidate": correction_base,
++                "allowedPatchPaths": allowed_patch_paths,
++                "findings": correction_findings,
++            }
++            if patch_rejected is not None:
++                correction_request["lastPatchRejection"] = patch_rejected
++        else:
++            correction_request = {
++                "attempt": attempt + 1,
++                "instruction": (
++                    "The prior response was not a structurally parseable candidate. "
++                    "Return one complete candidate matching the supplied schema, "
++                    "without changing the question, target, catalog, or policy. "
 +                    "Return JSON only."
 +                ),
 +                "findings": findings,
 +            }
-+        }
++        feedback = {"correctionRequest": correction_request}
 +        messages = [
 +            *messages,
 +            {"role": "assistant", "content": content},
@@ -2221,7 +2860,7 @@ index 0000000..b47d22e
 +                }
 +                if exc.candidate is not None:
 +                    diagnostic_candidate["candidate"] = exc.candidate
-+                elif exc.raw_output is not None:
++                if exc.raw_output is not None:
 +                    diagnostic_candidate["rawOutput"] = exc.raw_output
 +            result = _rejected(
 +                question,
@@ -3663,10 +4302,10 @@ index 0000000..57f930c
 +}
 diff --git a/server/prompts/catalyst-query-generate.txt b/server/prompts/catalyst-query-generate.txt
 new file mode 100644
-index 0000000..5225476
+index 0000000..561c994
 --- /dev/null
 +++ b/server/prompts/catalyst-query-generate.txt
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,41 @@
 +You are the generation stage for the Catalyst governed analytics-query profile.
 +
 +Return exactly one JSON object matching the supplied structured-output schema. Do
@@ -3688,11 +4327,16 @@ index 0000000..5225476
 +Do not add contract, provenance, validation, or normalized-question fields; the
 +hub owns those fields and will add them after independent review.
 +
-+On a correction turn, the user message contains a `correctionRequest` with
-+deterministic findings. Return one complete replacement candidate under the same
-+schema. Resolve every finding using its code, evidence, and suggested action;
-+never return a textual patch or claim a finding is fixed without changing the
-+candidate. Preserve the exact target, catalog, and policy.
++On a correction turn, follow the supplied correction response schema instead of
++the initial candidate schema. When `baseCandidate` and `allowedPatchPaths` are
++present, return only typed patch operations for those exact paths. Never return
++the complete candidate, change target or status, repeat unaffected fields, or
++touch a path not listed. A `replace_text` SQL operation must quote one exact
++`oldValue` fragment from the base candidate and its replacement; do not use a
++fragment that appears more than once. A JSON Pointer `add` or `replace` operation
++must address the exact supplied leaf. Resolve the associated finding code and
++preserve every other byte/value. The Hub applies the patch deterministically and
++revalidates the complete reconstructed candidate.
 +
 +Every parameter object must contain exactly `name`, `type`, `source`, and `value`.
 +`source` must be `question`; `name` must exactly match its SQL `:name` placeholder.
@@ -3743,10 +4387,10 @@ index 0000000..ba35711
 +alone is not sufficient in a multi-analyte view.
 diff --git a/tests/test_catalyst_query.py b/tests/test_catalyst_query.py
 new file mode 100644
-index 0000000..13e6adf
+index 0000000..5e9cba0
 --- /dev/null
 +++ b/tests/test_catalyst_query.py
-@@ -0,0 +1,1012 @@
+@@ -0,0 +1,1528 @@
 +from __future__ import annotations
 +
 +import copy
@@ -3758,6 +4402,13 @@ index 0000000..13e6adf
 +from fastapi.testclient import TestClient
 +from jsonschema import Draft202012Validator, FormatChecker
 +
++from server.catalyst_query import (
++    QueryContractError,
++    _missing_parameter_name_paths,
++    _normalize_grounded_parameter_names,
++    _parse_candidate,
++    _patch_format,
++)
 +from server.levels_loader import get_profile
 +from server.main import app
 +
@@ -3933,6 +4584,33 @@ index 0000000..13e6adf
 +    }
 +
 +
++def _semantic_generation_patch(*, add_parameter: bool = True) -> dict:
++    patches = [
++        {
++            "findingCode": "semantic.named_analyte_constraint",
++            "op": "replace_text",
++            "path": "/sql",
++            "oldValue": "WHERE release_date >= :since",
++            "replacement": ("WHERE test_name = :test_name AND release_date >= :since"),
++        }
++    ]
++    if add_parameter:
++        patches.append(
++            {
++                "findingCode": "semantic.named_analyte_constraint",
++                "op": "add",
++                "path": "/parameters/-",
++                "value": {
++                    "name": "test_name",
++                    "type": "string",
++                    "source": "question",
++                    "value": "Viral Load",
++                },
++            }
++        )
++    return {"patches": patches}
++
++
 +def _queued_backend(responses: list[dict | str | BaseException], calls: list[dict]):
 +    queue = list(responses)
 +
@@ -4021,9 +4699,7 @@ index 0000000..13e6adf
 +    with patch(
 +        "server.openai_compat._served_backend_model_metadata",
 +        return_value={
-+            profile.models["query_generate"]: {
-+                "id": profile.models["query_generate"]
-+            }
++            profile.models["query_generate"]: {"id": profile.models["query_generate"]}
 +        },
 +    ):
 +        response = TestClient(app).get("/v1/models")
@@ -4076,9 +4752,7 @@ index 0000000..13e6adf
 +    assert dict(profile.prompts) == dict(e4b.prompts)
 +    assert dict(profile.policies) == dict(e4b.policies)
 +    assert dict(profile.capabilities) == dict(e4b.capabilities)
-+    assert profile.output_contracts == e4b.output_contracts == (
-+        "catalyst.query.v1",
-+    )
++    assert profile.output_contracts == e4b.output_contracts == ("catalyst.query.v1",)
 +    assert profile.visibility == e4b.visibility == "product"
 +    assert dict(profile.knobs) == dict(e4b.knobs)
 +    assert profile.knobs["query_generate"]["temperature"] == 0
@@ -4104,16 +4778,16 @@ index 0000000..13e6adf
 +        "query_generate": {"temperature": 0},
 +        "query_review": {"temperature": 0},
 +    }
-+    assert advertised["backend_model_metadata"] == {
-+        "gemma-4-12b": backend_model
-+    }
++    assert advertised["backend_model_metadata"] == {"gemma-4-12b": backend_model}
 +    assert advertised["profile_configuration_digest"].startswith("sha256:")
-+    assert advertised["profile_configuration_digest"] != by_id[
-+        "catalyst-query-gemma-e4b"
-+    ]["profile_configuration_digest"]
-+    assert advertised["role_prompt_digests"] == by_id[
-+        "catalyst-query-gemma-e4b"
-+    ]["role_prompt_digests"]
++    assert (
++        advertised["profile_configuration_digest"]
++        != by_id["catalyst-query-gemma-e4b"]["profile_configuration_digest"]
++    )
++    assert (
++        advertised["role_prompt_digests"]
++        == by_id["catalyst-query-gemma-e4b"]["role_prompt_digests"]
++    )
 +
 +
 +def test_bundled_qwen_query_profile_uses_truthful_router_model_id():
@@ -4430,10 +5104,398 @@ index 0000000..13e6adf
 +    assert payload["validation"]["checks"][0]["status"] == "failed"
 +    assert payload["diagnosticCandidate"]["executable"] is False
 +    assert payload["diagnosticCandidate"]["rawOutput"] == bad_generation
-+    assert payload["diagnosticCandidate"]["attempts"][-1]["findings"][0][
-+        "code"
-+    ] in {"contract.invalid_candidate", "generation.unchanged_candidate"}
++    assert payload["diagnosticCandidate"]["attempts"][-1]["findings"][0]["code"] in {
++        "contract.invalid_candidate",
++        "generation.unchanged_candidate",
++    }
 +    assert len(calls) == 2
++
++
++def test_generation_preserves_best_candidate_and_latest_malformed_raw_output():
++    best_candidate = _ready_candidate()
++    second_attempt = _semantic_candidate()
++    second_attempt["sql"] += " AND viral_load_value > :threshold"
++    second_attempt["parameters"].append(
++        {"type": "integer", "source": "question", "value": 2000}
++    )
++    latest_attempt = copy.deepcopy(second_attempt)
++    latest_attempt["parameters"][-1]["value"] = 3000
++    second_raw = json.dumps(second_attempt, separators=(",", ":"))
++    latest_raw = json.dumps(latest_attempt, separators=(",", ":"))
++
++    response, calls = _post_request_with_backend(
++        _semantic_request(), [best_candidate, second_raw, latest_raw]
++    )
++
++    payload = _content(response)
++    _assert_shipped_contract(payload)
++    assert payload["status"] == "rejected"
++    diagnostic = payload["diagnosticCandidate"]
++    assert diagnostic["executable"] is False
++    assert diagnostic["candidate"] == best_candidate
++    assert diagnostic["rawOutput"] == latest_raw
++    assert [attempt["finding_codes"] for attempt in diagnostic["attempts"]] == [
++        ["semantic.named_analyte_constraint"],
++        ["contract.invalid_patch"],
++        ["contract.invalid_patch"],
++    ]
++    assert len(calls) == 3
++
++
++def test_generation_retry_applies_only_an_anchored_sql_text_patch():
++    best_candidate = _ready_candidate()
++    best_candidate["sql"] = best_candidate["sql"].replace(
++        VIEW_NAME, "analytics.unapproved_lab_results"
++    )
++    sql_patch = {
++        "patches": [
++            {
++                "findingCode": "catalog.unapproved_view",
++                "op": "replace_text",
++                "path": "/sql",
++                "oldValue": "analytics.unapproved_lab_results",
++                "replacement": VIEW_NAME,
++            }
++        ]
++    }
++
++    response, calls = _post_with_backend([best_candidate, sql_patch, _review("passed")])
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert payload["sql"] == _ready_candidate()["sql"]
++    assert payload["target"] == RESPONSE_TARGET
++    assert payload["parameters"] == best_candidate["parameters"]
++    assert payload["expectedColumns"] == best_candidate["expectedColumns"]
++    assert len(calls) == 3
++
++    retry_format = calls[1]["response_format"]["json_schema"]
++    assert retry_format["name"] == "catalyst_query_candidate_patch"
++    assert retry_format["strict"] is True
++    retry_payload = json.loads(calls[1]["messages"][-1]["content"])["correctionRequest"]
++    assert retry_payload["baseCandidate"] == best_candidate
++    assert retry_payload["allowedPatchPaths"] == ["/sql"]
++    assert retry_payload["findings"][0]["code"] == "catalog.unapproved_view"
++    assert "replacement candidate" not in retry_payload["instruction"].lower()
++
++
++def test_generation_retry_repairs_only_the_failing_parameter_name_leaf():
++    request = _request()
++    request["messages"][0][
++        "content"
++    ] = "Show viral load results above 1000 copies/mL since 2026-01-01"
++    best_candidate = _ready_candidate()
++    best_candidate["sql"] += " AND viral_load_value > :threshold"
++    best_candidate["parameters"].append(
++        {
++            "name": "wrong_name",
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        }
++    )
++    name_patch = {
++        "patches": [
++            {
++                "findingCode": "binding.placeholder_mismatch",
++                "op": "replace",
++                "path": "/parameters/1/name",
++                "value": "threshold",
++            }
++        ]
++    }
++
++    response, calls = _post_request_with_backend(
++        request, [best_candidate, name_patch, _review("passed")]
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert payload["sql"] == best_candidate["sql"]
++    assert payload["target"] == RESPONSE_TARGET
++    assert payload["expectedColumns"] == best_candidate["expectedColumns"]
++    assert payload["parameters"][0] == best_candidate["parameters"][0]
++    assert payload["parameters"][1] == {
++        "name": "threshold",
++        "type": "integer",
++        "source": "question",
++        "value": 1000,
++    }
++    retry_payload = json.loads(calls[1]["messages"][-1]["content"])["correctionRequest"]
++    assert retry_payload["allowedPatchPaths"] == ["/parameters/1/name"]
++
++
++def test_generation_retry_does_not_guess_multiple_missing_names_in_a_partial_draft():
++    request = _request()
++    request["messages"][0][
++        "content"
++    ] = "Show viral load results above 1000 since 2026-01-01"
++    partial_candidate = _ready_candidate()
++    partial_candidate["sql"] += " AND viral_load_value > :threshold"
++    del partial_candidate["parameters"][0]["name"]
++    partial_candidate["parameters"].append(
++        {
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        }
++    )
++    second_candidate = copy.deepcopy(partial_candidate)
++    second_candidate["parameters"][1]["value"] = 1001
++    latest_candidate = copy.deepcopy(partial_candidate)
++    latest_candidate["parameters"][1]["value"] = 1002
++
++    response, calls = _post_request_with_backend(
++        request, [partial_candidate, second_candidate, latest_candidate]
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "rejected"
++    assert "candidate" not in payload["diagnosticCandidate"]
++    assert payload["diagnosticCandidate"]["rawOutput"] == json.dumps(latest_candidate)
++    assert len(calls) == 3
++    assert (
++        calls[1]["response_format"]["json_schema"]["name"]
++        != "catalyst_query_candidate_patch"
++    )
++
++
++def test_generation_retry_reuses_grounded_name_normalization_for_a_partial_patch():
++    base_candidate = _ready_candidate()
++    partial_patch = _semantic_generation_patch()
++    del partial_patch["patches"][1]["value"]["name"]
++
++    response, calls = _post_request_with_backend(
++        _semantic_request(),
++        [base_candidate, partial_patch, _review("passed")],
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert payload["sql"] == _semantic_candidate()["sql"]
++    assert payload["parameters"] == [
++        base_candidate["parameters"][0],
++        _semantic_candidate()["parameters"][0],
++    ]
++    assert payload["target"] == RESPONSE_TARGET
++    assert payload["expectedColumns"] == base_candidate["expectedColumns"]
++    assert len(calls) == 3
++
++
++def test_missing_name_patch_schema_requires_an_add_operation():
++    response_format = _patch_format(
++        ["/parameters/1/name"],
++        ["contract.parameter_name_required"],
++        add_only_paths={"/parameters/1/name"},
++    )
++    name_variant = response_format["json_schema"]["schema"]["properties"]["patches"][
++        "items"
++    ]["oneOf"][0]
++    assert name_variant["properties"]["path"] == {"const": "/parameters/1/name"}
++    assert name_variant["properties"]["op"] == {"const": "add"}
++
++
++def test_missing_name_retry_rejects_duplicate_frozen_bindings():
++    candidate = _ready_candidate()
++    candidate["sql"] += " AND viral_load_value > :threshold"
++    candidate["parameters"].extend(
++        [
++            {"name": "since", "type": "integer", "source": "question", "value": 1000},
++            {"type": "integer", "source": "question", "value": 1000},
++        ]
++    )
++
++    assert _missing_parameter_name_paths(candidate, _request()["catalystQuery"]) == []
++
++
++def test_generation_retry_rejects_a_patch_that_regresses_a_valid_parameter():
++    request = _request()
++    request["messages"][0][
++        "content"
++    ] = "Show viral load results above 1000 copies/mL since 2026-01-01"
++    best_candidate = _ready_candidate()
++    best_candidate["sql"] += " AND viral_load_value > :threshold"
++    best_candidate["parameters"].append(
++        {
++            "name": "wrong_name",
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        }
++    )
++
++    def regressive_patch(date_value: str) -> dict:
++        return {
++            "patches": [
++                {
++                    "findingCode": "binding.placeholder_mismatch",
++                    "op": "replace",
++                    "path": "/parameters/1/name",
++                    "value": "threshold",
++                },
++                {
++                    "findingCode": "binding.placeholder_mismatch",
++                    "op": "replace",
++                    "path": "/parameters/0/value",
++                    "value": date_value,
++                },
++            ]
++        }
++
++    latest_patch = regressive_patch("2024-01-01")
++    response, calls = _post_request_with_backend(
++        request,
++        [
++            best_candidate,
++            regressive_patch("2025-01-01"),
++            latest_patch,
++        ],
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "rejected"
++    diagnostic = payload["diagnosticCandidate"]
++    assert diagnostic["candidate"] == best_candidate
++    assert diagnostic["rawOutput"] == json.dumps(latest_patch)
++    assert diagnostic["attempts"][-1]["finding_codes"] == [
++        "generation.patch_out_of_scope"
++    ]
++    assert len(calls) == 3
++
++
++@pytest.mark.parametrize(
++    ("first_retry", "latest_retry", "finding_code"),
++    [
++        (
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "release_date",
++                        "replacement": "observed_at",
++                    }
++                ]
++            },
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "release_date",
++                        "replacement": "issued_at",
++                    }
++                ]
++            },
++            "generation.patch_ambiguous",
++        ),
++        (
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "analytics.unapproved_lab_results",
++                        "replacement": VIEW_NAME,
++                    },
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "analytics.unapproved_lab_results",
++                        "replacement": VIEW_NAME,
++                    },
++                ]
++            },
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "analytics.unapproved_lab_results",
++                        "replacement": VIEW_NAME,
++                    },
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace_text",
++                        "path": "/sql",
++                        "oldValue": "unapproved_lab_results",
++                        "replacement": "lab_result_fact_v1",
++                    },
++                ]
++            },
++            "generation.patch_ambiguous",
++        ),
++        (
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace",
++                        "path": "/target/dialect",
++                        "value": "postgresql",
++                    }
++                ]
++            },
++            {
++                "patches": [
++                    {
++                        "findingCode": "catalog.unapproved_view",
++                        "op": "replace",
++                        "path": "/target/dataSource",
++                        "value": "other-source",
++                    }
++                ]
++            },
++            "generation.patch_out_of_scope",
++        ),
++        (
++            {
++                **_ready_candidate(),
++                "parameters": [
++                    {"type": "date", "source": "question", "value": "2026-01-01"},
++                    {"type": "integer", "source": "question", "value": 1000},
++                ],
++            },
++            {
++                **_ready_candidate(),
++                "sql": _ready_candidate()["sql"] + " LIMIT 10",
++                "parameters": [
++                    {"type": "date", "source": "question", "value": "2026-01-01"},
++                    {"type": "integer", "source": "question", "value": 2000},
++                ],
++            },
++            "contract.invalid_patch",
++        ),
++    ],
++    ids=[
++        "ambiguous-anchored-sql-text",
++        "duplicate-or-overlapping-patches",
++        "out-of-scope-query-metadata",
++        "full-candidate-with-multiple-missing-names",
++    ],
++)
++def test_generation_retry_rejects_non_local_repairs_and_preserves_evidence(
++    first_retry, latest_retry, finding_code
++):
++    best_candidate = _ready_candidate()
++    best_candidate["sql"] = best_candidate["sql"].replace(
++        VIEW_NAME, "analytics.unapproved_lab_results"
++    )
++
++    response, calls = _post_with_backend([best_candidate, first_retry, latest_retry])
++
++    payload = _content(response)
++    assert payload["status"] == "rejected"
++    diagnostic = payload["diagnosticCandidate"]
++    assert diagnostic["candidate"] == best_candidate
++    assert diagnostic["rawOutput"] == json.dumps(latest_retry)
++    assert diagnostic["attempts"][-1]["finding_codes"] == [finding_code]
++    assert len(calls) == 3
 +
 +
 +def test_one_bounded_generation_contract_correction_can_recover():
@@ -4502,29 +5564,31 @@ index 0000000..13e6adf
 +    draft["parameters"].append(
 +        {"type": "string", "source": "question", "value": "viral load"}
 +    )
-+    repaired = _semantic_candidate()
 +    response, calls = _post_request_with_backend(
 +        _semantic_request(),
 +        [
 +            draft,
-+            repaired,
++            _semantic_generation_patch(),
 +            _review("passed"),
 +        ],
 +    )
 +
 +    payload = _content(response)
 +    assert payload["status"] == "ready"
-+    assert payload["sql"] == repaired["sql"]
-+    assert payload["parameters"][0]["value"] == "Viral Load"
++    assert payload["sql"] == _semantic_candidate()["sql"]
++    assert (
++        next(
++            parameter
++            for parameter in payload["parameters"]
++            if parameter["name"] == "test_name"
++        )["value"]
++        == "Viral Load"
++    )
 +    assert payload["validation"]["status"] == "warned"
-+    assert payload["validation"]["checks"][0] == {
-+        "name": "query_lint_attempt_1",
-+        "status": "warned",
-+        "message": (
-+            "Deterministic correction requested for: "
-+            "semantic.named_analyte_constraint."
-+        ),
-+    }
++    assert (
++        "semantic.named_analyte_constraint"
++        in payload["validation"]["checks"][0]["message"]
++    )
 +    assert payload["validation"]["checks"][-1]["name"] == ("named_analyte_constraint")
 +    correction = json.loads(calls[1]["messages"][-1]["content"])
 +    finding = correction["correctionRequest"]["findings"][0]
@@ -4533,7 +5597,10 @@ index 0000000..13e6adf
 +    assert "bind its string value exactly as 'Viral Load'" in finding["suggestedAction"]
 +    review_payload = json.loads(calls[2]["messages"][1]["content"])
 +    assert "deterministicFindings" not in review_payload
-+    assert review_payload["candidate"] == repaired
++    assert review_payload["candidate"] == {
++        key: payload[key]
++        for key in ("status", "target", "sql", "parameters", "expectedColumns")
++    }
 +    assert calls[2]["response_format"]["json_schema"]["name"] == (
 +        "catalyst_query_review"
 +    )
@@ -4577,13 +5644,12 @@ index 0000000..13e6adf
 +        ],
 +        "status": "ready",
 +    }
-+    repaired = _semantic_candidate()
 +    response, calls = _post_request_with_backend(
 +        _semantic_request(),
 +        [
 +            _ready_candidate(),
 +            incomplete_repair,
-+            repaired,
++            _semantic_generation_patch(),
 +            _review("passed"),
 +        ],
 +    )
@@ -4593,19 +5659,19 @@ index 0000000..13e6adf
 +    assert len(calls) == 4
 +    correction = json.loads(calls[2]["messages"][-1]["content"])
 +    assert correction["correctionRequest"]["findings"][0]["code"] == (
-+        "contract.invalid_candidate"
++        "semantic.named_analyte_constraint"
++    )
++    assert correction["correctionRequest"]["lastPatchRejection"][0]["code"] == (
++        "contract.invalid_patch"
 +    )
 +
 +
 +def test_semantic_repair_binds_unambiguous_missing_parameter_names():
-+    repaired = _semantic_candidate()
-+    for parameter in repaired["parameters"]:
-+        parameter.pop("name")
 +    response, calls = _post_request_with_backend(
 +        _semantic_request(),
 +        [
 +            _ready_candidate(),
-+            repaired,
++            _semantic_generation_patch(),
 +            _review("passed"),
 +        ],
 +    )
@@ -4619,11 +5685,100 @@ index 0000000..13e6adf
 +    assert len(calls) == 3
 +
 +
++def test_grounded_unnamed_parameter_binds_to_sole_remaining_placeholder():
++    request = _request()
++    question = "Show results above 1000 copies/mL since 2026-01-01"
++    candidate = _ready_candidate()
++    candidate["sql"] += " AND viral_load_value > :threshold"
++    candidate["parameters"].append(
++        {"type": "integer", "source": "question", "value": 1000}
++    )
++
++    parsed, binding_normalized = _parse_candidate(
++        json.dumps(candidate),
++        question,
++        request["catalystQuery"],
++        label="grounded threshold candidate",
++    )
++
++    assert binding_normalized is True
++    assert parsed["parameters"][-1] == {
++        "name": "threshold",
++        "type": "integer",
++        "source": "question",
++        "value": 1000,
++    }
++
++
++def test_ambiguous_unnamed_parameters_remain_contract_invalid():
++    request = _request()
++    question = "Show results between 1000 and 2000 since 2026-01-01"
++    candidate = _ready_candidate()
++    candidate["sql"] += (
++        " AND viral_load_value >= :lower_threshold"
++        " AND viral_load_value <= :upper_threshold"
++    )
++    candidate["parameters"].extend(
++        [
++            {"type": "integer", "source": "question", "value": 1000},
++            {"type": "integer", "source": "question", "value": 2000},
++        ]
++    )
++
++    with pytest.raises(QueryContractError, match="'name' is a required property"):
++        _parse_candidate(
++            json.dumps(candidate),
++            question,
++            request["catalystQuery"],
++            label="ambiguous threshold candidate",
++        )
++
++
++def test_ungrounded_unnamed_parameter_remains_contract_invalid():
++    request = _request()
++    question = "Show results above 1000 copies/mL since 2026-01-01"
++    candidate = _ready_candidate()
++    candidate["sql"] += " AND viral_load_value > :threshold"
++    candidate["parameters"].append(
++        {"type": "integer", "source": "question", "value": 2000}
++    )
++
++    with pytest.raises(QueryContractError, match="'name' is a required property"):
++        _parse_candidate(
++            json.dumps(candidate),
++            question,
++            request["catalystQuery"],
++            label="ungrounded threshold candidate",
++        )
++
++
++def test_existing_named_parameters_are_unchanged_by_cardinality_normalization():
++    request = _request()
++    question = "Show results above 1000 copies/mL since 2026-01-01"
++    candidate = _ready_candidate()
++    candidate["sql"] += " AND viral_load_value > :threshold"
++    candidate["parameters"].append(
++        {
++            "name": "threshold",
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        }
++    )
++
++    assert (
++        _normalize_grounded_parameter_names(
++            candidate, question, request["catalystQuery"]
++        )
++        == candidate
++    )
++
++
 +def test_turnaround_repair_binds_derived_minutes_parameter_name():
 +    request = _semantic_request()
-+    request["messages"][0]["content"] = (
-+        "Show viral load results with turnaround over 24 hours since 2026-01-01"
-+    )
++    request["messages"][0][
++        "content"
++    ] = "Show viral load results with turnaround over 24 hours since 2026-01-01"
 +    request["catalystQuery"]["catalog"]["views"][0]["fields"].append(
 +        {
 +            "name": "receipt_to_release_minutes",
@@ -4653,28 +5808,33 @@ index 0000000..13e6adf
 +    assert len(calls) == 2
 +
 +
-+def test_semantic_repair_canonicalizes_catalog_grounded_analyte_value():
-+    repaired = _semantic_candidate()
-+    repaired["parameters"][0]["value"] = "VL"
++def test_semantic_patch_uses_catalog_grounded_analyte_value():
 +    response, calls = _post_request_with_backend(
 +        _semantic_request(),
 +        [
 +            _ready_candidate(),
-+            repaired,
++            _semantic_generation_patch(),
 +            _review("passed"),
 +        ],
 +    )
 +
 +    payload = _content(response)
 +    assert payload["status"] == "ready"
-+    assert payload["parameters"][0] == {
++    assert next(
++        parameter
++        for parameter in payload["parameters"]
++        if parameter["name"] == "test_name"
++    ) == {
 +        "name": "test_name",
 +        "type": "string",
 +        "source": "question",
 +        "value": "Viral Load",
 +    }
-+    re_review_payload = json.loads(calls[2]["messages"][1]["content"])
-+    assert re_review_payload["candidate"]["parameters"][0]["value"] == ("Viral Load")
++    review_payload = json.loads(calls[2]["messages"][1]["content"])
++    assert any(
++        parameter["value"] == "Viral Load"
++        for parameter in review_payload["candidate"]["parameters"]
++    )
 +    assert len(calls) == 3
 +
 +
@@ -4934,3 +6094,12 @@ index 0000000..4effe89
 +    )
 +
 +    assert lint_candidate(candidate, _extension()) == []
+diff --git a/uv.lock b/uv.lock
+new file mode 100644
+index 0000000..bda0207
+--- /dev/null
++++ b/uv.lock
+@@ -0,0 +1,3 @@
++version = 1
++revision = 3
++requires-python = ">=3.13"

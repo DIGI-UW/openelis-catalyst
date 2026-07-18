@@ -5,6 +5,11 @@ import type {
   DatasetOverview,
   DatasetRows,
   QueryOptions,
+  WorkbenchEditorCatalog,
+  WorkbenchExecution,
+  WorkbenchSession,
+  WorkbenchValidation,
+  WorkbenchVersionDraft,
 } from "./types";
 
 export interface CatalystApi {
@@ -29,6 +34,37 @@ export interface CatalystApi {
     filters?: { testName?: string; patientId?: string; limit?: number; offset?: number },
     signal?: AbortSignal,
   ): Promise<DatasetRows>;
+  createWorkbenchSession?(
+    question: string,
+    profileId?: string,
+    browserState?: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
+  getWorkbenchSession?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
+  getWorkbenchCatalog?(signal?: AbortSignal): Promise<WorkbenchEditorCatalog>;
+  createWorkbenchVersion?(
+    sessionId: string,
+    draft: WorkbenchVersionDraft,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
+  validateWorkbenchVersion?(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchValidation>;
+  executeWorkbenchVersion?(
+    versionId: string,
+    queryDigest: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchExecution>;
+  updateWorkbenchBrowserState?(
+    sessionId: string,
+    browserState: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
 }
 
 export class CatalystApiError extends Error {
@@ -84,6 +120,12 @@ const isExecutionResponse = (
   isRecord(body) &&
   (body.contractVersion === "catalyst.table.v1" ||
     body.contractVersion === "catalyst.execution.outcome.v1");
+
+const hasContractVersion = <Version extends string>(
+  body: unknown,
+  contractVersion: Version,
+): body is Record<string, unknown> & { contractVersion: Version } =>
+  isRecord(body) && body.contractVersion === contractVersion;
 
 export const createCatalystApi = ({
   baseUrl = "/v1/catalyst",
@@ -199,6 +241,143 @@ export const createCatalystApi = ({
         throw new CatalystApiError(errorMessage(body, response.status), response.status);
       }
       return body as unknown as DatasetRows;
+    },
+
+    async createWorkbenchSession(question, profileId, browserState, signal) {
+      const response = await fetcher(`${root}/workbench/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractVersion: "catalyst.workbench.session.request.v1",
+          deploymentMode: "demo",
+          question,
+          ...(profileId ? { profileId } : {}),
+          ...(browserState ? { browserState } : {}),
+        }),
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async getWorkbenchSession(sessionId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          headers: { Accept: "application/json" },
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async getWorkbenchCatalog(signal) {
+      const response = await fetcher(`${root}/workbench/catalog`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.editor-catalog.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchEditorCatalog;
+    },
+
+    async createWorkbenchVersion(sessionId, draft, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/versions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contractVersion: "catalyst.workbench.version.request.v1",
+            ...(draft.parentVersionId
+              ? { parentVersionId: draft.parentVersionId }
+              : {}),
+            ...(draft.parentQueryDigest
+              ? { parentQueryDigest: draft.parentQueryDigest }
+              : {}),
+            sql: draft.sql,
+            parameters: draft.parameters,
+            ...(draft.expectedColumns
+              ? { expectedColumns: draft.expectedColumns }
+              : {}),
+          }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async validateWorkbenchVersion(versionId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/versions/${encodeURIComponent(versionId)}/validate`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.validation.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchValidation;
+    },
+
+    async executeWorkbenchVersion(
+      versionId,
+      queryDigest,
+      idempotencyKey,
+      signal,
+    ) {
+      const response = await fetcher(
+        `${root}/workbench/versions/${encodeURIComponent(versionId)}/execute`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contractVersion: "catalyst.workbench.execute.request.v1",
+            versionId,
+            queryDigest,
+            idempotencyKey,
+          }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.execution.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchExecution;
+    },
+
+    async updateWorkbenchBrowserState(sessionId, browserState, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/browser-state`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ browserState }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
     },
   };
 };

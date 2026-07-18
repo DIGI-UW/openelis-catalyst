@@ -1,8 +1,15 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CatalystApi } from "./features/query/api";
+import type {
+  WorkbenchEditorCatalog,
+  WorkbenchExecution,
+  WorkbenchQueryVersion,
+  WorkbenchSession,
+  WorkbenchValidation,
+} from "./features/query/types";
 import {
   executionOutcome,
   policyOutcome,
@@ -61,12 +68,209 @@ const queryOptions = {
   ],
 };
 
+const workbenchVersion: WorkbenchQueryVersion = {
+  contractVersion: "catalyst.workbench.query-version.v1",
+  versionId: "d801dc1d-fc94-435b-bee6-2b45c3173af1",
+  sessionId: "2bed91de-fa7d-4ffa-b4ae-0a454a883930",
+  parentVersionId: null,
+  ordinal: 1,
+  authorType: "model",
+  sql: "SELECT COUNT(DISTINCT patient_id) FROM analytics.lab_result_fact_v1 WHERE test_name = :test_name AND result_value > :minimum_result",
+  parameters: [
+    { name: "test_name", type: "string", source: "question", value: "Viral Load" },
+    { name: "minimum_result", type: "number", source: "question", value: 1000 },
+  ],
+  expectedColumns: [],
+  queryDigest: "a".repeat(64),
+  provenance: {},
+  sourceFindingIds: [],
+  repairProposalId: null,
+  createdAt: "2026-07-17T00:00:01Z",
+};
+
+const workbenchValidation: WorkbenchValidation = {
+  contractVersion: "catalyst.workbench.validation.v1",
+  queryDigest: workbenchVersion.queryDigest,
+  validatorRevision: "catalyst.workbench.validator.v1",
+  validatorDigest: "b".repeat(64),
+  status: "invalid",
+  advisory: true,
+  checks: [
+    {
+      name: "gateway_sql_policy",
+      status: "failed",
+      findingIds: ["finding-111111111111111111111111"],
+    },
+  ],
+  findings: [
+    {
+      contractVersion: "catalyst.workbench.finding.v1",
+      findingId: "finding-111111111111111111111111",
+      ruleCode: "policy.unit_not_grounded",
+      severity: "error",
+      stage: "gateway_sql_policy",
+      message: "The requested count/ml unit does not match the catalog unit copies/ml.",
+      path: "$.sql",
+      astUnit: null,
+      span: null,
+      evidence: { questionUnit: "count/ml", catalogUnit: "copies/ml" },
+      suggestedAction: "Review the unit and edit the query if needed.",
+      repairability: "manual",
+      validatorRevision: "catalyst.workbench.validator.v1",
+    },
+  ],
+  durationMs: 2,
+  validationId: "validation-1",
+  sessionId: workbenchVersion.sessionId,
+  versionId: workbenchVersion.versionId,
+  ordinal: 1,
+  createdAt: "2026-07-17T00:00:02Z",
+};
+
+const workbenchSession: WorkbenchSession = {
+  contractVersion: "catalyst.workbench.session.v1",
+  sessionId: workbenchVersion.sessionId,
+  question: QUESTION,
+  profileId: "catalyst-query-gemma-e4b",
+  datasetId: "catalyst-openelis-cohort-v1",
+  datasetVersion: "pipeline-run-77",
+  catalogVersion: "analytics-catalog-v1",
+  currentVersionId: workbenchVersion.versionId,
+  browserState: {},
+  provenance: {
+    catalystTraceId: "catalyst-trace-1",
+    generationRawOutput: "{latest malformed model output}",
+    generationOutcome: {
+      contractVersion: "catalyst.query.v1",
+      diagnosticCandidate: {
+        executable: false,
+        candidate: {
+          status: "ready",
+          sql: workbenchVersion.sql,
+          parameters: workbenchVersion.parameters,
+        },
+        rawOutput: "{latest malformed model output}",
+        attempts: [
+          {
+            attempt: 2,
+            status: "failed",
+            findings: [
+              {
+                code: "contract.schema",
+                path: "$.parameters[1]",
+                message: "'name' is a required property",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    profileSnapshot: {
+      profileId: "catalyst-query-gemma-e4b",
+      roleModels: { query_generate: "gemma-e4b", query_review: "gemma-e4b" },
+    },
+  },
+  status: "active",
+  createdAt: "2026-07-17T00:00:00Z",
+  updatedAt: "2026-07-17T00:00:02Z",
+  versions: [workbenchVersion],
+  currentVersion: workbenchVersion,
+  validations: [workbenchValidation],
+  latestValidation: workbenchValidation,
+  executions: [],
+};
+
+const editorCatalog: WorkbenchEditorCatalog = {
+  contractVersion: "catalyst.workbench.editor-catalog.v1",
+  catalogVersion: "analytics-catalog-v1",
+  schemaVersion: "analytics-v1",
+  dialect: "postgresql",
+  schemas: [
+    {
+      name: "analytics",
+      views: [
+        {
+          name: "lab_result_fact_v1",
+          columns: [
+            { name: "patient_id", logicalType: "string" },
+            { name: "result_value", logicalType: "decimal" },
+            { name: "test_name", logicalType: "string" },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+const childWorkbenchSession = (validationStatus: "invalid" | "warning" | "valid") => {
+  const currentVersion: WorkbenchQueryVersion = {
+    ...workbenchVersion,
+    versionId: "3d72ce15-c09c-48eb-a6f1-294ac7f28d12",
+    parentVersionId: workbenchVersion.versionId,
+    ordinal: 2,
+    authorType: "human",
+    queryDigest: "c".repeat(64),
+    parameters: workbenchVersion.parameters.map((parameter) => ({ ...parameter })),
+  };
+  const latestValidation: WorkbenchValidation = {
+    ...workbenchValidation,
+    validationId: "validation-2",
+    versionId: currentVersion.versionId,
+    queryDigest: currentVersion.queryDigest,
+    ordinal: 1,
+    status: validationStatus,
+    findings: validationStatus === "valid" ? [] : workbenchValidation.findings,
+    checks: validationStatus === "valid" ? [] : workbenchValidation.checks,
+  };
+  return {
+    ...workbenchSession,
+    currentVersionId: currentVersion.versionId,
+    currentVersion,
+    versions: [...workbenchSession.versions, currentVersion],
+    validations: [...workbenchSession.validations, latestValidation],
+    latestValidation,
+  } satisfies WorkbenchSession;
+};
+
+const failedWorkbenchExecution: WorkbenchExecution = {
+  contractVersion: "catalyst.workbench.execution.v1",
+  queryDigest: "c".repeat(64),
+  idempotencyKey: "run-1",
+  validationStatus: "invalid",
+  query: {
+    sql: workbenchVersion.sql,
+    parameters: workbenchVersion.parameters,
+  },
+  statementTimeoutMs: 5000,
+  maxRows: 1000,
+  replayed: false,
+  status: "failed",
+  databaseDiagnostic: {
+    sqlstate: "42703",
+    severity: "ERROR",
+    message: "column result_count does not exist",
+    detail: "The generated identifier is not present in the loaded view.",
+    hint: "Use result_value.",
+    position: 42,
+  },
+  durationMs: 4,
+  executionId: "execution-1",
+  sessionId: workbenchSession.sessionId,
+  versionId: "3d72ce15-c09c-48eb-a6f1-294ac7f28d12",
+  ordinal: 1,
+  completedAt: "2026-07-17T00:00:04Z",
+};
+
 const askQuestion = async () => {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("Question"), QUESTION);
   await user.click(screen.getByRole("button", { name: "Generate query" }));
   return user;
 };
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("Catalyst query workflow", () => {
   it("keeps the demo boundary visible from the initial state", () => {
@@ -120,6 +324,39 @@ describe("Catalyst query workflow", () => {
     expect(within(trace).getAllByText("query review")).toHaveLength(2);
     expect(within(trace).getByText(/structured stage and validation summary/i)).toBeVisible();
   });
+
+  it.each([
+    {
+      mode: "workbench",
+      title: "Generating workbench draft",
+      message:
+        "Med-Agent Hub is generating an editable SQL draft with the selected profile.",
+    },
+    {
+      mode: "legacy preview",
+      title: "Preparing preview",
+      message: "Catalyst is validating the question and proposed query.",
+    },
+  ] as const)(
+    "uses $mode loading copy while generation is in progress",
+    async ({ mode, title, message }) => {
+      const api = makeApi();
+      const pendingRequest = new Promise<never>(() => undefined);
+      if (mode === "workbench") {
+        api.createWorkbenchSession = vi.fn().mockReturnValue(pendingRequest);
+        api.createWorkbenchVersion = vi.fn();
+        api.executeWorkbenchVersion = vi.fn();
+      } else {
+        vi.mocked(api.submitQuestion).mockReturnValue(pendingRequest);
+      }
+      render(<App api={api} />);
+
+      await askQuestion();
+
+      expect(await screen.findByRole("heading", { name: title })).toBeVisible();
+      expect(screen.getByText(message)).toBeVisible();
+    },
+  );
 
   it("shows the dataset browser and uses the Hub-owned available profile", async () => {
     const api = makeApi();
@@ -231,6 +468,155 @@ describe("Catalyst query workflow", () => {
     expect(api.submitQuestion).toHaveBeenCalledWith(
       "Show viral load results since 2026-01-01",
       "catalyst-query-gemma-e4b",
+    );
+  });
+
+  it("opens the editable workbench and keeps invalid model evidence runnable", async () => {
+    const api = makeApi();
+    api.getQueryOptions = vi.fn().mockResolvedValue(queryOptions);
+    api.getWorkbenchCatalog = vi.fn().mockResolvedValue(editorCatalog);
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    await askQuestion();
+
+    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
+      QUESTION,
+      "catalyst-query-gemma-e4b",
+    );
+    expect(api.submitQuestion).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("heading", { name: "Query workbench" }),
+    ).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+    expect(screen.getByText("policy.unit_not_grounded")).toBeVisible();
+    expect(screen.getByText(/validation is advisory/i)).toBeVisible();
+    expect(screen.getByText("'name' is a required property")).toBeVisible();
+    expect(screen.getByText("{latest malformed model output}")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Validate query" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
+  });
+
+  it("persists a manually corrected parameter as a new version before validation", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn().mockResolvedValue(
+      childWorkbenchSession("warning"),
+    );
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const parameterName = await screen.findByLabelText("Parameter 2 name");
+    await user.clear(parameterName);
+    await user.type(parameterName, "threshold");
+    await user.click(screen.getByRole("button", { name: "Validate query" }));
+
+    await waitFor(() =>
+      expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
+        workbenchSession.sessionId,
+        {
+          parentVersionId: workbenchVersion.versionId,
+          parentQueryDigest: workbenchVersion.queryDigest,
+          sql: workbenchVersion.sql,
+          parameters: [
+            workbenchVersion.parameters[0],
+            {
+              ...workbenchVersion.parameters[1],
+              name: "threshold",
+              source: "human",
+            },
+          ],
+          expectedColumns: [],
+        },
+      ),
+    );
+    expect(api.executeWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("persists and executes the exact draft even when validation is invalid", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    const child = childWorkbenchSession("invalid");
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn().mockResolvedValue(child);
+    api.executeWorkbenchVersion = vi.fn().mockResolvedValue(
+      failedWorkbenchExecution,
+    );
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await user.click(await screen.findByRole("button", { name: "Run query" }));
+
+    expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
+      workbenchSession.sessionId,
+      {
+        parentVersionId: workbenchVersion.versionId,
+        parentQueryDigest: workbenchVersion.queryDigest,
+        sql: workbenchVersion.sql,
+        parameters: workbenchVersion.parameters,
+        expectedColumns: [],
+      },
+    );
+    expect(api.executeWorkbenchVersion).toHaveBeenCalledWith(
+      child.currentVersion!.versionId,
+      child.currentVersion!.queryDigest,
+      expect.any(String),
+    );
+    const databaseMessage = await screen.findByText(
+      "column result_count does not exist",
+    );
+    expect(databaseMessage).toBeVisible();
+    const diagnostic = databaseMessage.closest("[role='alert']");
+    expect(diagnostic).not.toBeNull();
+    expect(within(diagnostic as HTMLElement).getByText("SQLSTATE")).toBeVisible();
+    expect(within(diagnostic as HTMLElement).getByText("42703")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
+  });
+
+  it("restores the active server workbench session after a refresh", async () => {
+    const api = makeApi();
+    const restoredSession = {
+      ...workbenchSession,
+      profileId: "catalyst-query-split-models",
+    } satisfies WorkbenchSession;
+    let resolveQueryOptions: (options: typeof queryOptions) => void = () => undefined;
+    api.getQueryOptions = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveQueryOptions = resolve;
+        }),
+    );
+    api.getWorkbenchSession = vi.fn().mockResolvedValue(restoredSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      restoredSession.sessionId,
+    );
+
+    render(<App api={api} />);
+
+    expect(api.getWorkbenchSession).toHaveBeenCalledWith(
+      restoredSession.sessionId,
+      expect.any(AbortSignal),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Query workbench" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Question")).toHaveValue(QUESTION);
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
+      "COUNT(DISTINCT patient_id)",
+    );
+    resolveQueryOptions(queryOptions);
+    expect(await screen.findByLabelText("Model profile")).toHaveValue(
+      restoredSession.profileId,
     );
   });
 

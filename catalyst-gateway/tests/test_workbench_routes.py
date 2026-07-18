@@ -30,6 +30,7 @@ def _catalog() -> Catalog:
     return Catalog(
         data_source="openelis-demo",
         catalog_version="2026.07",
+        schema_version="analytics-v1",
         dialect="postgresql",
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
@@ -288,12 +289,13 @@ def _client(
     *,
     analytics: FakeAnalytics | None = None,
     hub: FakeHub | None = None,
+    catalog: Catalog | None = None,
 ) -> tuple[TestClient, FakeAnalytics]:
     database = tmp_path / "gateway.sqlite3"
     actual_analytics = analytics or FakeAnalytics()
     service = CatalystService(
         contracts=ContractRegistry.load(CONTRACTS),
-        catalog=_catalog(),
+        catalog=catalog or _catalog(),
         hub=hub or FakeHub(query),
         analytics=actual_analytics,
         store=PreviewStore(database),
@@ -324,6 +326,145 @@ def _preview_count(tmp_path: Path) -> int:
         row = connection.execute("SELECT COUNT(*) FROM catalyst_previews").fetchone()
     assert row is not None
     return int(row[0])
+
+
+def _workbench_session_count(tmp_path: Path) -> int:
+    with sqlite3.connect(tmp_path / "gateway.sqlite3") as connection:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM catalyst_workbench_sessions"
+        ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None:
+    editor_catalog = Catalog(
+        data_source="openelis-demo",
+        catalog_version="catalog-v3",
+        schema_version="schema-v2",
+        dialect="postgresql",
+        context_source_id="catalog:openelis-demo:catalog-v3",
+        views=[
+            {
+                "name": "reporting.summary_v1",
+                "version": "1",
+                "grain": "one row per summary",
+                "fields": [
+                    {"name": "z_count", "type": "integer", "description": "Z"},
+                    {"name": "a_label", "type": "string", "description": "A"},
+                ],
+            },
+            {
+                "name": "analytics.zz_result_v1",
+                "version": "1",
+                "grain": "one row per result",
+                "fields": [
+                    {"name": "test_name", "type": "string", "description": "Test"}
+                ],
+            },
+            {
+                "name": "analytics.lab_result_v1",
+                "version": "1",
+                "grain": "one row per result",
+                "fields": [
+                    {
+                        "name": "observed_at",
+                        "type": "date-time",
+                        "description": "Observed",
+                    },
+                    {
+                        "name": "patient_id",
+                        "type": "string",
+                        "description": "Patient",
+                    },
+                ],
+            },
+        ],
+        freshness={},
+    )
+    original_views = deepcopy(editor_catalog.views)
+    client, _ = _client(tmp_path, _ready_query(), catalog=editor_catalog)
+
+    response = client.get("/v1/catalyst/workbench/catalog")
+    repeated = client.get("/v1/catalyst/workbench/catalog")
+
+    assert response.status_code == 200, response.text
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.content == response.content
+    assert response.json() == {
+        "contractVersion": "catalyst.workbench.editor-catalog.v1",
+        "catalogVersion": "catalog-v3",
+        "schemaVersion": "schema-v2",
+        "dialect": "postgresql",
+        "schemas": [
+            {
+                "name": "analytics",
+                "views": [
+                    {
+                        "name": "lab_result_v1",
+                        "columns": [
+                            {"name": "observed_at", "logicalType": "date-time"},
+                            {"name": "patient_id", "logicalType": "string"},
+                        ],
+                    },
+                    {
+                        "name": "zz_result_v1",
+                        "columns": [{"name": "test_name", "logicalType": "string"}],
+                    },
+                ],
+            },
+            {
+                "name": "reporting",
+                "views": [
+                    {
+                        "name": "summary_v1",
+                        "columns": [
+                            {"name": "a_label", "logicalType": "string"},
+                            {"name": "z_count", "logicalType": "integer"},
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+    assert editor_catalog.views == original_views
+    assert _preview_count(tmp_path) == 0
+    assert _workbench_session_count(tmp_path) == 0
+
+
+def test_editor_catalog_failure_is_useful_and_does_not_mutate_state(
+    tmp_path: Path,
+) -> None:
+    broken_catalog = Catalog(
+        data_source="openelis-demo",
+        catalog_version="catalog-v3",
+        schema_version="schema-v2",
+        dialect="postgresql",
+        context_source_id="catalog:openelis-demo:catalog-v3",
+        views=[
+            {
+                "name": "unqualified_view",
+                "version": "1",
+                "grain": "one row per result",
+                "fields": [
+                    {"name": "test_name", "type": "string", "description": "Test"}
+                ],
+            }
+        ],
+        freshness={},
+    )
+    original_views = deepcopy(broken_catalog.views)
+    client, _ = _client(tmp_path, _ready_query(), catalog=broken_catalog)
+
+    response = client.get("/v1/catalyst/workbench/catalog")
+
+    assert response.status_code == 503, response.text
+    assert response.json()["contractVersion"] == "catalyst.workbench.error.v1"
+    assert response.json()["error"]["code"] == "editor_catalog_unavailable"
+    assert "schema-qualified" in response.json()["error"]["message"]
+    assert broken_catalog.views == original_views
+    assert _preview_count(tmp_path) == 0
+    assert _workbench_session_count(tmp_path) == 0
 
 
 def test_ready_generation_creates_restorable_version_and_validation(

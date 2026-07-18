@@ -79,6 +79,10 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
     ) -> JSONResponse:
         return _json_response(service.poll_execution(preview_id, idempotency_key))
 
+    @app.get("/v1/catalyst/workbench/catalog")
+    async def get_workbench_editor_catalog() -> JSONResponse:
+        return _json_response(service.workbench_editor_catalog())
+
     @app.post("/v1/catalyst/workbench/sessions")
     async def create_workbench_session(request: Request) -> JSONResponse:
         payload = await _request_object(request)
