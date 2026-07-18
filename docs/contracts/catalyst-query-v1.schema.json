@@ -65,6 +65,9 @@
     "diagnosticCandidate": {
       "$ref": "#/$defs/diagnosticCandidate"
     },
+    "modelCollaboration": {
+      "$ref": "#/$defs/modelCollaboration"
+    },
     "validation": {
       "$ref": "#/$defs/validation"
     },
@@ -650,6 +653,59 @@
         },
         "suggestedAction": {
           "type": "string"
+        }
+      }
+    },
+    "reviewCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "status": {"enum": ["passed", "warned", "failed"]},
+        "message": {"type": "string"}
+      }
+    },
+    "modelCollaboration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writer", "reviewer", "finalLintFindings"],
+      "properties": {
+        "writer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "candidate", "lintFindings"],
+          "properties": {
+            "model": {"type": "string", "minLength": 1},
+            "candidate": {"$ref": "#/$defs/generatedCandidate"},
+            "lintFindings": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/diagnosticFinding"}
+            }
+          }
+        },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "decision", "checks"],
+          "properties": {
+            "model": {"type": "string", "minLength": 1},
+            "decision": {"enum": ["approve", "repair", "reject"]},
+            "candidate": {"$ref": "#/$defs/generatedCandidate"},
+            "checks": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/reviewCheck"}
+            },
+            "finalDecision": {"enum": ["approve", "reject"]},
+            "finalChecks": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/reviewCheck"}
+            }
+          }
+        },
+        "finalLintFindings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/diagnosticFinding"}
         }
       }
     },

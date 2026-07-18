@@ -303,6 +303,75 @@ describe("WorkbenchPanel", () => {
     expect(screen.queryByText(/chain.of.thought/i)).not.toBeInTheDocument();
   });
 
+  it("shows writer and reviewer candidates, models, findings, and linked SQL versions", () => {
+    const writerSql = "SELECT COUNT(*) FROM analytics.lab_results";
+    const reviewerSql = "SELECT COUNT(*) AS count FROM analytics.lab_results";
+    const writerVersion = {
+      ...version!,
+      versionId: "version-writer",
+      ordinal: 1,
+      sql: writerSql,
+      queryDigest: "sha256:writer",
+      provenance: { collaborationRole: "writer", model: "gemma-4-12b" },
+    };
+    const reviewerVersion = {
+      ...version!,
+      versionId: "version-reviewer",
+      parentVersionId: writerVersion.versionId,
+      ordinal: 2,
+      authorType: "model_repair" as const,
+      sql: reviewerSql,
+      queryDigest: "sha256:reviewer",
+      provenance: { collaborationRole: "reviewer", model: "qwen2.5-14b" },
+    };
+    const session = makeSession({
+      currentVersionId: reviewerVersion.versionId,
+      currentVersion: reviewerVersion,
+      versions: [writerVersion, reviewerVersion],
+      provenance: {
+        profileSnapshot: {
+          profileLabel: "Gemma writer + Qwen reviewer",
+          roleModels: {
+            query_generate: "gemma-4-12b",
+            query_review: "qwen2.5-14b",
+          },
+        },
+        generationOutcome: {
+          modelCollaboration: {
+            writer: {
+              model: "gemma-4-12b",
+              candidate: { sql: writerSql, parameters: [] },
+              lintFindings: [
+                {
+                  code: "output.projection_mismatch",
+                  message: "The aggregate needs the declared count alias.",
+                },
+              ],
+            },
+            reviewer: {
+              model: "qwen2.5-14b",
+              decision: "repair",
+              candidate: { sql: reviewerSql, parameters: [] },
+              checks: [{ name: "projection", status: "passed" }],
+            },
+            finalLintFindings: [],
+          },
+        },
+      },
+    });
+
+    render(<WorkbenchPanel {...defaultProps} session={session} />);
+
+    expect(screen.getByRole("heading", { name: "Writer candidate" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Reviewer correction" })).toBeVisible();
+    expect(screen.getAllByText("gemma-4-12b").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("qwen2.5-14b").length).toBeGreaterThan(0);
+    expect(screen.getByText("The aggregate needs the declared count alias.")).toBeVisible();
+    expect(screen.getAllByText(writerSql).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(reviewerSql).length).toBeGreaterThan(0);
+    expect(screen.getByText("model repair")).toBeVisible();
+  });
+
   it("renders a successful dynamic execution table", () => {
     const execution: WorkbenchExecution = {
       contractVersion: "catalyst.workbench.execution.v1",

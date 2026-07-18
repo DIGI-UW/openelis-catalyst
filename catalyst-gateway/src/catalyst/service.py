@@ -512,19 +512,74 @@ class CatalystService:
                     self._profile_snapshot(hub_generation.selected_profile)
                 )
                 version_provenance["catalystTraceId"] = catalyst_trace_id
-            version = store.append_version(
-                session["sessionId"],
-                sql=draft["sql"],
-                parameters=list(draft.get("parameters") or []),
-                expected_columns=list(draft.get("expectedColumns") or []),
-                author_type="model",
-                provenance=version_provenance,
-            )
-            self._append_workbench_validation(
-                version,
-                question=question,
-                source_findings=source_findings,
-            )
+            collaboration = self._workbench_collaboration(generation.body, draft)
+            if collaboration is not None:
+                writer = collaboration["writer"]
+                reviewer = collaboration["reviewer"]
+                writer_candidate = writer["candidate"]
+                writer_provenance = {
+                    **deepcopy(version_provenance),
+                    "collaborationRole": "writer",
+                    "model": writer["model"],
+                    "lintFindings": deepcopy(writer["lintFindings"]),
+                }
+                writer_version = store.append_version(
+                    session["sessionId"],
+                    sql=writer_candidate["sql"],
+                    parameters=list(writer_candidate.get("parameters") or []),
+                    expected_columns=list(
+                        writer_candidate.get("expectedColumns") or []
+                    ),
+                    author_type="model",
+                    provenance=writer_provenance,
+                )
+                self._append_workbench_validation(
+                    writer_version,
+                    question=question,
+                    source_findings=list(writer["lintFindings"]),
+                )
+                reviewer_provenance = {
+                    **deepcopy(version_provenance),
+                    "collaborationRole": "reviewer",
+                    "model": reviewer["model"],
+                    "decision": reviewer["decision"],
+                    "checks": deepcopy(reviewer["checks"]),
+                    "finalDecision": reviewer.get("finalDecision"),
+                    "finalChecks": deepcopy(reviewer.get("finalChecks") or []),
+                    "finalLintFindings": deepcopy(collaboration["finalLintFindings"]),
+                }
+                reviewer_version = store.append_version(
+                    session["sessionId"],
+                    sql=draft["sql"],
+                    parameters=list(draft.get("parameters") or []),
+                    expected_columns=list(draft.get("expectedColumns") or []),
+                    author_type="model_repair",
+                    parent_version_id=writer_version["versionId"],
+                    parent_query_digest=writer_version["queryDigest"],
+                    provenance=reviewer_provenance,
+                )
+                self._append_workbench_validation(
+                    reviewer_version,
+                    question=question,
+                    source_findings=[
+                        *source_findings,
+                        *list(collaboration["finalLintFindings"]),
+                    ],
+                )
+            else:
+                version = store.append_version(
+                    session["sessionId"],
+                    sql=draft["sql"],
+                    parameters=list(draft.get("parameters") or []),
+                    expected_columns=list(draft.get("expectedColumns") or []),
+                    author_type="model",
+                    provenance=version_provenance,
+                )
+                self._append_workbench_validation(
+                    version,
+                    question=question,
+                    source_findings=source_findings,
+                )
 
         restored = store.get_session(session["sessionId"])
         assert restored is not None
@@ -992,6 +1047,9 @@ class CatalystService:
                     "generationValidation": dict(outcome.get("validation") or {}),
                 }
             )
+            collaboration = outcome.get("modelCollaboration")
+            if isinstance(collaboration, dict):
+                provenance["modelCollaboration"] = deepcopy(collaboration)
             return (
                 {
                     "sql": outcome["sql"],
@@ -1030,6 +1088,39 @@ class CatalystService:
             [],
             provenance,
         )
+
+    @staticmethod
+    def _workbench_collaboration(
+        outcome: dict[str, Any], final_draft: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        collaboration = outcome.get("modelCollaboration")
+        if not isinstance(collaboration, dict):
+            return None
+        writer = collaboration.get("writer")
+        reviewer = collaboration.get("reviewer")
+        if not isinstance(writer, dict) or not isinstance(reviewer, dict):
+            return None
+        writer_candidate = writer.get("candidate")
+        reviewer_candidate = reviewer.get("candidate")
+        if not isinstance(writer_candidate, dict) or not isinstance(
+            reviewer_candidate, dict
+        ):
+            return None
+        if writer.get("model") == reviewer.get("model"):
+            return None
+        for candidate in (writer_candidate, reviewer_candidate):
+            if not isinstance(candidate.get("sql"), str):
+                return None
+            if not isinstance(candidate.get("parameters"), list):
+                return None
+            if not isinstance(candidate.get("expectedColumns"), list):
+                return None
+        if any(
+            reviewer_candidate.get(field) != final_draft.get(field)
+            for field in ("sql", "parameters", "expectedColumns")
+        ):
+            return None
+        return deepcopy(collaboration)
 
     @staticmethod
     def _is_historical_generation_check(check: dict[str, Any]) -> bool:

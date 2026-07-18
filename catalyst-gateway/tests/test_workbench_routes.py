@@ -103,6 +103,51 @@ def _ready_query() -> dict:
     }
 
 
+def _collaborative_query() -> dict:
+    query = _ready_query()
+    writer = deepcopy(query)
+    writer_candidate = {
+        key: deepcopy(writer[key])
+        for key in ("status", "target", "sql", "parameters", "expectedColumns")
+    }
+    writer_candidate["sql"] = writer_candidate["sql"].replace(
+        "SELECT test_name", "SELECT COUNT(*)"
+    )
+    writer_candidate["expectedColumns"] = [
+        {"name": "count", "logicalType": "integer", "nullable": False}
+    ]
+    reviewer_candidate = deepcopy(writer_candidate)
+    reviewer_candidate["sql"] = reviewer_candidate["sql"].replace(
+        "SELECT COUNT(*)", "SELECT COUNT(*) AS count"
+    )
+    query.update(reviewer_candidate)
+    query["modelCollaboration"] = {
+        "writer": {
+            "model": "qwen2.5-coder-14b",
+            "candidate": writer_candidate,
+            "lintFindings": [
+                {
+                    "code": "output.projection_mismatch",
+                    "stage": "output_agreement",
+                    "severity": "error",
+                    "path": "expectedColumns",
+                    "message": "Projected SQL columns and expectedColumns must agree.",
+                }
+            ],
+        },
+        "reviewer": {
+            "model": "gemma-e4b",
+            "decision": "repair",
+            "candidate": reviewer_candidate,
+            "checks": [{"name": "projection", "status": "passed"}],
+            "finalDecision": "approve",
+            "finalChecks": [{"name": "projection", "status": "passed"}],
+        },
+        "finalLintFindings": [],
+    }
+    return query
+
+
 def _rejected_query() -> dict:
     invalid = _candidate(
         "SELECT test_name FROM analytics.lab_results "
@@ -175,10 +220,10 @@ class FakeHub:
                 "id": PROFILE_ID,
                 "label": "Catalyst query checked",
                 "available": True,
-                "required_models": ["qwen2.5-coder-14b"],
+                "required_models": ["qwen2.5-coder-14b", "gemma-e4b"],
                 "role_models": {
                     "query_generate": "qwen2.5-coder-14b",
-                    "query_review": "qwen2.5-coder-14b",
+                    "query_review": "gemma-e4b",
                 },
                 "role_knobs": {
                     "query_generate": {"temperature": 0, "seed": 42},
@@ -210,7 +255,13 @@ class FakeHub:
                         "object": "model",
                         "owned_by": "llama.cpp",
                         "meta": {"n_params": 14_000_000_000},
-                    }
+                    },
+                    "gemma-e4b": {
+                        "id": "gemma-e4b",
+                        "object": "model",
+                        "owned_by": "llama.cpp",
+                        "meta": {"n_params": 7_500_000_000},
+                    },
                 },
                 "stages": ["query_generate", "query_lint", "query_review"],
             }
@@ -498,10 +549,10 @@ def test_ready_generation_creates_restorable_version_and_validation(
         "profileId": PROFILE_ID,
         "profileLabel": "Catalyst query checked",
         "profileAvailable": True,
-        "requiredModels": ["qwen2.5-coder-14b"],
+        "requiredModels": ["qwen2.5-coder-14b", "gemma-e4b"],
         "roleModels": {
             "query_generate": "qwen2.5-coder-14b",
-            "query_review": "qwen2.5-coder-14b",
+            "query_review": "gemma-e4b",
         },
         "roleKnobs": {
             "query_generate": {"temperature": 0, "seed": 42},
@@ -533,7 +584,13 @@ def test_ready_generation_creates_restorable_version_and_validation(
                 "object": "model",
                 "owned_by": "llama.cpp",
                 "meta": {"n_params": 14_000_000_000},
-            }
+            },
+            "gemma-e4b": {
+                "id": "gemma-e4b",
+                "object": "model",
+                "owned_by": "llama.cpp",
+                "meta": {"n_params": 7_500_000_000},
+            },
         },
         "stages": ["query_generate", "query_lint", "query_review"],
         "unavailableReasons": [],
@@ -560,6 +617,36 @@ def test_ready_generation_creates_restorable_version_and_validation(
     restored = client.get(f"/v1/catalyst/workbench/sessions/{session['sessionId']}")
     assert restored.status_code == 200
     assert restored.json() == session
+
+
+def test_collaboration_persists_writer_and_reviewer_as_linked_versions(
+    tmp_path: Path,
+) -> None:
+    query = _collaborative_query()
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+
+    writer, reviewer = session["versions"]
+    collaboration = query["modelCollaboration"]
+    assert writer["authorType"] == "model"
+    assert writer["sql"] == collaboration["writer"]["candidate"]["sql"]
+    assert writer["provenance"]["collaborationRole"] == "writer"
+    assert writer["provenance"]["model"] == "qwen2.5-coder-14b"
+    assert reviewer["authorType"] == "model_repair"
+    assert reviewer["parentVersionId"] == writer["versionId"]
+    assert reviewer["sql"] == collaboration["reviewer"]["candidate"]["sql"]
+    assert reviewer["provenance"]["collaborationRole"] == "reviewer"
+    assert reviewer["provenance"]["model"] == "gemma-e4b"
+    assert session["currentVersionId"] == reviewer["versionId"]
+    assert session["currentVersion"] == reviewer
+    assert session["provenance"]["generationOutcome"]["modelCollaboration"] == (
+        collaboration
+    )
+
+    restored = client.get(f"/v1/catalyst/workbench/sessions/{session['sessionId']}")
+    assert restored.status_code == 200
+    assert restored.json()["versions"] == [writer, reviewer]
 
 
 def test_policy_bearing_ready_candidate_is_retained_without_a_preview(

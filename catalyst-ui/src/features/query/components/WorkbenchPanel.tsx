@@ -140,8 +140,11 @@ const GenerationEvidence = ({ session }: { session: WorkbenchSession }) => {
     textAt(diagnostic, "rawOutput") ??
     textAt(outcome, "rawOutput");
   const attempts = arrayAt(diagnostic, "attempts").filter(isRecord);
+  const collaboration = recordAt(outcome, "modelCollaboration");
+  const writer = recordAt(collaboration, "writer");
+  const reviewer = recordAt(collaboration, "reviewer");
 
-  if (!candidate && !rawOutput && attempts.length === 0) return null;
+  if (!candidate && !rawOutput && attempts.length === 0 && !collaboration) return null;
 
   return (
     <section className="workbench-evidence" aria-labelledby="model-evidence-title">
@@ -150,6 +153,61 @@ const GenerationEvidence = ({ session }: { session: WorkbenchSession }) => {
         <p>Retained model artifacts and structured diagnostics; no hidden reasoning trace.</p>
       </div>
       <div className="workbench-evidence__grid">
+        {writer && (
+          <section
+            className="workbench-evidence__artifact"
+            aria-label="Writer candidate"
+          >
+            <h4>Writer candidate</h4>
+            <p>Model: <strong>{textAt(writer, "model") ?? "Not recorded"}</strong></p>
+            <pre>{textAt(recordAt(writer, "candidate"), "sql") ?? "No SQL returned"}</pre>
+            {arrayAt(recordAt(writer, "candidate"), "parameters").length > 0 && (
+              <details>
+                <summary>Writer parameters</summary>
+                <pre>{JSON.stringify(arrayAt(recordAt(writer, "candidate"), "parameters"), null, 2)}</pre>
+              </details>
+            )}
+            {arrayAt(writer, "lintFindings").length > 0 && (
+              <ul>
+                {arrayAt(writer, "lintFindings").filter(isRecord).map((finding, index) => (
+                  <li key={`${textAt(finding, "code") ?? "writer-finding"}-${index}`}>
+                    {textAt(finding, "message") ?? "Writer lint finding"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        {reviewer && (
+          <section
+            className="workbench-evidence__artifact"
+            aria-label="Reviewer correction"
+          >
+            <h4>Reviewer correction</h4>
+            <p>Model: <strong>{textAt(reviewer, "model") ?? "Not recorded"}</strong></p>
+            <p>Decision: {textAt(reviewer, "decision") ?? "Not recorded"}</p>
+            {recordAt(reviewer, "candidate") && (
+              <>
+                <pre>{textAt(recordAt(reviewer, "candidate"), "sql") ?? "No SQL returned"}</pre>
+                {arrayAt(recordAt(reviewer, "candidate"), "parameters").length > 0 && (
+                  <details>
+                    <summary>Reviewer parameters</summary>
+                    <pre>{JSON.stringify(arrayAt(recordAt(reviewer, "candidate"), "parameters"), null, 2)}</pre>
+                  </details>
+                )}
+              </>
+            )}
+            {arrayAt(reviewer, "checks").length > 0 && (
+              <ul>
+                {arrayAt(reviewer, "checks").filter(isRecord).map((check, index) => (
+                  <li key={`${textAt(check, "name") ?? "review-check"}-${index}`}>
+                    {textAt(check, "message") ?? textAt(check, "name") ?? "Reviewer check"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         {candidate && (
           <section
             className="workbench-evidence__artifact"
@@ -467,7 +525,10 @@ const VersionHistory = ({ session }: { session: WorkbenchSession }) => (
       <ol reversed>
         {[...session.versions]
           .sort((left, right) => right.ordinal - left.ordinal)
-          .map((version) => (
+          .map((version) => {
+            const model = textAt(version.provenance, "model");
+            const collaborationRole = textAt(version.provenance, "collaborationRole");
+            return (
             <li
               key={version.versionId}
               aria-current={version.versionId === session.currentVersionId ? "true" : undefined}
@@ -491,9 +552,29 @@ const VersionHistory = ({ session }: { session: WorkbenchSession }) => (
                   <dt>Digest</dt>
                   <dd>{version.queryDigest}</dd>
                 </div>
+                {collaborationRole && (
+                  <div>
+                    <dt>Model role</dt>
+                    <dd>{collaborationRole}</dd>
+                  </div>
+                )}
+                {model && (
+                  <div>
+                    <dt>Model</dt>
+                    <dd>{model}</dd>
+                  </div>
+                )}
               </dl>
+              <details>
+                <summary>View query version</summary>
+                <pre>{version.sql}</pre>
+                {version.parameters.length > 0 && (
+                  <pre>{JSON.stringify(version.parameters, null, 2)}</pre>
+                )}
+              </details>
             </li>
-          ))}
+            );
+          })}
       </ol>
     )}
   </section>

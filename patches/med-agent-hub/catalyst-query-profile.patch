@@ -43,829 +43,12 @@ index 7a1dd7a..86c824c 100644
  
  [tool.poetry.group.dev.dependencies]
  black = "^23.0.0"
-diff --git a/server/config.py b/server/config.py
-index 1595aea..5b76123 100644
---- a/server/config.py
-+++ b/server/config.py
-@@ -15,6 +15,7 @@ class LLMConfig:
-     """OpenAI-compatible backend used by hub stages."""
- 
-     base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:8077")
-+    provider: str = os.getenv("LLM_PROVIDER", "openai-compatible")
-     api_key: str = os.getenv("LLM_API_KEY", "")
-     orchestrator_model: str = os.getenv("ORCHESTRATOR_MODEL", "google/gemma-4-e4b")
-     synthesizer_model: str = os.getenv(
-diff --git a/server/engine.py b/server/engine.py
-index 73ec9fa..7932537 100644
---- a/server/engine.py
-+++ b/server/engine.py
-@@ -61,6 +61,7 @@ class ExecutionRequest:
-     is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None
-     source_registry: Optional[SourceRegistry] = None
-     token_counter: Optional[TokenCounter] = None
-+    catalyst_query: Optional[Mapping[str, Any]] = None
- 
- 
- @dataclass
-@@ -1310,7 +1311,13 @@ class StageEngine:
- 
-         async def produce() -> None:
-             try:
--                async for event in _execute_stages(request):
-+                if request.profile.output_mode == "query":
-+                    from .catalyst_query import execute_query_profile
-+
-+                    events = execute_query_profile(request)
-+                else:
-+                    events = _execute_stages(request)
-+                async for event in events:
-                     await queue.put(("item", event))
-             except BaseException as error:
-                 await queue.put(("error", error))
-diff --git a/server/levels.yaml b/server/levels.yaml
-index ad56479..204c0e0 100644
---- a/server/levels.yaml
-+++ b/server/levels.yaml
-@@ -15,8 +15,57 @@ stage_sets:
-   product: &product [context, answer, gate, resolve_refs, review, gate, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
-   product_no_review: &product_no_review [context, answer, gate, resolve_refs, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
-   team_product: &team_product [context, gather, answer, gate, resolve_refs, review, gate, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
-+  catalyst_query: &catalyst_query [context, query_generate, query_lint, query_review, query_finalize]
- 
- profiles:
-+  catalyst-query-checked:
-+    label: Catalyst governed query (checked)
-+    topology: single
-+    stages: *catalyst_query
-+    models: {query_generate: qwen2.5-14b, query_review: qwen2.5-14b}
-+    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
-+    policies: {output: query, temporal_gate: "off", generation_attempts: 3}
-+    capabilities: {staged: false, validation: true}
-+    outputContracts: [catalyst.query.v1]
-+    visibility: product
-+    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
-+
-+  catalyst-query-gemma-e4b:
-+    label: Catalyst governed query — Gemma 4 E4B
-+    topology: single
-+    stages: *catalyst_query
-+    models: {query_generate: gemma-e4b, query_review: gemma-e4b}
-+    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
-+    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 3}
-+    capabilities: {staged: false, validation: true}
-+    outputContracts: [catalyst.query.v1]
-+    visibility: product
-+    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
-+
-+  catalyst-query-gemma-4-12b:
-+    label: Catalyst governed query — Gemma 4 12B
-+    topology: single
-+    stages: *catalyst_query
-+    models: {query_generate: gemma-4-12b, query_review: gemma-4-12b}
-+    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
-+    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 3}
-+    capabilities: {staged: false, validation: true}
-+    outputContracts: [catalyst.query.v1]
-+    visibility: product
-+    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
-+
-+  catalyst-query-qwen-coder-1.5b:
-+    label: Catalyst governed query — Qwen 2.5 Coder 1.5B
-+    topology: single
-+    stages: *catalyst_query
-+    models: {query_generate: qwen2.5-coder-1.5b-instruct-q4_k_m, query_review: qwen2.5-coder-1.5b-instruct-q4_k_m}
-+    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
-+    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 3}
-+    capabilities: {staged: false, validation: true}
-+    outputContracts: [catalyst.query.v1]
-+    visibility: product
-+    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
-+
-   med-agent-team-low:
-     label: Low team
-     topology: team
-diff --git a/server/levels_loader.py b/server/levels_loader.py
-index baf3cce..6efbde5 100644
---- a/server/levels_loader.py
-+++ b/server/levels_loader.py
-@@ -7,6 +7,8 @@ are intentionally absent from product discovery.
- 
- from __future__ import annotations
- 
-+import hashlib
-+import json
- from dataclasses import dataclass, field
- from pathlib import Path
- from types import MappingProxyType
-@@ -18,7 +20,7 @@ _PATH = Path(__file__).parent / "levels.yaml"
- _PROMPTS = Path(__file__).parent / "prompts"
- _TEMPORAL_GATE_MODES = {"off", "warn", "enforce"}
- _TOPOLOGIES = {"single", "team", "leg"}
--_OUTPUT_MODES = {"bare", "combined", "product", "review", "indepth"}
-+_OUTPUT_MODES = {"bare", "combined", "product", "query", "review", "indepth"}
- _ALLOWED_STAGES = {
-     "context",
-     "gather",
-@@ -30,6 +32,10 @@ _ALLOWED_STAGES = {
-     "ground_verdicts",
-     "indepth",
-     "indepth_gate",
-+    "query_generate",
-+    "query_lint",
-+    "query_review",
-+    "query_finalize",
- }
- 
- 
-@@ -61,6 +67,7 @@ class Profile:
-     reserved_output_tokens: int = 0
-     exact_tokenizer: bool = False
-     low_level_leg: bool = False
-+    output_contracts: Tuple[str, ...] = ()
- 
-     @property
-     def staged(self) -> bool:
-@@ -195,6 +202,7 @@ def _from_spec(profile_id: str, spec: Mapping[str, Any]) -> Profile:
-         context_window=int(context.get("window") or 0),
-         reserved_output_tokens=int(context.get("reserved_output_tokens") or 0),
-         exact_tokenizer=bool(context.get("exact_tokenizer", False)),
-+        output_contracts=tuple(spec.get("outputContracts") or ()),
-     )
-     return compile_profile(profile)
- 
-@@ -229,6 +237,8 @@ def compile_profile(profile: Profile) -> Profile:
-         ("review", "review"),
-         ("ground_verdicts", "grounding"),
-         ("indepth", "indepth"),
-+        ("query_generate", "query_generate"),
-+        ("query_review", "query_review"),
-     ):
-         if stage in profile.stages and role not in profile.models:
-             raise ValueError(
-@@ -318,6 +328,50 @@ def compile_profile(profile: Profile) -> Profile:
-             raise ValueError(
-                 f"product profile {profile.id!r} must ground before gated In-Depth"
-             )
-+    query_stages = {"query_generate", "query_lint", "query_review", "query_finalize"}
-+    if profile.output_mode == "query":
-+        expected = (
-+            "context",
-+            "query_generate",
-+            "query_lint",
-+            "query_review",
-+            "query_finalize",
-+        )
-+        if profile.stages != expected:
-+            raise ValueError(
-+                f"query profile {profile.id!r} must use ordered stages {expected}"
-+            )
-+        if profile.topology != "single":
-+            raise ValueError(f"query profile {profile.id!r} must use single topology")
-+        if profile.output_contracts != ("catalyst.query.v1",):
-+            raise ValueError(
-+                f"query profile {profile.id!r} must advertise only catalyst.query.v1"
-+            )
-+        if profile.staged:
-+            raise ValueError(f"query profile {profile.id!r} cannot stream")
-+        for role in ("query_generate", "query_review"):
-+            temperature = (profile.knobs.get(role) or {}).get("temperature")
-+            if temperature != 0:
-+                raise ValueError(
-+                    f"query profile {profile.id!r} role {role!r} must use temperature 0"
-+                )
-+        generation_attempts = profile.policies.get("generation_attempts", 2)
-+        if (
-+            not isinstance(generation_attempts, int)
-+            or isinstance(generation_attempts, bool)
-+            or not 1 <= generation_attempts <= 3
-+        ):
-+            raise ValueError(
-+                f"query profile {profile.id!r} generation_attempts must be 1..3"
-+            )
-+    elif query_stages.intersection(profile.stages):
-+        raise ValueError(
-+            f"non-query profile {profile.id!r} cannot declare query stages"
-+        )
-+    elif profile.output_contracts:
-+        raise ValueError(
-+            f"non-query profile {profile.id!r} cannot advertise query output contracts"
-+        )
- 
-     temporal_mode = str(profile.policies.get("temporal_gate", "off")).lower()
-     if temporal_mode not in _TEMPORAL_GATE_MODES:
-@@ -352,6 +406,7 @@ def compile_profile(profile: Profile) -> Profile:
-         reserved_output_tokens=profile.reserved_output_tokens,
-         exact_tokenizer=profile.exact_tokenizer,
-         low_level_leg=profile.low_level_leg,
-+        output_contracts=tuple(profile.output_contracts),
-     )
- 
- 
-@@ -435,13 +490,83 @@ def resolve_temporal_policy(
-     return enabled, mode
- 
- 
-+def _jsonable(value: Any) -> Any:
-+    """Return immutable profile configuration as canonical JSON values."""
-+    if isinstance(value, Mapping):
-+        return {
-+            str(key): _jsonable(item)
-+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-+        }
-+    if isinstance(value, (list, tuple)):
-+        return [_jsonable(item) for item in value]
-+    return value
-+
-+
-+def _sha256(value: str) -> str:
-+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
-+
-+
-+def _profile_configuration_digest(profile: Profile) -> str:
-+    configuration = {
-+        "id": profile.id,
-+        "label": profile.label,
-+        "topology": profile.topology,
-+        "stages": profile.stages,
-+        "models": profile.models,
-+        "prompts": profile.prompts,
-+        "policies": profile.policies,
-+        "capabilities": profile.capabilities,
-+        "knobs": profile.knobs,
-+        "visibility": profile.visibility,
-+        "default": profile.default,
-+        "context_window": profile.context_window,
-+        "reserved_output_tokens": profile.reserved_output_tokens,
-+        "exact_tokenizer": profile.exact_tokenizer,
-+        "low_level_leg": profile.low_level_leg,
-+        "output_contracts": profile.output_contracts,
-+    }
-+    canonical = json.dumps(
-+        _jsonable(configuration),
-+        ensure_ascii=False,
-+        separators=(",", ":"),
-+        sort_keys=True,
-+    )
-+    return _sha256(canonical)
-+
-+
-+def _prompt_assets(profile: Profile, role: str, configured: str) -> Tuple[str, ...]:
-+    if role != "review":
-+        return (configured,)
-+    assets = [configured + "-answer"]
-+    if "indepth" in profile.stages:
-+        assets.append(configured + "-indepth")
-+    return tuple(assets)
-+
-+
-+def _role_prompt_digests(profile: Profile) -> Dict[str, Any]:
-+    digests: Dict[str, Any] = {}
-+    for role, configured_value in sorted(profile.prompts.items()):
-+        configured = str(configured_value)
-+        system_prompts = {}
-+        for name in _prompt_assets(profile, role, configured):
-+            content = (_PROMPTS / f"{name}.txt").read_text(encoding="utf-8").rstrip(
-+                "\n"
-+            )
-+            system_prompts[name] = _sha256(content)
-+        digests[str(role)] = {
-+            "configured_prompt": configured,
-+            "system_prompt_sha256": system_prompts,
-+        }
-+    return digests
-+
-+
- def profile_metadata(
-     profile: Profile,
-     *,
-     available: bool,
-     unavailable_reasons: Tuple[str, ...] = (),
- ) -> Dict[str, Any]:
--    return {
-+    metadata = {
-         "id": profile.id,
-         "label": profile.label,
-         "staged": profile.staged,
-@@ -453,7 +578,14 @@ def profile_metadata(
-         "visibility": profile.visibility,
-         "stages": list(profile.stages),
-         "required_models": sorted(set(profile.models.values())),
-+        "role_models": dict(profile.models),
-+        "role_knobs": _jsonable(profile.knobs),
-+        "profile_configuration_digest": _profile_configuration_digest(profile),
-+        "role_prompt_digests": _role_prompt_digests(profile),
-         "context_window": profile.context_window or None,
-         "exact_tokenizer": profile.exact_tokenizer,
-         "unavailable_reasons": list(unavailable_reasons),
-     }
-+    if profile.output_contracts:
-+        metadata["outputContracts"] = list(profile.output_contracts)
-+    return metadata
-diff --git a/server/openai_compat.py b/server/openai_compat.py
-index 2b88937..8558d0a 100644
---- a/server/openai_compat.py
-+++ b/server/openai_compat.py
-@@ -6,13 +6,15 @@ import asyncio
- import json
- import time
- import uuid
-+from collections.abc import Mapping
- from dataclasses import replace
--from typing import Any, Dict, List, Optional
-+from typing import Annotated, Any, Dict, List, Literal, Optional
-+from urllib.parse import urlsplit, urlunsplit
- 
- import httpx
- from fastapi import APIRouter, HTTPException, Request
- from fastapi.responses import StreamingResponse
--from pydantic import BaseModel, Field
-+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
- 
- from .config import llm_config
- from .context_sources import ContextSourceError
-@@ -28,6 +30,102 @@ from .levels_loader import (
- router = APIRouter()
- 
- 
-+class _StrictQueryModel(BaseModel):
-+    model_config = ConfigDict(extra="forbid", strict=True)
-+
-+
-+class CatalystQueryMessage(_StrictQueryModel):
-+    role: Literal["user"]
-+    content: str = Field(..., min_length=1)
-+
-+
-+class CatalystQueryTarget(_StrictQueryModel):
-+    dataSource: str = Field(..., min_length=1)
-+    catalogVersion: str = Field(..., min_length=1)
-+    dialect: str = Field(..., min_length=1)
-+
-+
-+class CatalystQueryCatalogField(_StrictQueryModel):
-+    name: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-+    type: str = Field(..., min_length=1)
-+    description: str = Field(..., min_length=1)
-+    unit: Optional[str] = None
-+
-+    @field_validator("unit", mode="before")
-+    @classmethod
-+    def reject_null_unit(cls, value: Any) -> Any:
-+        if value is None:
-+            raise ValueError("unit must be omitted rather than null")
-+        return value
-+
-+
-+class CatalystQuerySemanticValue(_StrictQueryModel):
-+    canonical: str = Field(..., min_length=1)
-+    aliases: List[Annotated[str, Field(min_length=1)]] = Field(..., min_length=1)
-+
-+
-+class CatalystQuerySemanticDimension(_StrictQueryModel):
-+    field: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-+    semanticType: Literal["analyte"]
-+    values: List[CatalystQuerySemanticValue] = Field(..., min_length=1)
-+
-+
-+class CatalystQueryCatalogView(_StrictQueryModel):
-+    name: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_.]*$")
-+    version: str = Field(..., min_length=1)
-+    grain: str = Field(..., min_length=1)
-+    fields: List[CatalystQueryCatalogField] = Field(..., min_length=1)
-+    relationships: Optional[List[Annotated[str, Field(min_length=1)]]] = None
-+    semanticDimensions: Optional[List[CatalystQuerySemanticDimension]] = None
-+
-+    @field_validator("relationships", mode="before")
-+    @classmethod
-+    def reject_null_relationships(cls, value: Any) -> Any:
-+        if value is None:
-+            raise ValueError("relationships must be omitted rather than null")
-+        return value
-+
-+    @field_validator("semanticDimensions", mode="before")
-+    @classmethod
-+    def reject_null_semantic_dimensions(cls, value: Any) -> Any:
-+        if value is None:
-+            raise ValueError("semanticDimensions must be omitted rather than null")
-+        return value
-+
-+
-+class CatalystQueryCatalog(_StrictQueryModel):
-+    contextSourceId: str = Field(..., min_length=1)
-+    views: List[CatalystQueryCatalogView] = Field(..., min_length=1)
-+
-+
-+class CatalystQueryPolicy(_StrictQueryModel):
-+    allowedOperation: Literal["select"]
-+    requirePreview: Literal[True]
-+    maxRows: int = Field(..., ge=1)
-+    statementTimeoutMs: int = Field(..., ge=1)
-+
-+
-+class CatalystQueryCorrelation(_StrictQueryModel):
-+    requestId: str = Field(..., min_length=1)
-+    traceId: str = Field(..., min_length=1)
-+
-+
-+class CatalystQueryContext(_StrictQueryModel):
-+    contractVersion: Literal["catalyst.query.request.v1"]
-+    target: CatalystQueryTarget
-+    catalog: CatalystQueryCatalog
-+    policy: CatalystQueryPolicy
-+    correlation: CatalystQueryCorrelation
-+    requiredOutputContract: Literal["catalyst.query.v1"]
-+
-+
-+class CatalystQueryCompletionRequest(_StrictQueryModel):
-+    model: str = Field(..., min_length=1, pattern=r"^catalyst-query-")
-+    stream: Literal[False]
-+    messages: List[CatalystQueryMessage] = Field(..., min_length=1, max_length=1)
-+    catalystQuery: CatalystQueryContext
-+
-+
- class ChatCompletionRequest(BaseModel):
-     model: str
-     messages: List[Dict[str, Any]] = Field(..., min_length=1)
-@@ -37,9 +135,80 @@ class ChatCompletionRequest(BaseModel):
-     stream: bool = False
-     context: Optional[Dict[str, Any]] = None
-     patient: Optional[str] = None
-+    catalystQuery: Optional[CatalystQueryContext] = None
-+
-+    @model_validator(mode="before")
-+    @classmethod
-+    def validate_query_profile_request(cls, value: Any) -> Any:
-+        if not isinstance(value, dict):
-+            return value
-+        if (
-+            str(value.get("model", "")).startswith("catalyst-query-")
-+            or "catalystQuery" in value
-+        ):
-+            return CatalystQueryCompletionRequest.model_validate(value).model_dump(
-+                exclude_none=True
-+            )
-+        return value
-+
-+
-+_SENSITIVE_METADATA_KEYS = {
-+    "access_token",
-+    "api_key",
-+    "apikey",
-+    "authorization",
-+    "client_secret",
-+    "credential",
-+    "credentials",
-+    "password",
-+    "refresh_token",
-+    "secret",
-+}
-+_URL_METADATA_KEYS = {
-+    "download_url",
-+    "endpoint",
-+    "model_url",
-+    "uri",
-+    "url",
-+}
-+
-+
-+def _public_url(value: str) -> str:
-+    """Remove credentials, query parameters, and fragments from advertised URLs."""
-+    try:
-+        parsed = urlsplit(value)
-+        if not parsed.scheme or not parsed.hostname:
-+            return value
-+        host = parsed.hostname
-+        if ":" in host and not host.startswith("["):
-+            host = f"[{host}]"
-+        if parsed.port is not None:
-+            host = f"{host}:{parsed.port}"
-+        return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
-+    except ValueError:
-+        return "[redacted-invalid-url]"
-+
-+
-+def _sanitize_backend_metadata(value: Any, *, key: str = "") -> Any:
-+    """Preserve backend model metadata while removing conventional secrets."""
-+    normalized_key = key.strip().lower().replace("-", "_")
-+    if normalized_key in _SENSITIVE_METADATA_KEYS:
-+        return "[redacted]"
-+    if isinstance(value, Mapping):
-+        return {
-+            str(item_key): _sanitize_backend_metadata(item, key=str(item_key))
-+            for item_key, item in value.items()
-+        }
-+    if isinstance(value, list):
-+        return [_sanitize_backend_metadata(item) for item in value]
-+    if isinstance(value, tuple):
-+        return [_sanitize_backend_metadata(item) for item in value]
-+    if isinstance(value, str) and normalized_key in _URL_METADATA_KEYS:
-+        return _public_url(value)
-+    return value
- 
- 
--def _served_backend_models() -> set[str]:
-+def _served_backend_model_metadata() -> Dict[str, Dict[str, Any]]:
-     headers = {}
-     if llm_config.api_key:
-         headers["Authorization"] = f"Bearer {llm_config.api_key}"
-@@ -50,19 +219,37 @@ def _served_backend_models() -> set[str]:
-             timeout=3.0,
-         )
-         response.raise_for_status()
--        return {
--            str(item.get("id"))
--            for item in (response.json().get("data") or [])
--            if item.get("id")
--        }
-+        result: Dict[str, Dict[str, Any]] = {}
-+        for item in response.json().get("data") or []:
-+            if not isinstance(item, Mapping) or not item.get("id"):
-+                continue
-+            sanitized = _sanitize_backend_metadata(item)
-+            result[str(item["id"])] = dict(sanitized)
-+        return result
-     except Exception:
--        return set()
-+        return {}
-+
-+
-+def _served_backend_models() -> set[str]:
-+    """Compatibility helper for callers that only need loaded backend aliases."""
-+    return set(_served_backend_model_metadata())
-+
-+
-+def _backend_discovery_metadata() -> Dict[str, str]:
-+    endpoint = _public_url(str(llm_config.base_url).rstrip("/"))
-+    return {
-+        "provider": str(getattr(llm_config, "provider", "openai-compatible")),
-+        "endpoint": endpoint,
-+        "models_endpoint": f"{endpoint}/v1/models",
-+    }
- 
- 
- @router.get("/v1/models")
- def list_models() -> Dict[str, Any]:
-     created = int(time.time())
--    served = _served_backend_models()
-+    backend_models = _served_backend_model_metadata()
-+    served = set(backend_models)
-+    backend = _backend_discovery_metadata()
-     profiles = [get_profile(profile_id) for profile_id in profile_ids()]
-     data = []
-     for profile in profiles:
-@@ -86,6 +273,11 @@ def list_models() -> Dict[str, Any]:
-                 "object": "model",
-                 "created": created,
-                 "owned_by": "med-agent-hub",
-+                "backend": backend,
-+                "backend_model_metadata": {
-+                    model: backend_models.get(model)
-+                    for model in sorted(set(profile.models.values()))
-+                },
-             }
-         )
-     return {
-@@ -104,6 +296,9 @@ def _request_for(req: ChatCompletionRequest, profile: Profile) -> ExecutionReque
-         context=req.context,
-         patient=req.patient,
-         model_label=req.model,
-+        catalyst_query=(
-+            req.catalystQuery.model_dump() if req.catalystQuery is not None else None
-+        ),
-     )
- 
- 
-@@ -111,9 +306,11 @@ async def _content_for(req: ChatCompletionRequest) -> str:
-     return await drain_profile(_request_for(req, get_profile(req.model)))
- 
- 
--def _completion_envelope(model: str, content: str) -> Dict[str, Any]:
-+def _completion_envelope(
-+    model: str, content: str, *, completion_id: Optional[str] = None
-+) -> Dict[str, Any]:
-     return {
--        "id": f"chatcmpl-{uuid.uuid4().hex}",
-+        "id": completion_id or f"chatcmpl-{uuid.uuid4().hex}",
-         "object": "chat.completion",
-         "created": int(time.time()),
-         "model": model,
-@@ -263,4 +460,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
-             _sse_stream(req.model, content),
-             media_type="text/event-stream",
-         )
--    return _completion_envelope(req.model, content)
-+    completion_id = (
-+        req.catalystQuery.correlation.traceId if req.catalystQuery is not None else None
-+    )
-+    return _completion_envelope(req.model, content, completion_id=completion_id)
-diff --git a/tests/test_bridge.py b/tests/test_bridge.py
-index 282de29..5b27462 100644
---- a/tests/test_bridge.py
-+++ b/tests/test_bridge.py
-@@ -597,6 +597,51 @@ def test_backend_model_discovery_uses_configured_bearer_auth():
-     )
- 
- 
-+def test_backend_model_discovery_preserves_metadata_and_redacts_secrets():
-+    backend = SimpleNamespace(
-+        base_url="https://user:password@router.example:8443/openai?token=secret",
-+        provider="llama.cpp",
-+        api_key="request-secret",
-+    )
-+    advertised = {
-+        "id": "gemma-e4b",
-+        "object": "model",
-+        "owned_by": "llamacpp",
-+        "created": 1234,
-+        "meta": {
-+            "quantization": "Q4_K_M",
-+            "physical_revision": "sha256:model-bytes",
-+            "api_key": "metadata-secret",
-+            "tokenizer": "gemma",
-+            "download_url": "https://user:pass@models.example/gemma?sig=secret",
-+        },
-+    }
-+    with patch.object(openai_compat, "llm_config", backend), patch.object(
-+        openai_compat.httpx, "get"
-+    ) as get:
-+        get.return_value.json.return_value = {"data": [advertised]}
-+
-+        metadata = openai_compat._served_backend_model_metadata()
-+        backend_metadata = openai_compat._backend_discovery_metadata()
-+
-+    assert metadata["gemma-e4b"] == {
-+        **advertised,
-+        "meta": {
-+            **advertised["meta"],
-+            "api_key": "[redacted]",
-+            "download_url": "https://models.example/gemma",
-+        },
-+    }
-+    assert backend_metadata == {
-+        "provider": "llama.cpp",
-+        "endpoint": "https://router.example:8443/openai",
-+        "models_endpoint": "https://router.example:8443/openai/v1/models",
-+    }
-+    assert "request-secret" not in json.dumps(metadata)
-+    assert "metadata-secret" not in json.dumps(metadata)
-+    assert "password" not in json.dumps(backend_metadata)
-+
-+
- def test_backend_model_discovery_omits_auth_when_api_key_is_blank():
-     backend = SimpleNamespace(base_url="http://router", api_key="")
-     with patch.object(openai_compat, "llm_config", backend), patch.object(
-@@ -625,6 +670,57 @@ def test_v1_models_advertises_staged_capability_not_just_id_prefix():
-     assert "answer-review:qwen2.5-14b" not in by_id
- 
- 
-+def test_v1_models_attaches_required_backend_metadata_without_changing_availability():
-+    catalog = {
-+        "gemma-e4b": {
-+            "id": "gemma-e4b",
-+            "object": "model",
-+            "owned_by": "llamacpp",
-+            "meta": {"n_params": 7_518_000_000, "quantization": "Q4_K_M"},
-+        },
-+        "not-required-by-profile": {"id": "not-required-by-profile"},
-+    }
-+    backend = SimpleNamespace(
-+        base_url="http://router:8077", provider="llama.cpp", api_key=""
-+    )
-+    with patch.object(openai_compat, "llm_config", backend), patch.object(
-+        openai_compat,
-+        "_served_backend_model_metadata",
-+        return_value=catalog,
-+    ):
-+        response = TestClient(app).get("/v1/models")
-+
-+    by_id = {item["id"]: item for item in response.json()["data"]}
-+    profile = by_id["catalyst-query-gemma-e4b"]
-+    assert profile["available"] is True
-+    assert profile["unavailable_reasons"] == []
-+    assert profile["backend"] == {
-+        "provider": "llama.cpp",
-+        "endpoint": "http://router:8077",
-+        "models_endpoint": "http://router:8077/v1/models",
-+    }
-+    assert profile["backend_model_metadata"] == {
-+        "gemma-e4b": catalog["gemma-e4b"]
-+    }
-+    assert "not-required-by-profile" not in profile["backend_model_metadata"]
-+    assert profile["role_knobs"] == {
-+        "query_generate": {"temperature": 0},
-+        "query_review": {"temperature": 0},
-+    }
-+    assert profile["profile_configuration_digest"].startswith("sha256:")
-+    assert set(profile["role_prompt_digests"]) == {
-+        "query_generate",
-+        "query_review",
-+    }
-+
-+    unavailable = by_id["catalyst-query-checked"]
-+    assert unavailable["available"] is False
-+    assert unavailable["unavailable_reasons"] == [
-+        "model_not_loaded:qwen2.5-14b"
-+    ]
-+    assert unavailable["backend_model_metadata"] == {"qwen2.5-14b": None}
-+
-+
- def test_chat_completions_profile_returns_openai_shape_with_the_envelope():
-     async def fake_drain(execution):
-         # The API is only an adapter: it compiles the profile and drains the engine.
-diff --git a/tests/test_config.py b/tests/test_config.py
-index f2f9693..2d29391 100644
---- a/tests/test_config.py
-+++ b/tests/test_config.py
-@@ -11,6 +11,7 @@ from server import config
- 
- def test_llm_backend_is_openai_compatible_router_configuration():
-     assert config.llm_config.base_url.startswith(("http://", "https://"))
-+    assert config.llm_config.provider
-     assert config.llm_config.orchestrator_model
-     assert config.llm_config.synthesizer_model
-     assert config.llm_config.med_model
-diff --git a/tests/test_profiles_v2.py b/tests/test_profiles_v2.py
-index 534ce71..291a55b 100644
---- a/tests/test_profiles_v2.py
-+++ b/tests/test_profiles_v2.py
-@@ -1,5 +1,6 @@
- from __future__ import annotations
- 
-+import hashlib
- from dataclasses import replace
- 
- import pytest
-@@ -13,6 +14,7 @@ from server.levels_loader import (
-     resolve_temporal_policy,
-     validate_profiles,
- )
-+from server.prompt_loader import load_prompt
- 
- 
- def test_default_product_profile_is_human_readable_single_e4b():
-@@ -157,6 +159,8 @@ def test_discovery_metadata_is_authoritative_and_dynamic_legs_are_not_advertised
-     assert all(not model_id.startswith("answer:") for model_id in ids)
- 
-     metadata = profile_metadata(get_profile("single-e4b-checked"), available=True)
-+    configuration_digest = metadata.pop("profile_configuration_digest")
-+    prompt_digests = metadata.pop("role_prompt_digests")
-     assert metadata == {
-         "id": "single-e4b-checked",
-         "label": "Fast checked answer (E4B)",
-@@ -169,10 +173,47 @@ def test_discovery_metadata_is_authoritative_and_dynamic_legs_are_not_advertised
-         "visibility": "product",
-         "stages": list(get_profile("single-e4b-checked").stages),
-         "required_models": ["gemma-e4b"],
-+        "role_models": {
-+            "answer": "gemma-e4b",
-+            "review": "gemma-e4b",
-+            "grounding": "gemma-e4b",
-+            "indepth": "gemma-e4b",
-+        },
-+        "role_knobs": {"answer": {"temperature": 0}},
-         "context_window": 24576,
-         "exact_tokenizer": True,
-         "unavailable_reasons": [],
-     }
-+    assert configuration_digest.startswith("sha256:")
-+    assert len(configuration_digest) == len("sha256:") + 64
-+    answer_digest = "sha256:" + hashlib.sha256(
-+        load_prompt("synthesis-answer").encode("utf-8")
-+    ).hexdigest()
-+    assert prompt_digests["answer"] == {
-+        "configured_prompt": "synthesis-answer",
-+        "system_prompt_sha256": {"synthesis-answer": answer_digest},
-+    }
-+    assert set(prompt_digests["review"]["system_prompt_sha256"]) == {
-+        "validation-rewrite-answer",
-+        "validation-rewrite-indepth",
-+    }
-+
-+
-+def test_profile_and_prompt_digests_are_deterministic_and_separate():
-+    profile = get_profile("single-e4b-checked")
-+
-+    first = profile_metadata(profile, available=True)
-+    second = profile_metadata(profile, available=False)
-+    renamed = profile_metadata(replace(profile, label="Changed label"), available=True)
-+
-+    assert first["profile_configuration_digest"] == second[
-+        "profile_configuration_digest"
-+    ]
-+    assert first["role_prompt_digests"] == second["role_prompt_digests"]
-+    assert first["profile_configuration_digest"] != renamed[
-+        "profile_configuration_digest"
-+    ]
-+    assert first["role_prompt_digests"] == renamed["role_prompt_digests"]
- 
- 
- def test_only_one_configured_profile_is_default():
 diff --git a/server/catalyst_query.py b/server/catalyst_query.py
 new file mode 100644
-index 0000000..87931e7
+index 0000000..e847d71
 --- /dev/null
 +++ b/server/catalyst_query.py
-@@ -0,0 +1,2190 @@
+@@ -0,0 +1,2344 @@
 +"""Fail-closed stages for the governed Catalyst analytics-query profile."""
 +
 +from __future__ import annotations
@@ -1078,6 +261,7 @@ index 0000000..87931e7
 +    },
 +    "$defs": deepcopy(_CANDIDATE_SCHEMA["$defs"]),
 +}
++_BACKEND_GENERATION_SCHEMA["$defs"]["parameter"]["required"] = ["type", "value"]
 +_BACKEND_REVIEW_SCHEMA: Dict[str, Any] = {
 +    "type": "object",
 +    "additionalProperties": False,
@@ -1268,6 +452,8 @@ index 0000000..87931e7
 +        )
 +        if any(field in value for field in candidate_fields):
 +            candidate = {field: value.get(field) for field in candidate_fields}
++            candidate, _ = _normalize_exact_duplicate_parameter_bindings(candidate)
++            candidate, _ = _normalize_ordered_parameter_bindings(candidate)
 +            candidate = _normalize_grounded_parameter_names(
 +                candidate, question, extension
 +            )
@@ -1340,6 +526,60 @@ index 0000000..87931e7
 +    return normalized, True
 +
 +
++def _normalize_ordered_parameter_bindings(
++    candidate: Mapping[str, Any],
++) -> tuple[Dict[str, Any], bool]:
++    """Pair unnamed generated parameters with SQL placeholders in order."""
++    normalized = deepcopy(dict(candidate))
++    if normalized.get("status") != "ready":
++        return normalized, False
++    parameters = normalized.get("parameters")
++    if not isinstance(parameters, list) or not all(
++        isinstance(parameter, dict) for parameter in parameters
++    ):
++        return normalized, False
++    placeholders = list(
++        dict.fromkeys(_NAMED_PARAMETER.findall(str(normalized.get("sql", ""))))
++    )
++    if len(parameters) != len(placeholders):
++        return normalized, False
++
++    changed = False
++    for placeholder, parameter in zip(placeholders, parameters):
++        if not parameter.get("name"):
++            parameter["name"] = placeholder
++            changed = True
++        if not parameter.get("source"):
++            parameter["source"] = "question"
++            changed = True
++    return normalized, changed
++
++
++def _normalize_exact_duplicate_parameter_bindings(
++    candidate: Mapping[str, Any],
++) -> tuple[Dict[str, Any], bool]:
++    """Drop exact duplicate bindings only when SQL cardinality proves the result."""
++    normalized = deepcopy(dict(candidate))
++    if normalized.get("status") != "ready":
++        return normalized, False
++    parameters = normalized.get("parameters")
++    if not isinstance(parameters, list) or not all(
++        isinstance(parameter, dict) for parameter in parameters
++    ):
++        return normalized, False
++    placeholders = list(
++        dict.fromkeys(_NAMED_PARAMETER.findall(str(normalized.get("sql", ""))))
++    )
++    unique: list[dict[str, Any]] = []
++    for parameter in parameters:
++        if parameter not in unique:
++            unique.append(parameter)
++    if len(unique) != len(placeholders) or len(unique) == len(parameters):
++        return normalized, False
++    normalized["parameters"] = unique
++    return normalized, True
++
++
 +def _normalize_candidate_draft(
 +    content: str,
 +    question: str,
@@ -1348,7 +588,13 @@ index 0000000..87931e7
 +    label: str,
 +) -> tuple[Dict[str, Any], bool]:
 +    value = _decode_exact_object(content, label=label)
-+    normalized, binding_normalized = _normalize_single_date_binding(value, question)
++    deduplicated, duplicate_normalized = _normalize_exact_duplicate_parameter_bindings(
++        value
++    )
++    ordered, binding_normalized = _normalize_ordered_parameter_bindings(deduplicated)
++    binding_normalized = binding_normalized or duplicate_normalized
++    normalized, date_normalized = _normalize_single_date_binding(ordered, question)
++    binding_normalized = binding_normalized or date_normalized
 +    grounded = _normalize_grounded_parameter_names(normalized, question, extension)
 +    binding_normalized = binding_normalized or grounded != normalized
 +    return grounded, binding_normalized
@@ -2459,6 +1705,8 @@ index 0000000..87931e7
 +                "findings": findings,
 +            }
 +        )
++        if profile.policies.get("collaborative_review") is True and parsed is not None:
++            return parsed, attempt, binding_normalized, history
 +        if not findings and parsed is not None:
 +            return parsed, attempt, binding_normalized, history
 +        if attempt == max_attempts:
@@ -2543,7 +1791,7 @@ index 0000000..87931e7
 +    candidate: Mapping[str, Any],
 +    *,
 +    attempt: int,
-+    deterministic_findings: Optional[list[str]] = None,
++    deterministic_findings: Optional[list[dict[str, Any]]] = None,
 +) -> tuple[Dict[str, Any], int]:
 +    profile = request.profile
 +    prompt = load_prompt(str(profile.prompts["query_review"]))
@@ -2668,6 +1916,7 @@ index 0000000..87931e7
 +    checks: list[dict[str, Any]],
 +    *,
 +    profile_id: str,
++    model_collaboration: Optional[Mapping[str, Any]] = None,
 +) -> Dict[str, Any]:
 +    status = str(candidate["status"])
 +    result: Dict[str, Any] = {
@@ -2685,6 +1934,8 @@ index 0000000..87931e7
 +            result[field] = candidate[field]
 +    result["validation"] = _validation_for(candidate, checks)
 +    result["provenance"] = _provenance(profile_id, extension)
++    if model_collaboration is not None:
++        result["modelCollaboration"] = deepcopy(dict(model_collaboration))
 +    error = _validation_error(_FINAL_VALIDATOR, result, "final query contract")
 +    if str(error):
 +        raise error
@@ -2700,6 +1951,7 @@ index 0000000..87931e7
 +    checks: Optional[list[dict[str, Any]]] = None,
 +    diagnostic_candidate: Optional[Mapping[str, Any]] = None,
 +    profile_id: str = "catalyst-query-checked",
++    model_collaboration: Optional[Mapping[str, Any]] = None,
 +) -> Dict[str, Any]:
 +    final_checks = deepcopy(checks or [])
 +    if not any(check.get("status") == "failed" for check in final_checks):
@@ -2724,6 +1976,8 @@ index 0000000..87931e7
 +    }
 +    if diagnostic_candidate is not None:
 +        result["diagnosticCandidate"] = deepcopy(diagnostic_candidate)
++    if model_collaboration is not None:
++        result["modelCollaboration"] = deepcopy(dict(model_collaboration))
 +    error = _validation_error(_FINAL_VALIDATOR, result, "rejected query contract")
 +    if str(error):  # pragma: no cover - fixed fields are covered by contract tests
 +        raise error
@@ -2906,10 +2160,27 @@ index 0000000..87931e7
 +                steps.append({"role": "catalog_target", "status": "failed"})
 +            else:
 +                try:
-+                    semantic_failures = _semantic_binding_failures(
-+                        candidate, question, extension
++                    collaborative_review = (
++                        request.profile.policies.get("collaborative_review") is True
 +                    )
-+                    if semantic_failures:
++                    if collaborative_review and (
++                        request.profile.models["query_generate"]
++                        == request.profile.models["query_review"]
++                    ):
++                        raise QueryContractError(
++                            "collaborative query roles require different models"
++                        )
++                    writer_findings = (
++                        deepcopy(lint_history[-1]["findings"])
++                        if collaborative_review and lint_history
++                        else []
++                    )
++                    semantic_failures = (
++                        []
++                        if collaborative_review
++                        else _semantic_binding_failures(candidate, question, extension)
++                    )
++                    if not collaborative_review and semantic_failures:
 +                        raise QueryContractError(
 +                            "candidate reached review with deterministic semantic "
 +                            "failures"
@@ -2920,6 +2191,7 @@ index 0000000..87931e7
 +                        extension,
 +                        candidate,
 +                        attempt=1,
++                        deterministic_findings=writer_findings or None,
 +                    )
 +                    steps.append(
 +                        {
@@ -2927,15 +2199,31 @@ index 0000000..87931e7
 +                            "attempt": 1,
 +                            "model_attempts": review_model_attempts,
 +                            "decision": review["decision"],
-+                            "deterministic_findings": len(semantic_failures),
++                            "deterministic_findings": len(writer_findings),
 +                        }
 +                    )
-+                    if semantic_failures and review["decision"] == "approve":
++                    if writer_findings and review["decision"] == "approve":
 +                        raise QueryContractError(
-+                            "review approved a candidate with deterministic "
-+                            "semantic failures"
++                            "review approved a candidate with deterministic " "findings"
 +                        )
 +                    if review["decision"] == "reject":
++                        model_collaboration = (
++                            {
++                                "writer": {
++                                    "model": request.profile.models["query_generate"],
++                                    "candidate": deepcopy(candidate),
++                                    "lintFindings": writer_findings,
++                                },
++                                "reviewer": {
++                                    "model": request.profile.models["query_review"],
++                                    "decision": "reject",
++                                    "checks": deepcopy(review["checks"]),
++                                },
++                                "finalLintFindings": writer_findings,
++                            }
++                            if collaborative_review
++                            else None
++                        )
 +                        result = _rejected(
 +                            question,
 +                            extension,
@@ -2947,6 +2235,7 @@ index 0000000..87931e7
 +                                "candidate": candidate,
 +                            },
 +                            profile_id=request.profile.id,
++                            model_collaboration=model_collaboration,
 +                        )
 +                    elif review["decision"] == "repair":
 +                        repaired = _bind_question_date_literals(
@@ -2967,6 +2256,24 @@ index 0000000..87931e7
 +                            *lint_candidate(repaired, extension),
 +                            *_semantic_lint_findings(repaired, question, extension),
 +                        ]
++                        model_collaboration = (
++                            {
++                                "writer": {
++                                    "model": request.profile.models["query_generate"],
++                                    "candidate": deepcopy(candidate),
++                                    "lintFindings": writer_findings,
++                                },
++                                "reviewer": {
++                                    "model": request.profile.models["query_review"],
++                                    "decision": "repair",
++                                    "candidate": deepcopy(repaired),
++                                    "checks": deepcopy(review["checks"]),
++                                },
++                                "finalLintFindings": deepcopy(repaired_findings),
++                            }
++                            if collaborative_review
++                            else None
++                        )
 +                        steps.append(
 +                            {
 +                                "role": "query_lint",
@@ -2989,40 +2296,70 @@ index 0000000..87931e7
 +                            raise QueryContractError(
 +                                "review repair failed deterministic lint"
 +                            )
-+                        second_review, second_review_model_attempts = await _review(
-+                            client,
-+                            request,
-+                            extension,
-+                            repaired,
-+                            attempt=2,
-+                        )
-+                        steps.append(
-+                            {
-+                                "role": "query_review",
-+                                "attempt": 2,
-+                                "model_attempts": second_review_model_attempts,
-+                                "decision": second_review["decision"],
-+                                "deterministic_findings": 0,
-+                            }
-+                        )
-+                        if second_review["decision"] != "approve":
-+                            raise QueryContractError(
-+                                "repaired query did not pass independent re-review"
++                        if collaborative_review:
++                            final_checks = [
++                                {
++                                    "name": "reviewer_correction_lint",
++                                    "status": "passed",
++                                    "message": (
++                                        "The reviewer's complete corrected query "
++                                        "passed the deterministic contract and SQL "
++                                        "lint."
++                                    ),
++                                }
++                            ]
++                        else:
++                            second_review, second_review_model_attempts = await _review(
++                                client,
++                                request,
++                                extension,
++                                repaired,
++                                attempt=2,
 +                            )
++                            steps.append(
++                                {
++                                    "role": "query_review",
++                                    "attempt": 2,
++                                    "model_attempts": second_review_model_attempts,
++                                    "decision": second_review["decision"],
++                                    "deterministic_findings": 0,
++                                }
++                            )
++                            if second_review["decision"] != "approve":
++                                raise QueryContractError(
++                                    "repaired query did not pass independent re-review"
++                                )
++                            final_checks = list(second_review["checks"])
 +                        result = _finalize(
 +                            question,
 +                            extension,
 +                            repaired,
 +                            _semantic_checks(
-+                                _lint_validation_checks(
-+                                    lint_history, list(second_review["checks"])
-+                                ),
++                                _lint_validation_checks(lint_history, final_checks),
 +                                question,
 +                                extension,
 +                            ),
 +                            profile_id=request.profile.id,
++                            model_collaboration=model_collaboration,
 +                        )
 +                    else:
++                        model_collaboration = (
++                            {
++                                "writer": {
++                                    "model": request.profile.models["query_generate"],
++                                    "candidate": deepcopy(candidate),
++                                    "lintFindings": writer_findings,
++                                },
++                                "reviewer": {
++                                    "model": request.profile.models["query_review"],
++                                    "decision": "approve",
++                                    "checks": deepcopy(review["checks"]),
++                                },
++                                "finalLintFindings": [],
++                            }
++                            if collaborative_review
++                            else None
++                        )
 +                        result = _finalize(
 +                            question,
 +                            extension,
@@ -3035,21 +2372,21 @@ index 0000000..87931e7
 +                                extension,
 +                            ),
 +                            profile_id=request.profile.id,
++                            model_collaboration=model_collaboration,
 +                        )
 +                except Exception as exc:
 +                    logger.warning("Catalyst query review failed: %s", exc)
 +                    result = _rejected(
 +                        question,
 +                        extension,
-+                        message=(
-+                            "Query review failed; no unreviewed query was returned."
-+                        ),
++                        message=f"Query review failed: {exc}",
 +                        check_name="query_review",
 +                        diagnostic_candidate={
 +                            "executable": False,
 +                            "candidate": locals().get("repaired", candidate),
 +                        },
 +                        profile_id=request.profile.id,
++                        model_collaboration=locals().get("model_collaboration"),
 +                    )
 +                    steps.append({"role": "query_review", "status": "failed"})
 +
@@ -3495,12 +2832,24 @@ index 0000000..39b63e2
 +        )
 +
 +    return [finding.as_dict() for finding in findings]
+diff --git a/server/config.py b/server/config.py
+index 1595aea..5b76123 100644
+--- a/server/config.py
++++ b/server/config.py
+@@ -15,6 +15,7 @@ class LLMConfig:
+     """OpenAI-compatible backend used by hub stages."""
+ 
+     base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:8077")
++    provider: str = os.getenv("LLM_PROVIDER", "openai-compatible")
+     api_key: str = os.getenv("LLM_API_KEY", "")
+     orchestrator_model: str = os.getenv("ORCHESTRATOR_MODEL", "google/gemma-4-e4b")
+     synthesizer_model: str = os.getenv(
 diff --git a/server/contracts/catalyst-query-v1.schema.json b/server/contracts/catalyst-query-v1.schema.json
 new file mode 100644
-index 0000000..57f930c
+index 0000000..59efe25
 --- /dev/null
 +++ b/server/contracts/catalyst-query-v1.schema.json
-@@ -0,0 +1,799 @@
+@@ -0,0 +1,855 @@
 +{
 +  "$schema": "https://json-schema.org/draft/2020-12/schema",
 +  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-v1.schema.json",
@@ -3567,6 +2916,9 @@ index 0000000..57f930c
 +    },
 +    "diagnosticCandidate": {
 +      "$ref": "#/$defs/diagnosticCandidate"
++    },
++    "modelCollaboration": {
++      "$ref": "#/$defs/modelCollaboration"
 +    },
 +    "validation": {
 +      "$ref": "#/$defs/validation"
@@ -4156,6 +3508,59 @@ index 0000000..57f930c
 +        }
 +      }
 +    },
++    "reviewCheck": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["name", "status"],
++      "properties": {
++        "name": {"type": "string", "minLength": 1},
++        "status": {"enum": ["passed", "warned", "failed"]},
++        "message": {"type": "string"}
++      }
++    },
++    "modelCollaboration": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["writer", "reviewer", "finalLintFindings"],
++      "properties": {
++        "writer": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": ["model", "candidate", "lintFindings"],
++          "properties": {
++            "model": {"type": "string", "minLength": 1},
++            "candidate": {"$ref": "#/$defs/generatedCandidate"},
++            "lintFindings": {
++              "type": "array",
++              "items": {"$ref": "#/$defs/diagnosticFinding"}
++            }
++          }
++        },
++        "reviewer": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": ["model", "decision", "checks"],
++          "properties": {
++            "model": {"type": "string", "minLength": 1},
++            "decision": {"enum": ["approve", "repair", "reject"]},
++            "candidate": {"$ref": "#/$defs/generatedCandidate"},
++            "checks": {
++              "type": "array",
++              "items": {"$ref": "#/$defs/reviewCheck"}
++            },
++            "finalDecision": {"enum": ["approve", "reject"]},
++            "finalChecks": {
++              "type": "array",
++              "items": {"$ref": "#/$defs/reviewCheck"}
++            }
++          }
++        },
++        "finalLintFindings": {
++          "type": "array",
++          "items": {"$ref": "#/$defs/diagnosticFinding"}
++        }
++      }
++    },
 +    "diagnosticCandidate": {
 +      "type": "object",
 +      "additionalProperties": false,
@@ -4300,12 +3705,615 @@ index 0000000..57f930c
 +    }
 +  }
 +}
+diff --git a/server/engine.py b/server/engine.py
+index 73ec9fa..7932537 100644
+--- a/server/engine.py
++++ b/server/engine.py
+@@ -61,6 +61,7 @@ class ExecutionRequest:
+     is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None
+     source_registry: Optional[SourceRegistry] = None
+     token_counter: Optional[TokenCounter] = None
++    catalyst_query: Optional[Mapping[str, Any]] = None
+ 
+ 
+ @dataclass
+@@ -1310,7 +1311,13 @@ class StageEngine:
+ 
+         async def produce() -> None:
+             try:
+-                async for event in _execute_stages(request):
++                if request.profile.output_mode == "query":
++                    from .catalyst_query import execute_query_profile
++
++                    events = execute_query_profile(request)
++                else:
++                    events = _execute_stages(request)
++                async for event in events:
+                     await queue.put(("item", event))
+             except BaseException as error:
+                 await queue.put(("error", error))
+diff --git a/server/levels.yaml b/server/levels.yaml
+index ad56479..9b447ae 100644
+--- a/server/levels.yaml
++++ b/server/levels.yaml
+@@ -15,8 +15,57 @@ stage_sets:
+   product: &product [context, answer, gate, resolve_refs, review, gate, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
+   product_no_review: &product_no_review [context, answer, gate, resolve_refs, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
+   team_product: &team_product [context, gather, answer, gate, resolve_refs, review, gate, final_resolve_refs, ground_verdicts, indepth, indepth_gate]
++  catalyst_query: &catalyst_query [context, query_generate, query_lint, query_review, query_finalize]
+ 
+ profiles:
++  catalyst-query-checked:
++    label: Catalyst governed query (checked)
++    topology: single
++    stages: *catalyst_query
++    models: {query_generate: qwen2.5-14b, query_review: qwen2.5-14b}
++    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
++    policies: {output: query, temporal_gate: "off", generation_attempts: 3}
++    capabilities: {staged: false, validation: true}
++    outputContracts: [catalyst.query.v1]
++    visibility: product
++    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
++
++  catalyst-query-gemma-e4b:
++    label: Catalyst governed query — Gemma 4 E4B
++    topology: single
++    stages: *catalyst_query
++    models: {query_generate: gemma-e4b, query_review: gemma-e4b}
++    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
++    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 3}
++    capabilities: {staged: false, validation: true}
++    outputContracts: [catalyst.query.v1]
++    visibility: product
++    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
++
++  catalyst-query-gemma-4-12b:
++    label: Catalyst query — Gemma 4 12B writer + Qwen 2.5 14B reviewer
++    topology: single
++    stages: *catalyst_query
++    models: {query_generate: gemma-4-12b, query_review: qwen2.5-14b}
++    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
++    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 1, collaborative_review: true}
++    capabilities: {staged: false, validation: true}
++    outputContracts: [catalyst.query.v1]
++    visibility: product
++    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
++
++  catalyst-query-qwen-coder-1.5b:
++    label: Catalyst governed query — Qwen 2.5 Coder 1.5B
++    topology: single
++    stages: *catalyst_query
++    models: {query_generate: qwen2.5-coder-1.5b-instruct-q4_k_m, query_review: qwen2.5-coder-1.5b-instruct-q4_k_m}
++    prompts: {query_generate: catalyst-query-generate, query_review: catalyst-query-review}
++    policies: {output: query, temporal_gate: "off", allowed_operation: select, generation_attempts: 3}
++    capabilities: {staged: false, validation: true}
++    outputContracts: [catalyst.query.v1]
++    visibility: product
++    knobs: {query_generate: {temperature: 0}, query_review: {temperature: 0}}
++
+   med-agent-team-low:
+     label: Low team
+     topology: team
+diff --git a/server/levels_loader.py b/server/levels_loader.py
+index baf3cce..6efbde5 100644
+--- a/server/levels_loader.py
++++ b/server/levels_loader.py
+@@ -7,6 +7,8 @@ are intentionally absent from product discovery.
+ 
+ from __future__ import annotations
+ 
++import hashlib
++import json
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ from types import MappingProxyType
+@@ -18,7 +20,7 @@ _PATH = Path(__file__).parent / "levels.yaml"
+ _PROMPTS = Path(__file__).parent / "prompts"
+ _TEMPORAL_GATE_MODES = {"off", "warn", "enforce"}
+ _TOPOLOGIES = {"single", "team", "leg"}
+-_OUTPUT_MODES = {"bare", "combined", "product", "review", "indepth"}
++_OUTPUT_MODES = {"bare", "combined", "product", "query", "review", "indepth"}
+ _ALLOWED_STAGES = {
+     "context",
+     "gather",
+@@ -30,6 +32,10 @@ _ALLOWED_STAGES = {
+     "ground_verdicts",
+     "indepth",
+     "indepth_gate",
++    "query_generate",
++    "query_lint",
++    "query_review",
++    "query_finalize",
+ }
+ 
+ 
+@@ -61,6 +67,7 @@ class Profile:
+     reserved_output_tokens: int = 0
+     exact_tokenizer: bool = False
+     low_level_leg: bool = False
++    output_contracts: Tuple[str, ...] = ()
+ 
+     @property
+     def staged(self) -> bool:
+@@ -195,6 +202,7 @@ def _from_spec(profile_id: str, spec: Mapping[str, Any]) -> Profile:
+         context_window=int(context.get("window") or 0),
+         reserved_output_tokens=int(context.get("reserved_output_tokens") or 0),
+         exact_tokenizer=bool(context.get("exact_tokenizer", False)),
++        output_contracts=tuple(spec.get("outputContracts") or ()),
+     )
+     return compile_profile(profile)
+ 
+@@ -229,6 +237,8 @@ def compile_profile(profile: Profile) -> Profile:
+         ("review", "review"),
+         ("ground_verdicts", "grounding"),
+         ("indepth", "indepth"),
++        ("query_generate", "query_generate"),
++        ("query_review", "query_review"),
+     ):
+         if stage in profile.stages and role not in profile.models:
+             raise ValueError(
+@@ -318,6 +328,50 @@ def compile_profile(profile: Profile) -> Profile:
+             raise ValueError(
+                 f"product profile {profile.id!r} must ground before gated In-Depth"
+             )
++    query_stages = {"query_generate", "query_lint", "query_review", "query_finalize"}
++    if profile.output_mode == "query":
++        expected = (
++            "context",
++            "query_generate",
++            "query_lint",
++            "query_review",
++            "query_finalize",
++        )
++        if profile.stages != expected:
++            raise ValueError(
++                f"query profile {profile.id!r} must use ordered stages {expected}"
++            )
++        if profile.topology != "single":
++            raise ValueError(f"query profile {profile.id!r} must use single topology")
++        if profile.output_contracts != ("catalyst.query.v1",):
++            raise ValueError(
++                f"query profile {profile.id!r} must advertise only catalyst.query.v1"
++            )
++        if profile.staged:
++            raise ValueError(f"query profile {profile.id!r} cannot stream")
++        for role in ("query_generate", "query_review"):
++            temperature = (profile.knobs.get(role) or {}).get("temperature")
++            if temperature != 0:
++                raise ValueError(
++                    f"query profile {profile.id!r} role {role!r} must use temperature 0"
++                )
++        generation_attempts = profile.policies.get("generation_attempts", 2)
++        if (
++            not isinstance(generation_attempts, int)
++            or isinstance(generation_attempts, bool)
++            or not 1 <= generation_attempts <= 3
++        ):
++            raise ValueError(
++                f"query profile {profile.id!r} generation_attempts must be 1..3"
++            )
++    elif query_stages.intersection(profile.stages):
++        raise ValueError(
++            f"non-query profile {profile.id!r} cannot declare query stages"
++        )
++    elif profile.output_contracts:
++        raise ValueError(
++            f"non-query profile {profile.id!r} cannot advertise query output contracts"
++        )
+ 
+     temporal_mode = str(profile.policies.get("temporal_gate", "off")).lower()
+     if temporal_mode not in _TEMPORAL_GATE_MODES:
+@@ -352,6 +406,7 @@ def compile_profile(profile: Profile) -> Profile:
+         reserved_output_tokens=profile.reserved_output_tokens,
+         exact_tokenizer=profile.exact_tokenizer,
+         low_level_leg=profile.low_level_leg,
++        output_contracts=tuple(profile.output_contracts),
+     )
+ 
+ 
+@@ -435,13 +490,83 @@ def resolve_temporal_policy(
+     return enabled, mode
+ 
+ 
++def _jsonable(value: Any) -> Any:
++    """Return immutable profile configuration as canonical JSON values."""
++    if isinstance(value, Mapping):
++        return {
++            str(key): _jsonable(item)
++            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
++        }
++    if isinstance(value, (list, tuple)):
++        return [_jsonable(item) for item in value]
++    return value
++
++
++def _sha256(value: str) -> str:
++    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
++
++
++def _profile_configuration_digest(profile: Profile) -> str:
++    configuration = {
++        "id": profile.id,
++        "label": profile.label,
++        "topology": profile.topology,
++        "stages": profile.stages,
++        "models": profile.models,
++        "prompts": profile.prompts,
++        "policies": profile.policies,
++        "capabilities": profile.capabilities,
++        "knobs": profile.knobs,
++        "visibility": profile.visibility,
++        "default": profile.default,
++        "context_window": profile.context_window,
++        "reserved_output_tokens": profile.reserved_output_tokens,
++        "exact_tokenizer": profile.exact_tokenizer,
++        "low_level_leg": profile.low_level_leg,
++        "output_contracts": profile.output_contracts,
++    }
++    canonical = json.dumps(
++        _jsonable(configuration),
++        ensure_ascii=False,
++        separators=(",", ":"),
++        sort_keys=True,
++    )
++    return _sha256(canonical)
++
++
++def _prompt_assets(profile: Profile, role: str, configured: str) -> Tuple[str, ...]:
++    if role != "review":
++        return (configured,)
++    assets = [configured + "-answer"]
++    if "indepth" in profile.stages:
++        assets.append(configured + "-indepth")
++    return tuple(assets)
++
++
++def _role_prompt_digests(profile: Profile) -> Dict[str, Any]:
++    digests: Dict[str, Any] = {}
++    for role, configured_value in sorted(profile.prompts.items()):
++        configured = str(configured_value)
++        system_prompts = {}
++        for name in _prompt_assets(profile, role, configured):
++            content = (_PROMPTS / f"{name}.txt").read_text(encoding="utf-8").rstrip(
++                "\n"
++            )
++            system_prompts[name] = _sha256(content)
++        digests[str(role)] = {
++            "configured_prompt": configured,
++            "system_prompt_sha256": system_prompts,
++        }
++    return digests
++
++
+ def profile_metadata(
+     profile: Profile,
+     *,
+     available: bool,
+     unavailable_reasons: Tuple[str, ...] = (),
+ ) -> Dict[str, Any]:
+-    return {
++    metadata = {
+         "id": profile.id,
+         "label": profile.label,
+         "staged": profile.staged,
+@@ -453,7 +578,14 @@ def profile_metadata(
+         "visibility": profile.visibility,
+         "stages": list(profile.stages),
+         "required_models": sorted(set(profile.models.values())),
++        "role_models": dict(profile.models),
++        "role_knobs": _jsonable(profile.knobs),
++        "profile_configuration_digest": _profile_configuration_digest(profile),
++        "role_prompt_digests": _role_prompt_digests(profile),
+         "context_window": profile.context_window or None,
+         "exact_tokenizer": profile.exact_tokenizer,
+         "unavailable_reasons": list(unavailable_reasons),
+     }
++    if profile.output_contracts:
++        metadata["outputContracts"] = list(profile.output_contracts)
++    return metadata
+diff --git a/server/openai_compat.py b/server/openai_compat.py
+index 2b88937..8558d0a 100644
+--- a/server/openai_compat.py
++++ b/server/openai_compat.py
+@@ -6,13 +6,15 @@ import asyncio
+ import json
+ import time
+ import uuid
++from collections.abc import Mapping
+ from dataclasses import replace
+-from typing import Any, Dict, List, Optional
++from typing import Annotated, Any, Dict, List, Literal, Optional
++from urllib.parse import urlsplit, urlunsplit
+ 
+ import httpx
+ from fastapi import APIRouter, HTTPException, Request
+ from fastapi.responses import StreamingResponse
+-from pydantic import BaseModel, Field
++from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+ 
+ from .config import llm_config
+ from .context_sources import ContextSourceError
+@@ -28,6 +30,102 @@ from .levels_loader import (
+ router = APIRouter()
+ 
+ 
++class _StrictQueryModel(BaseModel):
++    model_config = ConfigDict(extra="forbid", strict=True)
++
++
++class CatalystQueryMessage(_StrictQueryModel):
++    role: Literal["user"]
++    content: str = Field(..., min_length=1)
++
++
++class CatalystQueryTarget(_StrictQueryModel):
++    dataSource: str = Field(..., min_length=1)
++    catalogVersion: str = Field(..., min_length=1)
++    dialect: str = Field(..., min_length=1)
++
++
++class CatalystQueryCatalogField(_StrictQueryModel):
++    name: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
++    type: str = Field(..., min_length=1)
++    description: str = Field(..., min_length=1)
++    unit: Optional[str] = None
++
++    @field_validator("unit", mode="before")
++    @classmethod
++    def reject_null_unit(cls, value: Any) -> Any:
++        if value is None:
++            raise ValueError("unit must be omitted rather than null")
++        return value
++
++
++class CatalystQuerySemanticValue(_StrictQueryModel):
++    canonical: str = Field(..., min_length=1)
++    aliases: List[Annotated[str, Field(min_length=1)]] = Field(..., min_length=1)
++
++
++class CatalystQuerySemanticDimension(_StrictQueryModel):
++    field: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
++    semanticType: Literal["analyte"]
++    values: List[CatalystQuerySemanticValue] = Field(..., min_length=1)
++
++
++class CatalystQueryCatalogView(_StrictQueryModel):
++    name: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_.]*$")
++    version: str = Field(..., min_length=1)
++    grain: str = Field(..., min_length=1)
++    fields: List[CatalystQueryCatalogField] = Field(..., min_length=1)
++    relationships: Optional[List[Annotated[str, Field(min_length=1)]]] = None
++    semanticDimensions: Optional[List[CatalystQuerySemanticDimension]] = None
++
++    @field_validator("relationships", mode="before")
++    @classmethod
++    def reject_null_relationships(cls, value: Any) -> Any:
++        if value is None:
++            raise ValueError("relationships must be omitted rather than null")
++        return value
++
++    @field_validator("semanticDimensions", mode="before")
++    @classmethod
++    def reject_null_semantic_dimensions(cls, value: Any) -> Any:
++        if value is None:
++            raise ValueError("semanticDimensions must be omitted rather than null")
++        return value
++
++
++class CatalystQueryCatalog(_StrictQueryModel):
++    contextSourceId: str = Field(..., min_length=1)
++    views: List[CatalystQueryCatalogView] = Field(..., min_length=1)
++
++
++class CatalystQueryPolicy(_StrictQueryModel):
++    allowedOperation: Literal["select"]
++    requirePreview: Literal[True]
++    maxRows: int = Field(..., ge=1)
++    statementTimeoutMs: int = Field(..., ge=1)
++
++
++class CatalystQueryCorrelation(_StrictQueryModel):
++    requestId: str = Field(..., min_length=1)
++    traceId: str = Field(..., min_length=1)
++
++
++class CatalystQueryContext(_StrictQueryModel):
++    contractVersion: Literal["catalyst.query.request.v1"]
++    target: CatalystQueryTarget
++    catalog: CatalystQueryCatalog
++    policy: CatalystQueryPolicy
++    correlation: CatalystQueryCorrelation
++    requiredOutputContract: Literal["catalyst.query.v1"]
++
++
++class CatalystQueryCompletionRequest(_StrictQueryModel):
++    model: str = Field(..., min_length=1, pattern=r"^catalyst-query-")
++    stream: Literal[False]
++    messages: List[CatalystQueryMessage] = Field(..., min_length=1, max_length=1)
++    catalystQuery: CatalystQueryContext
++
++
+ class ChatCompletionRequest(BaseModel):
+     model: str
+     messages: List[Dict[str, Any]] = Field(..., min_length=1)
+@@ -37,9 +135,80 @@ class ChatCompletionRequest(BaseModel):
+     stream: bool = False
+     context: Optional[Dict[str, Any]] = None
+     patient: Optional[str] = None
++    catalystQuery: Optional[CatalystQueryContext] = None
++
++    @model_validator(mode="before")
++    @classmethod
++    def validate_query_profile_request(cls, value: Any) -> Any:
++        if not isinstance(value, dict):
++            return value
++        if (
++            str(value.get("model", "")).startswith("catalyst-query-")
++            or "catalystQuery" in value
++        ):
++            return CatalystQueryCompletionRequest.model_validate(value).model_dump(
++                exclude_none=True
++            )
++        return value
++
++
++_SENSITIVE_METADATA_KEYS = {
++    "access_token",
++    "api_key",
++    "apikey",
++    "authorization",
++    "client_secret",
++    "credential",
++    "credentials",
++    "password",
++    "refresh_token",
++    "secret",
++}
++_URL_METADATA_KEYS = {
++    "download_url",
++    "endpoint",
++    "model_url",
++    "uri",
++    "url",
++}
++
++
++def _public_url(value: str) -> str:
++    """Remove credentials, query parameters, and fragments from advertised URLs."""
++    try:
++        parsed = urlsplit(value)
++        if not parsed.scheme or not parsed.hostname:
++            return value
++        host = parsed.hostname
++        if ":" in host and not host.startswith("["):
++            host = f"[{host}]"
++        if parsed.port is not None:
++            host = f"{host}:{parsed.port}"
++        return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
++    except ValueError:
++        return "[redacted-invalid-url]"
++
++
++def _sanitize_backend_metadata(value: Any, *, key: str = "") -> Any:
++    """Preserve backend model metadata while removing conventional secrets."""
++    normalized_key = key.strip().lower().replace("-", "_")
++    if normalized_key in _SENSITIVE_METADATA_KEYS:
++        return "[redacted]"
++    if isinstance(value, Mapping):
++        return {
++            str(item_key): _sanitize_backend_metadata(item, key=str(item_key))
++            for item_key, item in value.items()
++        }
++    if isinstance(value, list):
++        return [_sanitize_backend_metadata(item) for item in value]
++    if isinstance(value, tuple):
++        return [_sanitize_backend_metadata(item) for item in value]
++    if isinstance(value, str) and normalized_key in _URL_METADATA_KEYS:
++        return _public_url(value)
++    return value
+ 
+ 
+-def _served_backend_models() -> set[str]:
++def _served_backend_model_metadata() -> Dict[str, Dict[str, Any]]:
+     headers = {}
+     if llm_config.api_key:
+         headers["Authorization"] = f"Bearer {llm_config.api_key}"
+@@ -50,19 +219,37 @@ def _served_backend_models() -> set[str]:
+             timeout=3.0,
+         )
+         response.raise_for_status()
+-        return {
+-            str(item.get("id"))
+-            for item in (response.json().get("data") or [])
+-            if item.get("id")
+-        }
++        result: Dict[str, Dict[str, Any]] = {}
++        for item in response.json().get("data") or []:
++            if not isinstance(item, Mapping) or not item.get("id"):
++                continue
++            sanitized = _sanitize_backend_metadata(item)
++            result[str(item["id"])] = dict(sanitized)
++        return result
+     except Exception:
+-        return set()
++        return {}
++
++
++def _served_backend_models() -> set[str]:
++    """Compatibility helper for callers that only need loaded backend aliases."""
++    return set(_served_backend_model_metadata())
++
++
++def _backend_discovery_metadata() -> Dict[str, str]:
++    endpoint = _public_url(str(llm_config.base_url).rstrip("/"))
++    return {
++        "provider": str(getattr(llm_config, "provider", "openai-compatible")),
++        "endpoint": endpoint,
++        "models_endpoint": f"{endpoint}/v1/models",
++    }
+ 
+ 
+ @router.get("/v1/models")
+ def list_models() -> Dict[str, Any]:
+     created = int(time.time())
+-    served = _served_backend_models()
++    backend_models = _served_backend_model_metadata()
++    served = set(backend_models)
++    backend = _backend_discovery_metadata()
+     profiles = [get_profile(profile_id) for profile_id in profile_ids()]
+     data = []
+     for profile in profiles:
+@@ -86,6 +273,11 @@ def list_models() -> Dict[str, Any]:
+                 "object": "model",
+                 "created": created,
+                 "owned_by": "med-agent-hub",
++                "backend": backend,
++                "backend_model_metadata": {
++                    model: backend_models.get(model)
++                    for model in sorted(set(profile.models.values()))
++                },
+             }
+         )
+     return {
+@@ -104,6 +296,9 @@ def _request_for(req: ChatCompletionRequest, profile: Profile) -> ExecutionReque
+         context=req.context,
+         patient=req.patient,
+         model_label=req.model,
++        catalyst_query=(
++            req.catalystQuery.model_dump() if req.catalystQuery is not None else None
++        ),
+     )
+ 
+ 
+@@ -111,9 +306,11 @@ async def _content_for(req: ChatCompletionRequest) -> str:
+     return await drain_profile(_request_for(req, get_profile(req.model)))
+ 
+ 
+-def _completion_envelope(model: str, content: str) -> Dict[str, Any]:
++def _completion_envelope(
++    model: str, content: str, *, completion_id: Optional[str] = None
++) -> Dict[str, Any]:
+     return {
+-        "id": f"chatcmpl-{uuid.uuid4().hex}",
++        "id": completion_id or f"chatcmpl-{uuid.uuid4().hex}",
+         "object": "chat.completion",
+         "created": int(time.time()),
+         "model": model,
+@@ -263,4 +460,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
+             _sse_stream(req.model, content),
+             media_type="text/event-stream",
+         )
+-    return _completion_envelope(req.model, content)
++    completion_id = (
++        req.catalystQuery.correlation.traceId if req.catalystQuery is not None else None
++    )
++    return _completion_envelope(req.model, content, completion_id=completion_id)
 diff --git a/server/prompts/catalyst-query-generate.txt b/server/prompts/catalyst-query-generate.txt
 new file mode 100644
-index 0000000..561c994
+index 0000000..d6540f3
 --- /dev/null
 +++ b/server/prompts/catalyst-query-generate.txt
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,44 @@
 +You are the generation stage for the Catalyst governed analytics-query profile.
 +
 +Return exactly one JSON object matching the supplied structured-output schema. Do
@@ -4338,9 +4346,12 @@ index 0000000..561c994
 +preserve every other byte/value. The Hub applies the patch deterministically and
 +revalidates the complete reconstructed candidate.
 +
-+Every parameter object must contain exactly `name`, `type`, `source`, and `value`.
-+`source` must be `question`; `name` must exactly match its SQL `:name` placeholder.
-+An unparameterized query must return an empty `parameters` array.
++Every initial-generation parameter object must contain `type` and `value`.
++`name` and `source` are optional; when omitted, keep parameter values in the same
++order as their SQL placeholders so the Hub can pair them deterministically. Prefer
++explicit names for longer queries. When present, `source` must be `question` and
++`name` must exactly match its SQL `:name` placeholder. An unparameterized query
++must return an empty `parameters` array.
 +
 +If the question names a test or analyte, include an explicit predicate on the
 +catalog's test identifier or test-name field and bind the name as a parameter.
@@ -4385,12 +4396,126 @@ index 0000000..ba35711
 +For a question that names a test or analyte, reject or repair a candidate that
 +does not explicitly constrain the catalog test identifier/name. A date predicate
 +alone is not sufficient in a multi-analyte view.
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 282de29..5b27462 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -597,6 +597,51 @@ def test_backend_model_discovery_uses_configured_bearer_auth():
+     )
+ 
+ 
++def test_backend_model_discovery_preserves_metadata_and_redacts_secrets():
++    backend = SimpleNamespace(
++        base_url="https://user:password@router.example:8443/openai?token=secret",
++        provider="llama.cpp",
++        api_key="request-secret",
++    )
++    advertised = {
++        "id": "gemma-e4b",
++        "object": "model",
++        "owned_by": "llamacpp",
++        "created": 1234,
++        "meta": {
++            "quantization": "Q4_K_M",
++            "physical_revision": "sha256:model-bytes",
++            "api_key": "metadata-secret",
++            "tokenizer": "gemma",
++            "download_url": "https://user:pass@models.example/gemma?sig=secret",
++        },
++    }
++    with patch.object(openai_compat, "llm_config", backend), patch.object(
++        openai_compat.httpx, "get"
++    ) as get:
++        get.return_value.json.return_value = {"data": [advertised]}
++
++        metadata = openai_compat._served_backend_model_metadata()
++        backend_metadata = openai_compat._backend_discovery_metadata()
++
++    assert metadata["gemma-e4b"] == {
++        **advertised,
++        "meta": {
++            **advertised["meta"],
++            "api_key": "[redacted]",
++            "download_url": "https://models.example/gemma",
++        },
++    }
++    assert backend_metadata == {
++        "provider": "llama.cpp",
++        "endpoint": "https://router.example:8443/openai",
++        "models_endpoint": "https://router.example:8443/openai/v1/models",
++    }
++    assert "request-secret" not in json.dumps(metadata)
++    assert "metadata-secret" not in json.dumps(metadata)
++    assert "password" not in json.dumps(backend_metadata)
++
++
+ def test_backend_model_discovery_omits_auth_when_api_key_is_blank():
+     backend = SimpleNamespace(base_url="http://router", api_key="")
+     with patch.object(openai_compat, "llm_config", backend), patch.object(
+@@ -625,6 +670,57 @@ def test_v1_models_advertises_staged_capability_not_just_id_prefix():
+     assert "answer-review:qwen2.5-14b" not in by_id
+ 
+ 
++def test_v1_models_attaches_required_backend_metadata_without_changing_availability():
++    catalog = {
++        "gemma-e4b": {
++            "id": "gemma-e4b",
++            "object": "model",
++            "owned_by": "llamacpp",
++            "meta": {"n_params": 7_518_000_000, "quantization": "Q4_K_M"},
++        },
++        "not-required-by-profile": {"id": "not-required-by-profile"},
++    }
++    backend = SimpleNamespace(
++        base_url="http://router:8077", provider="llama.cpp", api_key=""
++    )
++    with patch.object(openai_compat, "llm_config", backend), patch.object(
++        openai_compat,
++        "_served_backend_model_metadata",
++        return_value=catalog,
++    ):
++        response = TestClient(app).get("/v1/models")
++
++    by_id = {item["id"]: item for item in response.json()["data"]}
++    profile = by_id["catalyst-query-gemma-e4b"]
++    assert profile["available"] is True
++    assert profile["unavailable_reasons"] == []
++    assert profile["backend"] == {
++        "provider": "llama.cpp",
++        "endpoint": "http://router:8077",
++        "models_endpoint": "http://router:8077/v1/models",
++    }
++    assert profile["backend_model_metadata"] == {
++        "gemma-e4b": catalog["gemma-e4b"]
++    }
++    assert "not-required-by-profile" not in profile["backend_model_metadata"]
++    assert profile["role_knobs"] == {
++        "query_generate": {"temperature": 0},
++        "query_review": {"temperature": 0},
++    }
++    assert profile["profile_configuration_digest"].startswith("sha256:")
++    assert set(profile["role_prompt_digests"]) == {
++        "query_generate",
++        "query_review",
++    }
++
++    unavailable = by_id["catalyst-query-checked"]
++    assert unavailable["available"] is False
++    assert unavailable["unavailable_reasons"] == [
++        "model_not_loaded:qwen2.5-14b"
++    ]
++    assert unavailable["backend_model_metadata"] == {"qwen2.5-14b": None}
++
++
+ def test_chat_completions_profile_returns_openai_shape_with_the_envelope():
+     async def fake_drain(execution):
+         # The API is only an adapter: it compiles the profile and drains the engine.
 diff --git a/tests/test_catalyst_query.py b/tests/test_catalyst_query.py
 new file mode 100644
-index 0000000..5e9cba0
+index 0000000..2f87147
 --- /dev/null
 +++ b/tests/test_catalyst_query.py
-@@ -0,0 +1,1528 @@
+@@ -0,0 +1,1694 @@
 +from __future__ import annotations
 +
 +import copy
@@ -4746,11 +4871,12 @@ index 0000000..5e9cba0
 +
 +    assert dict(profile.models) == {
 +        "query_generate": "gemma-4-12b",
-+        "query_review": "gemma-4-12b",
++        "query_review": "qwen2.5-14b",
 +    }
 +    assert profile.stages == e4b.stages
 +    assert dict(profile.prompts) == dict(e4b.prompts)
-+    assert dict(profile.policies) == dict(e4b.policies)
++    assert profile.policies["collaborative_review"] is True
++    assert profile.policies["generation_attempts"] == 1
 +    assert dict(profile.capabilities) == dict(e4b.capabilities)
 +    assert profile.output_contracts == e4b.output_contracts == ("catalyst.query.v1",)
 +    assert profile.visibility == e4b.visibility == "product"
@@ -4763,7 +4889,10 @@ index 0000000..5e9cba0
 +
 +    with patch(
 +        "server.openai_compat._served_backend_model_metadata",
-+        return_value={"gemma-4-12b": backend_model},
++        return_value={
++            "gemma-4-12b": backend_model,
++            "qwen2.5-14b": {"id": "qwen2.5-14b", "status": {"value": "loaded"}},
++        },
 +    ):
 +        response = TestClient(app).get("/v1/models")
 +
@@ -4772,13 +4901,19 @@ index 0000000..5e9cba0
 +    advertised = by_id["catalyst-query-gemma-4-12b"]
 +    assert advertised["available"] is True
 +    assert advertised["unavailable_reasons"] == []
-+    assert advertised["required_models"] == ["gemma-4-12b"]
++    assert advertised["required_models"] == ["gemma-4-12b", "qwen2.5-14b"]
 +    assert advertised["role_models"] == dict(profile.models)
 +    assert advertised["role_knobs"] == {
 +        "query_generate": {"temperature": 0},
 +        "query_review": {"temperature": 0},
 +    }
-+    assert advertised["backend_model_metadata"] == {"gemma-4-12b": backend_model}
++    assert advertised["backend_model_metadata"] == {
++        "gemma-4-12b": backend_model,
++        "qwen2.5-14b": {
++            "id": "qwen2.5-14b",
++            "status": {"value": "loaded"},
++        },
++    }
 +    assert advertised["profile_configuration_digest"].startswith("sha256:")
 +    assert (
 +        advertised["profile_configuration_digest"]
@@ -5009,9 +5144,135 @@ index 0000000..5e9cba0
 +        "parameters",
 +        "expectedColumns",
 +    }
++    assert set(generation_schema["$defs"]["parameter"]["required"]) == {
++        "type",
++        "value",
++    }
++    shipped_schema = json.loads(
++        (
++            Path(__file__).parents[1]
++            / "server"
++            / "contracts"
++            / "catalyst-query-v1.schema.json"
++        ).read_text(encoding="utf-8")
++    )
++    assert "name" in shipped_schema["$defs"]["parameter"]["required"]
 +    review_schema = calls[1]["response_format"]["json_schema"]["schema"]
 +    assert review_schema["properties"]["decision"] == {"const": "approve"}
 +    assert set(review_schema["required"]) == {"decision", "checks"}
++
++
++def test_12b_writer_findings_go_to_distinct_reviewer_as_complete_candidate():
++    request = _request()
++    request["model"] = "catalyst-query-gemma-4-12b"
++    writer = _ready_candidate()
++    writer["sql"] = (
++        f"SELECT COUNT(viral_load_value) FROM {VIEW_NAME} "
++        "WHERE release_date >= :since"
++    )
++    writer["expectedColumns"] = [
++        {"name": "count", "logicalType": "integer", "nullable": False}
++    ]
++    repaired = copy.deepcopy(writer)
++    repaired["sql"] = (
++        f"SELECT COUNT(viral_load_value) AS count FROM {VIEW_NAME} "
++        "WHERE release_date >= :since"
++    )
++
++    response, calls = _post_request_with_backend(
++        request, [writer, _flat_repair(repaired)]
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert payload["sql"] == repaired["sql"]
++    assert [call["model"] for call in calls] == ["gemma-4-12b", "qwen2.5-14b"]
++    assert calls[1]["response_format"]["json_schema"]["name"] == (
++        "catalyst_query_repair"
++    )
++    review_payload = json.loads(calls[1]["messages"][-1]["content"])
++    assert review_payload["candidate"] == writer
++    assert review_payload["deterministicFindings"][0]["code"] == (
++        "output.projection_mismatch"
++    )
++    assert payload["modelCollaboration"]["writer"] == {
++        "model": "gemma-4-12b",
++        "candidate": writer,
++        "lintFindings": review_payload["deterministicFindings"],
++    }
++    assert payload["modelCollaboration"]["reviewer"]["model"] == "qwen2.5-14b"
++    assert payload["modelCollaboration"]["reviewer"]["candidate"] == repaired
++    assert payload["modelCollaboration"]["finalLintFindings"] == []
++
++
++def test_collaborative_reviewer_deduplicates_identical_unnamed_bindings():
++    request = _semantic_request()
++    request["model"] = "catalyst-query-gemma-4-12b"
++    request["messages"][0][
++        "content"
++    ] = "How many patients had viral load tests above 1000 copies/mL?"
++    writer = _semantic_candidate()
++    writer["sql"] = (
++        f"SELECT COUNT(viral_load_value) FROM {VIEW_NAME} "
++        "WHERE test_name = :test_name AND viral_load_value > :threshold"
++    )
++    writer["expectedColumns"] = [
++        {"name": "count", "logicalType": "integer", "nullable": False}
++    ]
++    writer["parameters"][1] = {
++        "name": "threshold",
++        "type": "integer",
++        "source": "question",
++        "value": 1000,
++    }
++    repaired = copy.deepcopy(writer)
++    repaired["sql"] = repaired["sql"].replace(
++        "COUNT(viral_load_value)", "COUNT(viral_load_value) AS count"
++    )
++    repaired["parameters"] = [
++        {"type": "string", "value": "Viral Load"},
++        {"type": "integer", "value": 1000},
++    ] * 2
++
++    response, calls = _post_request_with_backend(
++        request, [writer, _flat_repair(repaired)]
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "ready"
++    assert [call["model"] for call in calls] == ["gemma-4-12b", "qwen2.5-14b"]
++    assert payload["parameters"] == [
++        {
++            "name": "test_name",
++            "type": "string",
++            "source": "question",
++            "value": "Viral Load",
++        },
++        {
++            "name": "threshold",
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        },
++    ]
++
++
++def test_collaborative_reviewer_candidate_is_relinted_before_finalization():
++    request = _request()
++    request["model"] = "catalyst-query-gemma-4-12b"
++    writer = _ready_candidate()
++    writer["sql"] = writer["sql"].replace(VIEW_NAME, "analytics.missing_view")
++    still_invalid = copy.deepcopy(writer)
++
++    response, calls = _post_request_with_backend(
++        request,
++        [writer, _flat_repair(still_invalid)],
++    )
++
++    payload = _content(response)
++    assert payload["status"] == "rejected"
++    assert [call["model"] for call in calls] == ["gemma-4-12b", "qwen2.5-14b"]
++    assert "review repair failed deterministic lint" in payload["message"]
 +
 +
 +def test_question_date_literals_are_bound_before_independent_review():
@@ -5225,7 +5486,7 @@ index 0000000..5e9cba0
 +    assert retry_payload["allowedPatchPaths"] == ["/parameters/1/name"]
 +
 +
-+def test_generation_retry_does_not_guess_multiple_missing_names_in_a_partial_draft():
++def test_generation_pairs_multiple_missing_names_without_a_name_only_retry():
 +    request = _request()
 +    request["messages"][0][
 +        "content"
@@ -5240,23 +5501,29 @@ index 0000000..5e9cba0
 +            "value": 1000,
 +        }
 +    )
-+    second_candidate = copy.deepcopy(partial_candidate)
-+    second_candidate["parameters"][1]["value"] = 1001
-+    latest_candidate = copy.deepcopy(partial_candidate)
-+    latest_candidate["parameters"][1]["value"] = 1002
-+
 +    response, calls = _post_request_with_backend(
-+        request, [partial_candidate, second_candidate, latest_candidate]
++        request, [partial_candidate, _review("passed")]
 +    )
 +
 +    payload = _content(response)
-+    assert payload["status"] == "rejected"
-+    assert "candidate" not in payload["diagnosticCandidate"]
-+    assert payload["diagnosticCandidate"]["rawOutput"] == json.dumps(latest_candidate)
-+    assert len(calls) == 3
-+    assert (
-+        calls[1]["response_format"]["json_schema"]["name"]
-+        != "catalyst_query_candidate_patch"
++    assert payload["status"] == "ready"
++    assert payload["parameters"] == [
++        {
++            "name": "since",
++            "type": "date",
++            "source": "question",
++            "value": "2026-01-01",
++        },
++        {
++            "name": "threshold",
++            "type": "integer",
++            "source": "question",
++            "value": 1000,
++        },
++    ]
++    assert len(calls) == 2
++    assert calls[1]["response_format"]["json_schema"]["name"] == (
++        "catalyst_query_review"
 +    )
 +
 +
@@ -5710,7 +5977,7 @@ index 0000000..5e9cba0
 +    }
 +
 +
-+def test_ambiguous_unnamed_parameters_remain_contract_invalid():
++def test_longer_query_pairs_unnamed_parameters_in_placeholder_order():
 +    request = _request()
 +    question = "Show results between 1000 and 2000 since 2026-01-01"
 +    candidate = _ready_candidate()
@@ -5725,16 +5992,22 @@ index 0000000..5e9cba0
 +        ]
 +    )
 +
-+    with pytest.raises(QueryContractError, match="'name' is a required property"):
-+        _parse_candidate(
-+            json.dumps(candidate),
-+            question,
-+            request["catalystQuery"],
-+            label="ambiguous threshold candidate",
-+        )
++    parsed, binding_normalized = _parse_candidate(
++        json.dumps(candidate),
++        question,
++        request["catalystQuery"],
++        label="ordered threshold candidate",
++    )
++
++    assert binding_normalized is True
++    assert [parameter["name"] for parameter in parsed["parameters"]] == [
++        "since",
++        "lower_threshold",
++        "upper_threshold",
++    ]
 +
 +
-+def test_ungrounded_unnamed_parameter_remains_contract_invalid():
++def test_ordered_pairing_does_not_add_a_question_grounding_rule():
 +    request = _request()
 +    question = "Show results above 1000 copies/mL since 2026-01-01"
 +    candidate = _ready_candidate()
@@ -5743,12 +6016,30 @@ index 0000000..5e9cba0
 +        {"type": "integer", "source": "question", "value": 2000}
 +    )
 +
++    parsed, binding_normalized = _parse_candidate(
++        json.dumps(candidate),
++        question,
++        request["catalystQuery"],
++        label="ordered threshold candidate",
++    )
++
++    assert binding_normalized is True
++    assert parsed["parameters"][-1]["name"] == "threshold"
++    assert parsed["parameters"][-1]["value"] == 2000
++
++
++def test_parameter_placeholder_count_mismatch_remains_editable_invalid_output():
++    request = _request()
++    candidate = _ready_candidate()
++    candidate["sql"] += " AND viral_load_value > :threshold"
++    candidate["parameters"] = [{"type": "integer", "value": 1000}]
++
 +    with pytest.raises(QueryContractError, match="'name' is a required property"):
 +        _parse_candidate(
 +            json.dumps(candidate),
-+            question,
++            QUESTION,
 +            request["catalystQuery"],
-+            label="ungrounded threshold candidate",
++            label="count mismatch candidate",
 +        )
 +
 +
@@ -6094,6 +6385,94 @@ index 0000000..4effe89
 +    )
 +
 +    assert lint_candidate(candidate, _extension()) == []
+diff --git a/tests/test_config.py b/tests/test_config.py
+index f2f9693..2d29391 100644
+--- a/tests/test_config.py
++++ b/tests/test_config.py
+@@ -11,6 +11,7 @@ from server import config
+ 
+ def test_llm_backend_is_openai_compatible_router_configuration():
+     assert config.llm_config.base_url.startswith(("http://", "https://"))
++    assert config.llm_config.provider
+     assert config.llm_config.orchestrator_model
+     assert config.llm_config.synthesizer_model
+     assert config.llm_config.med_model
+diff --git a/tests/test_profiles_v2.py b/tests/test_profiles_v2.py
+index 534ce71..291a55b 100644
+--- a/tests/test_profiles_v2.py
++++ b/tests/test_profiles_v2.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import hashlib
+ from dataclasses import replace
+ 
+ import pytest
+@@ -13,6 +14,7 @@ from server.levels_loader import (
+     resolve_temporal_policy,
+     validate_profiles,
+ )
++from server.prompt_loader import load_prompt
+ 
+ 
+ def test_default_product_profile_is_human_readable_single_e4b():
+@@ -157,6 +159,8 @@ def test_discovery_metadata_is_authoritative_and_dynamic_legs_are_not_advertised
+     assert all(not model_id.startswith("answer:") for model_id in ids)
+ 
+     metadata = profile_metadata(get_profile("single-e4b-checked"), available=True)
++    configuration_digest = metadata.pop("profile_configuration_digest")
++    prompt_digests = metadata.pop("role_prompt_digests")
+     assert metadata == {
+         "id": "single-e4b-checked",
+         "label": "Fast checked answer (E4B)",
+@@ -169,10 +173,47 @@ def test_discovery_metadata_is_authoritative_and_dynamic_legs_are_not_advertised
+         "visibility": "product",
+         "stages": list(get_profile("single-e4b-checked").stages),
+         "required_models": ["gemma-e4b"],
++        "role_models": {
++            "answer": "gemma-e4b",
++            "review": "gemma-e4b",
++            "grounding": "gemma-e4b",
++            "indepth": "gemma-e4b",
++        },
++        "role_knobs": {"answer": {"temperature": 0}},
+         "context_window": 24576,
+         "exact_tokenizer": True,
+         "unavailable_reasons": [],
+     }
++    assert configuration_digest.startswith("sha256:")
++    assert len(configuration_digest) == len("sha256:") + 64
++    answer_digest = "sha256:" + hashlib.sha256(
++        load_prompt("synthesis-answer").encode("utf-8")
++    ).hexdigest()
++    assert prompt_digests["answer"] == {
++        "configured_prompt": "synthesis-answer",
++        "system_prompt_sha256": {"synthesis-answer": answer_digest},
++    }
++    assert set(prompt_digests["review"]["system_prompt_sha256"]) == {
++        "validation-rewrite-answer",
++        "validation-rewrite-indepth",
++    }
++
++
++def test_profile_and_prompt_digests_are_deterministic_and_separate():
++    profile = get_profile("single-e4b-checked")
++
++    first = profile_metadata(profile, available=True)
++    second = profile_metadata(profile, available=False)
++    renamed = profile_metadata(replace(profile, label="Changed label"), available=True)
++
++    assert first["profile_configuration_digest"] == second[
++        "profile_configuration_digest"
++    ]
++    assert first["role_prompt_digests"] == second["role_prompt_digests"]
++    assert first["profile_configuration_digest"] != renamed[
++        "profile_configuration_digest"
++    ]
++    assert first["role_prompt_digests"] == renamed["role_prompt_digests"]
+ 
+ 
+ def test_only_one_configured_profile_is_default():
 diff --git a/uv.lock b/uv.lock
 new file mode 100644
 index 0000000..bda0207
