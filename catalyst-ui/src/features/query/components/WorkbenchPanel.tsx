@@ -669,6 +669,16 @@ export const WorkbenchPanel = ({
         />
       )}
 
+      {!session.currentVersion && session.draftSeed && (
+        <InlineNotification
+          lowContrast
+          hideCloseButton
+          kind="warning"
+          title="Unresolved model draft"
+          subtitle="SQL and typed values were recovered from raw model output. Fill any blank parameter names and review the draft before validating or running it."
+        />
+      )}
+
       <div className="workbench-editor">
         <SqlEditor
           label="SQL query"

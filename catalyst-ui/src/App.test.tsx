@@ -180,6 +180,51 @@ const workbenchSession: WorkbenchSession = {
   executions: [],
 };
 
+const unresolvedRawSql =
+  "SELECT COUNT(DISTINCT patient_id) AS count FROM analytics.lb_result_fact_v1 WHERE test_name = :test_name AND result_value > :threshold";
+const unresolvedRawOutput = JSON.stringify({
+  status: "ready",
+  sql: unresolvedRawSql,
+  parameters: [
+    { value: "Viral Load", type: "string" },
+    { value: 1000, type: "integer" },
+  ],
+});
+const unresolvedRawSession = {
+  ...workbenchSession,
+  sessionId: "902bd844-e8f1-403d-90ee-8fccd9417f99",
+  profileId: "catalyst-query-gemma-4-12b",
+  currentVersionId: null,
+  provenance: {
+    ...workbenchSession.provenance,
+    generationRawOutput: unresolvedRawOutput,
+    generationOutcome: {
+      contractVersion: "catalyst.query.v1",
+      diagnosticCandidate: { executable: false, rawOutput: unresolvedRawOutput },
+    },
+  },
+  draftSeed: {
+    status: "unresolved",
+    source: "raw_model_output",
+    sql: unresolvedRawSql,
+    parameters: [
+      { name: "", type: "string", source: "human", value: "Viral Load" },
+      { name: "", type: "integer", source: "human", value: 1000 },
+    ],
+    unresolvedPaths: [
+      "$.parameters[0].name",
+      "$.parameters[0].source",
+      "$.parameters[1].name",
+      "$.parameters[1].source",
+    ],
+  },
+  versions: [],
+  currentVersion: null,
+  validations: [],
+  latestValidation: null,
+  executions: [],
+} satisfies WorkbenchSession;
+
 const editorCatalog: WorkbenchEditorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1",
   catalogVersion: "analytics-catalog-v1",
@@ -498,6 +543,95 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByText("{latest malformed model output}")).toBeVisible();
     expect(screen.getByRole("button", { name: "Validate query" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
+  });
+
+  it("hydrates parseable raw JSON as an explicitly unresolved manual draft", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(unresolvedRawSession);
+    api.createWorkbenchVersion = vi.fn().mockRejectedValue(
+      new Error("Stop after request capture."),
+    );
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    expect(await screen.findByText("Unresolved model draft")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
+      unresolvedRawSql,
+    );
+    expect(screen.getByLabelText("Parameter 1 name")).toHaveValue("");
+    expect(screen.getByLabelText("Parameter 1 value")).toHaveValue("Viral Load");
+    expect(screen.getByLabelText("Parameter 2 name")).toHaveValue("");
+    expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
+    expect(screen.getByText(unresolvedRawOutput)).toBeVisible();
+
+    await user.type(screen.getByLabelText("Parameter 1 name"), "test_name");
+    await user.type(screen.getByLabelText("Parameter 2 name"), "threshold");
+    await user.click(screen.getByRole("button", { name: "Validate query" }));
+
+    await waitFor(() =>
+      expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
+        unresolvedRawSession.sessionId,
+        {
+          sql: unresolvedRawSql,
+          parameters: [
+            {
+              name: "test_name",
+              type: "string",
+              source: "human",
+              value: "Viral Load",
+            },
+            {
+              name: "threshold",
+              type: "integer",
+              source: "human",
+              value: 1000,
+            },
+          ],
+          expectedColumns: [],
+        },
+      ),
+    );
+  });
+
+  it("restores the unresolved raw editor seed after refresh", async () => {
+    const api = makeApi();
+    api.getWorkbenchSession = vi.fn().mockResolvedValue(unresolvedRawSession);
+    localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      unresolvedRawSession.sessionId,
+    );
+
+    render(<App api={api} />);
+
+    expect(await screen.findByText("Unresolved model draft")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
+      unresolvedRawSql,
+    );
+    expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
+  });
+
+  it("prefers an immutable current version over a stale raw draft seed", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    api.createWorkbenchSession = vi.fn().mockResolvedValue({
+      ...workbenchSession,
+      draftSeed: unresolvedRawSession.draftSeed,
+    });
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
+      workbenchVersion.sql,
+    );
+    expect(screen.queryByText("Unresolved model draft")).not.toBeInTheDocument();
   });
 
   it("persists a manually corrected parameter as a new version before validation", async () => {

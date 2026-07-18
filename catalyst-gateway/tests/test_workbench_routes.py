@@ -796,6 +796,100 @@ def test_structured_raw_only_diagnostic_is_preserved_for_manual_recovery(
     assert drafted.json()["currentVersion"]["sql"] == raw_output
 
 
+def test_structured_raw_json_derives_an_unresolved_editor_seed_and_restores_it(
+    tmp_path: Path,
+) -> None:
+    raw_output = (
+        '{"status":"ready","sql":"SELECT COUNT(DISTINCT patient_id) AS count '
+        "FROM analytics.lb_result_fact_v1 WHERE test_name = :test_name AND "
+        'result_value > :threshold","parameters":[{"value":"Viral Load",'
+        '"type":"string"},{"value":1000,"type":"integer"}]}'
+    )
+    query = _rejected_query()
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = raw_output
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+
+    assert session["currentVersion"] is None
+    assert session["provenance"]["generationRawOutput"] == raw_output
+    assert session["draftSeed"] == {
+        "status": "unresolved",
+        "source": "raw_model_output",
+        "sql": (
+            "SELECT COUNT(DISTINCT patient_id) AS count FROM "
+            "analytics.lb_result_fact_v1 WHERE test_name = :test_name AND "
+            "result_value > :threshold"
+        ),
+        "parameters": [
+            {
+                "name": "",
+                "type": "string",
+                "source": "human",
+                "value": "Viral Load",
+            },
+            {
+                "name": "",
+                "type": "integer",
+                "source": "human",
+                "value": 1000,
+            },
+        ],
+        "unresolvedPaths": [
+            "$.parameters[0].name",
+            "$.parameters[0].source",
+            "$.parameters[1].name",
+            "$.parameters[1].source",
+        ],
+    }
+
+    restored = client.get(f"/v1/catalyst/workbench/sessions/{session['sessionId']}")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["draftSeed"] == session["draftSeed"]
+    assert restored.json()["provenance"]["generationRawOutput"] == raw_output
+
+
+def test_raw_editor_seed_requires_one_exact_representable_json_object(
+    tmp_path: Path,
+) -> None:
+    for raw_output in (
+        "{not-json",
+        '[{"sql":"SELECT 1","parameters":[]}]',
+        '```json\n{"sql":"SELECT 1","parameters":[]}\n```',
+        '{"sql":"SELECT 1","parameters":[{"type":"uuid","value":"x"}]}',
+    ):
+        (tmp_path / str(len(raw_output))).mkdir()
+        query = _rejected_query()
+        query["diagnosticCandidate"].pop("candidate")
+        query["diagnosticCandidate"]["rawOutput"] = raw_output
+        client, _ = _client(tmp_path / str(len(raw_output)), query)
+
+        session = _create_session(client)
+
+        assert session["currentVersion"] is None
+        assert session["draftSeed"] is None
+        assert session["provenance"]["generationRawOutput"] == raw_output
+
+
+def test_immutable_version_suppresses_raw_editor_seed(tmp_path: Path) -> None:
+    query = _rejected_query()
+    query["diagnosticCandidate"]["rawOutput"] = (
+        '{"sql":"SELECT wrong FROM analytics.wrong","parameters":[]}'
+    )
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+
+    assert session["currentVersion"] is not None
+    assert session["draftSeed"] is None
+    assert (
+        session["currentVersion"]["sql"]
+        == query["diagnosticCandidate"]["candidate"]["sql"]
+    )
+
+
 def test_raw_generation_failure_allows_parentless_first_human_draft(
     tmp_path: Path,
 ) -> None:

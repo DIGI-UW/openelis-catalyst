@@ -425,6 +425,13 @@ def test_loads_and_checks_all_normative_schemas():
             "datasetVersion": "v1",
             "catalogVersion": "v1",
             "currentVersionId": None,
+            "draftSeed": {
+                "status": "unresolved",
+                "source": "raw_model_output",
+                "sql": "SELECT 1",
+                "parameters": [],
+                "unresolvedPaths": [],
+            },
             "browserState": {},
             "provenance": {},
             "status": "active",

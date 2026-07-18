@@ -33,6 +33,12 @@
     "datasetVersion": {"type": "string", "minLength": 1},
     "catalogVersion": {"type": "string", "minLength": 1},
     "currentVersionId": {"type": ["string", "null"]},
+    "draftSeed": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/draftSeed"}
+      ]
+    },
     "browserState": {"type": "object"},
     "provenance": {"type": "object"},
     "status": {"type": "string", "minLength": 1},
@@ -43,5 +49,47 @@
     "validations": {"type": "array", "items": {"type": "object"}},
     "latestValidation": {"type": ["object", "null"]},
     "executions": {"type": "array", "items": {"type": "object"}}
+  },
+  "$defs": {
+    "draftSeed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "sql", "parameters", "unresolvedPaths"],
+      "properties": {
+        "status": {"const": "unresolved"},
+        "source": {"const": "raw_model_output"},
+        "sql": {"type": "string", "minLength": 1},
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "source", "value"],
+            "properties": {
+              "name": {"type": "string"},
+              "type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "number",
+                  "boolean",
+                  "date",
+                  "date-time",
+                  "string-list",
+                  "integer-list"
+                ]
+              },
+              "source": {"enum": ["question", "human"]},
+              "value": {}
+            }
+          }
+        },
+        "unresolvedPaths": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    }
   }
 }

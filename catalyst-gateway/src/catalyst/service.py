@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import time
 import uuid
 from copy import deepcopy
@@ -29,6 +31,21 @@ from .storage import (
 )
 from .table import build_table
 from .workbench import build_advisory_validation, normalize_findings
+
+
+_WORKBENCH_PARAMETER_TYPES = frozenset(
+    {
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "date",
+        "date-time",
+        "string-list",
+        "integer-list",
+    }
+)
+_WORKBENCH_PARAMETER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class HubProtocol(Protocol):
@@ -511,7 +528,7 @@ class CatalystService:
 
         restored = store.get_session(session["sessionId"])
         assert restored is not None
-        return ServiceResponse(201, restored)
+        return ServiceResponse(201, self._present_workbench_session(restored))
 
     def get_workbench_session(self, session_id: str) -> ServiceResponse:
         store = self.workbench_store
@@ -528,7 +545,7 @@ class CatalystService:
                 "workbench_session_not_found",
                 "Workbench session was not found.",
             )
-        return ServiceResponse(200, session)
+        return ServiceResponse(200, self._present_workbench_session(session))
 
     def create_workbench_version(
         self,
@@ -612,7 +629,7 @@ class CatalystService:
         self._append_workbench_validation(version, question=session["question"])
         restored = store.get_session(session_id)
         assert restored is not None
-        return ServiceResponse(201, restored)
+        return ServiceResponse(201, self._present_workbench_session(restored))
 
     def validate_workbench_version(self, version_id: str) -> ServiceResponse:
         store = self.workbench_store
@@ -774,7 +791,7 @@ class CatalystService:
             )
         except WorkbenchNotFoundError as error:
             return self._workbench_error(404, "workbench_session_not_found", str(error))
-        return ServiceResponse(200, session)
+        return ServiceResponse(200, self._present_workbench_session(session))
 
     async def aclose(self) -> None:
         await self.hub.aclose()
@@ -1029,6 +1046,70 @@ class CatalystService:
             if isinstance(raw_output, str):
                 return raw_output
         return None
+
+    @staticmethod
+    def _raw_workbench_draft_seed(raw_output: object) -> dict[str, Any] | None:
+        if not isinstance(raw_output, str):
+            return None
+        try:
+            candidate = json.loads(raw_output)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(candidate, dict):
+            return None
+        sql = candidate.get("sql")
+        raw_parameters = candidate.get("parameters")
+        if not isinstance(sql, str) or not sql.strip():
+            return None
+        if not isinstance(raw_parameters, list):
+            return None
+
+        parameters: list[dict[str, Any]] = []
+        unresolved_paths: list[str] = []
+        for index, raw_parameter in enumerate(raw_parameters):
+            if not isinstance(raw_parameter, dict) or "value" not in raw_parameter:
+                return None
+            parameter_type = raw_parameter.get("type")
+            if parameter_type not in _WORKBENCH_PARAMETER_TYPES:
+                return None
+
+            name = raw_parameter.get("name")
+            if not isinstance(name, str):
+                name = ""
+                unresolved_paths.append(f"$.parameters[{index}].name")
+            elif not _WORKBENCH_PARAMETER_NAME.fullmatch(name):
+                unresolved_paths.append(f"$.parameters[{index}].name")
+
+            source = raw_parameter.get("source")
+            if source not in {"question", "human"}:
+                source = "human"
+                unresolved_paths.append(f"$.parameters[{index}].source")
+
+            parameters.append(
+                {
+                    "name": name,
+                    "type": parameter_type,
+                    "source": source,
+                    "value": deepcopy(raw_parameter["value"]),
+                }
+            )
+
+        return {
+            "status": "unresolved",
+            "source": "raw_model_output",
+            "sql": sql,
+            "parameters": parameters,
+            "unresolvedPaths": unresolved_paths,
+        }
+
+    def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
+        presented = deepcopy(session)
+        presented["draftSeed"] = None
+        if presented.get("currentVersion") is not None:
+            return presented
+        raw_output = presented.get("provenance", {}).get("generationRawOutput")
+        presented["draftSeed"] = self._raw_workbench_draft_seed(raw_output)
+        return presented
 
     def _append_workbench_validation(
         self,

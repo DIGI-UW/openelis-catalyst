@@ -398,6 +398,13 @@ export interface WorkbenchSession {
   datasetVersion: string;
   catalogVersion: string;
   currentVersionId: string | null;
+  draftSeed?: {
+    status: "unresolved";
+    source: "raw_model_output";
+    sql: string;
+    parameters: BoundParameter[];
+    unresolvedPaths: string[];
+  } | null;
   browserState: Record<string, unknown>;
   provenance: Record<string, unknown>;
   status: string;

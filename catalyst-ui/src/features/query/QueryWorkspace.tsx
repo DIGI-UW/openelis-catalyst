@@ -75,6 +75,9 @@ const forgetActiveWorkbenchSession = () => {
   }
 };
 
+const sessionEditorDraft = (session: WorkbenchSession) =>
+  session.currentVersion ?? session.draftSeed ?? null;
+
 const createIdempotencyKey = () => {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -298,10 +301,10 @@ export const QueryWorkspace = ({
         setWorkbenchSession(session);
         setQuestion(session.question);
         setProfileId(session.profileId);
-        setWorkbenchSql(session.currentVersion?.sql ?? "");
+        const draft = sessionEditorDraft(session);
+        setWorkbenchSql(draft?.sql ?? "");
         setWorkbenchParameters(
-          session.currentVersion?.parameters.map((parameter) => ({ ...parameter })) ??
-            [],
+          draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
         );
         setWorkbenchWrapLines(
           typeof session.browserState.sqlWrapLines === "boolean"
@@ -356,10 +359,10 @@ export const QueryWorkspace = ({
           : await api.createWorkbenchSession!(normalizedQuestion);
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
-        setWorkbenchSql(session.currentVersion?.sql ?? "");
+        const draft = sessionEditorDraft(session);
+        setWorkbenchSql(draft?.sql ?? "");
         setWorkbenchParameters(
-          session.currentVersion?.parameters.map((parameter) => ({ ...parameter })) ??
-            [],
+          draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
         );
         setWorkbenchWrapLines(
           typeof session.browserState.sqlWrapLines === "boolean"
