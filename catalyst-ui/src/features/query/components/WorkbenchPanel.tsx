@@ -37,6 +37,8 @@ interface WorkbenchPanelProps {
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
+  onClearDraft: () => void;
+  onNewSession: () => void;
   onValidate: () => void;
   onRun: () => void;
 }
@@ -719,11 +721,14 @@ export const WorkbenchPanel = ({
   onSqlChange,
   onParametersChange,
   onWrapLinesChange,
+  onClearDraft,
+  onNewSession,
   onValidate,
   onRun,
 }: WorkbenchPanelProps) => {
   const hasSql = sql.trim().length > 0;
   const actionsDisabled = busy !== null || !hasSql;
+  const clearDisabled = busy !== null || (!hasSql && parameters.length === 0);
   const relations = workbenchCatalogRelations(editorCatalog);
 
   return (
@@ -737,7 +742,18 @@ export const WorkbenchPanel = ({
             OpenELIS data projection.
           </p>
         </div>
-        <Tag type="blue">Session active</Tag>
+        <div className="workbench-panel__session-actions">
+          <Tag type="blue">Session active</Tag>
+          <Button
+            type="button"
+            kind="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={onNewSession}
+          >
+            New session
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -781,6 +797,14 @@ export const WorkbenchPanel = ({
       <ValidationSummary session={session} />
 
       <div className="workbench-actions" aria-label="Workbench actions">
+        <Button
+          type="button"
+          kind="ghost"
+          disabled={clearDisabled}
+          onClick={onClearDraft}
+        >
+          Clear draft
+        </Button>
         <Button
           type="button"
           kind="secondary"

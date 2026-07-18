@@ -411,7 +411,7 @@ export const QueryWorkspace = ({
     }
   };
 
-  const reset = () => {
+  const startNewSession = () => {
     setQuestion("");
     setState({ kind: "idle" });
     setWorkbenchSession(null);
@@ -420,6 +420,15 @@ export const QueryWorkspace = ({
     setWorkbenchBusy(null);
     setWorkbenchError(null);
     forgetActiveWorkbenchSession();
+    window.setTimeout(() => {
+      document.getElementById("catalyst-question")?.focus();
+    }, 0);
+  };
+
+  const clearWorkbenchDraft = () => {
+    setWorkbenchSql("");
+    setWorkbenchParameters([]);
+    setWorkbenchError(null);
   };
 
   const persistWorkbenchDraft = async (): Promise<{
@@ -553,6 +562,8 @@ export const QueryWorkspace = ({
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}
+          onClearDraft={clearWorkbenchDraft}
+          onNewSession={startNewSession}
           onValidate={validateWorkbenchDraft}
           onRun={runWorkbenchDraft}
         />
@@ -605,7 +616,7 @@ export const QueryWorkspace = ({
           message={state.outcome.message}
           kind={executionKind(state.outcome)}
           actionLabel="Start a new query"
-          onAction={reset}
+          onAction={startNewSession}
         />
       )}
 
@@ -614,7 +625,7 @@ export const QueryWorkspace = ({
           <ResultsTable result={state.result} />
           <ProvenancePanel result={state.result} />
           <div className="new-query-action">
-            <Button kind="tertiary" renderIcon={Renew} onClick={reset}>
+            <Button kind="tertiary" renderIcon={Renew} onClick={startNewSession}>
               Start a new query
             </Button>
           </div>

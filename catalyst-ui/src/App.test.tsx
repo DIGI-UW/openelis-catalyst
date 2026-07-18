@@ -545,6 +545,57 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
   });
 
+  it("clears only the editable draft while preserving the active session evidence", async () => {
+    const api = makeApi();
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    const user = await askQuestion();
+    expect(await screen.findByRole("heading", { name: "Query workbench" })).toBeVisible();
+    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
+      workbenchSession.sessionId,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear draft" }));
+
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(/^$/);
+    expect(screen.queryByLabelText("Parameter 1 name")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Question")).toHaveValue(QUESTION);
+    expect(screen.getByText(workbenchSession.sessionId)).toBeVisible();
+    expect(screen.getByText("Version 1")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
+      workbenchSession.sessionId,
+    );
+  });
+
+  it("starts a clean browser session without deleting retained server evidence", async () => {
+    const api = makeApi();
+    api.getQueryOptions = vi.fn().mockResolvedValue(queryOptions);
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    const user = await askQuestion();
+    expect(await screen.findByRole("heading", { name: "Query workbench" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "New session" }));
+
+    expect(screen.queryByRole("heading", { name: "Query workbench" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Question")).toHaveValue("");
+    await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
+    expect(screen.getByLabelText("Model profile")).toHaveValue(
+      "catalyst-query-gemma-e4b",
+    );
+    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBeNull();
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
   it("hydrates parseable raw JSON as an explicitly unresolved manual draft", async () => {
     const user = userEvent.setup();
     const api = makeApi();

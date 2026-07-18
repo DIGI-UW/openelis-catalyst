@@ -171,6 +171,8 @@ const defaultProps = {
   onSqlChange: vi.fn(),
   onParametersChange: vi.fn(),
   onWrapLinesChange: vi.fn(),
+  onClearDraft: vi.fn(),
+  onNewSession: vi.fn(),
   onValidate: vi.fn(),
   onRun: vi.fn(),
 };

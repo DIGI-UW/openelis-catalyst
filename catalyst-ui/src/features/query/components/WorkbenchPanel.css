@@ -8,6 +8,13 @@
   max-width: none;
 }
 
+.workbench-panel__session-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
 .workbench-subheading {
   margin-bottom: 1rem;
 }
@@ -422,6 +429,11 @@
 
   .workbench-parameter__meta {
     align-items: stretch;
+  }
+
+  .workbench-panel__session-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .workbench-actions p {
