@@ -231,6 +231,9 @@ class LineageHub:
                 },
                 "finalLintFindings": [],
             }
+            if context["contractVersion"] == "catalyst.query.request.v2":
+                query["modelCollaboration"]["writer"]["disposition"] = "superseded"
+                query["modelCollaboration"]["reviewer"]["disposition"] = "selected"
         response_profile = _profile_evidence()
         if self.mismatched_response_profile:
             response_profile["profileId"] = "catalyst-query-other"
@@ -691,6 +694,8 @@ async def test_ready_query_accepts_reviewer_repair_of_linted_writer(
     turn = response.body
     assert turn["status"] == "completed"
     assert len(turn["outputVersions"]) == 2
+    writer, reviewer = turn["outputVersions"]
+    assert reviewer["parentVersionId"] == writer["versionId"]
 
     restored = service.get_workbench_session(session["sessionId"]).body
     assert restored["currentVersion"]["authorType"] == "model_repair"
