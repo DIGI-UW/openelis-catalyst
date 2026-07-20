@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,22 +23,35 @@ def test_checked_in_analytics_catalog_is_the_gateway_context():
     assert catalog.schema_version == "analytics-v1"
     assert catalog.context_source_id == "catalog:analytics-catalog-v1"
     assert catalog.approved_view_names == {"analytics.lab_result_fact_v1"}
-    fields = {
-        field["name"]: field
-        for field in catalog.request_catalog()["views"][0]["fields"]
-    }
-    assert set(fields) == {
+    request_fields = catalog.request_catalog()["views"][0]["fields"]
+    assert [field["name"] for field in request_fields] == [
+        "observation_id",
         "patient_id",
+        "service_request_id",
+        "specimen_id",
+        "result_status",
+        "observed_at",
+        "issued_at",
+        "test_code_system",
         "test_code",
         "test_name",
         "result_value",
         "result_unit",
-        "issued_at",
+        "result_unit_system",
+        "result_unit_code",
+        "specimen_received_at",
         "receipt_to_release_minutes",
-        "observed_at",
-    }
+    ]
+    fields = {field["name"]: field for field in request_fields}
     assert fields["issued_at"]["type"] == "date-time"
     assert fields["receipt_to_release_minutes"]["type"] == "decimal"
+    assert fields["observation_id"]["description"].startswith("FHIR Observation")
+    assert all("nullable" not in field for field in request_fields)
+    assert all("unitColumn" not in field for field in request_fields)
+
+    editor_fields = {field["name"]: field for field in catalog.views[0]["fields"]}
+    assert all(field["nullable"] is True for field in editor_fields.values())
+    assert editor_fields["result_value"]["unitColumn"] == "result_unit"
     semantic_dimension = catalog.request_catalog()["views"][0]["semanticDimensions"][0]
     assert semantic_dimension["field"] == "test_name"
     assert {value["canonical"] for value in semantic_dimension["values"]} == {
@@ -52,6 +66,64 @@ def test_checked_in_analytics_catalog_is_the_gateway_context():
         "Glucose",
     }
     assert catalog.freshness == {}
+
+
+def test_discovered_relations_expand_catalog_and_keep_curated_semantics():
+    base = Catalog.load(CATALOG_PATH)
+    fact_fields = deepcopy(base.views[0]["fields"])
+    for field in fact_fields:
+        field["description"] = "Database-derived description"
+        field["databaseType"] = "text"
+    relations = [
+        {
+            "name": "public.patient_flat_v1",
+            "relationType": "table",
+            "unqualifiedVisible": True,
+            "grain": "Rows readable from public.patient_flat_v1 (table)",
+            "fields": [
+                {
+                    "name": "patient_id",
+                    "type": "string",
+                    "databaseType": "text",
+                    "description": "FHIR Patient identifier",
+                    "nullable": False,
+                }
+            ],
+        },
+        {
+            "name": "analytics.lab_result_fact_v1",
+            "relationType": "view",
+            "grain": "Database-derived grain",
+            "fields": fact_fields,
+        },
+    ]
+
+    expanded = base.with_discovered_relations(relations)
+    repeated = base.with_discovered_relations(list(reversed(relations)))
+
+    assert expanded.catalog_version == repeated.catalog_version
+    assert expanded.catalog_version.startswith("analytics-catalog-v1+schema.")
+    assert expanded.context_source_id == f"catalog:{expanded.catalog_version}"
+    assert expanded.relation_names == {
+        "analytics.lab_result_fact_v1",
+        "public.patient_flat_v1",
+    }
+    assert expanded.available_relation_names == {
+        "analytics.lab_result_fact_v1",
+        "public.patient_flat_v1",
+        "patient_flat_v1",
+    }
+    fact = next(
+        view
+        for view in expanded.views
+        if view["name"] == "analytics.lab_result_fact_v1"
+    )
+    fields = {field["name"]: field for field in fact["fields"]}
+    assert fields["observation_id"]["description"].startswith("FHIR Observation")
+    assert fields["result_value"]["unitColumn"] == "result_unit"
+    assert fact["grain"].startswith("Exactly one row per FHIR Observation")
+    assert fact["semanticDimensions"][0]["field"] == "test_name"
+    assert expanded.request_catalog()["views"][1]["name"] == ("public.patient_flat_v1")
 
 
 def _viral_load_request(catalog: Catalog) -> dict:

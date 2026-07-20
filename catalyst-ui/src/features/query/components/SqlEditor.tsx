@@ -195,6 +195,7 @@ export const SqlEditor = ({
           kind="ghost"
           size="sm"
           aria-pressed={wrapLines}
+          disabled={readOnly}
           onClick={toggleWrapping}
         >
           Wrap lines

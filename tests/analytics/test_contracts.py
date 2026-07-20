@@ -83,6 +83,7 @@ class DataPipesConfigTests(unittest.TestCase):
 
     def test_minimal_view_definitions_are_single_row_projections(self):
         expected = {
+            "patient_flat_v1.json": ("Patient", "patient_flat_v1"),
             "observation_flat_v1.json": ("Observation", "observation_flat_v1"),
             "service_request_flat_v1.json": (
                 "ServiceRequest",
@@ -116,6 +117,48 @@ class DataPipesConfigTests(unittest.TestCase):
                 self.assertEqual(len(names), len(set(names)))
                 self.assertEqual("getResourceKey()", columns[0]["path"])
                 self.assertEqual("id", columns[0]["name"])
+
+    def test_patient_projection_keeps_one_row_per_patient(self):
+        view = json.loads(
+            (ANALYTICS / "config/views/patient_flat_v1.json").read_text()
+        )
+        columns = view["select"][0]["column"]
+
+        self.assertEqual(
+            [
+                "id",
+                "active",
+                "identifier_system",
+                "identifier_value",
+                "name_display",
+                "family_name",
+                "given_name",
+                "gender",
+                "birth_date",
+            ],
+            [column["name"] for column in columns],
+        )
+        self.assertEqual(
+            [
+                "identifier.first().system",
+                "identifier.first().value",
+                (
+                    "iif(name.first().text.exists(), name.first().text, "
+                    "iif(name.first().given.first().exists() and "
+                    "name.first().family.exists(), "
+                    "name.first().given.first() & ' ' & name.first().family, "
+                    "name.first().given.first() & name.first().family))"
+                ),
+                "name.first().family",
+                "name.first().given.first()",
+            ],
+            [column["path"] for column in columns[2:7]],
+        )
+
+        display_path = columns[4]["path"]
+        self.assertIn("name.first().text.exists()", display_path)
+        self.assertIn("name.first().given.first() & ' '", display_path)
+        self.assertIn("& name.first().family", display_path)
 
 
 class SeedContractTests(unittest.TestCase):
@@ -232,7 +275,7 @@ class SemanticContractTests(unittest.TestCase):
         self.assertEqual("analytics.lab_result_fact_v1", view["name"])
         self.assertEqual("1", view["version"])
         self.assertTrue(view["approved"])
-        self.assertTrue(view["demoDataOnly"])
+        self.assertNotIn("demoDataOnly", view)
         for field in (
             "grain",
             "columns",
@@ -247,17 +290,31 @@ class SemanticContractTests(unittest.TestCase):
 
         self.assertEqual(
             [
+                "observation_id",
                 "patient_id",
+                "service_request_id",
+                "specimen_id",
+                "result_status",
+                "observed_at",
+                "issued_at",
+                "test_code_system",
                 "test_code",
                 "test_name",
                 "result_value",
                 "result_unit",
-                "issued_at",
+                "result_unit_system",
+                "result_unit_code",
+                "specimen_received_at",
                 "receipt_to_release_minutes",
-                "observed_at",
             ],
             [column["name"] for column in view["columns"]],
         )
+        self.assertTrue(all(column["nullable"] for column in view["columns"]))
+        self.assertTrue(all(column["description"] for column in view["columns"]))
+        self.assertEqual("result_unit", view["columns"][10]["unitColumn"])
+        self.assertEqual(100, view["requiredConstraints"]["maxResultRows"])
+        self.assertNotIn("synthetic", json.dumps(view).lower())
+        self.assertNotIn("demo-only", json.dumps(view).lower())
         self.assertEqual(
             "analytics.pipeline_run_v1", self.catalog["freshness"]["relation"]
         )

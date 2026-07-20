@@ -23,7 +23,7 @@ include:
 
 services:
   med-agent-hub:
-    build: ./.med-agent-hub
+    build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
     container_name: med-agent-hub
     ports:
       - "${MED_AGENT_HUB_PORT:-8080}:8080"

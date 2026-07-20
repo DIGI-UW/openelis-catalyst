@@ -11,6 +11,9 @@ local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
 fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
 external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
+expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
+hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
+compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -37,13 +40,30 @@ fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
+if [ -n "${expected_role_models_override}" ]; then
+  export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
+fi
+if [ -n "${hub_context_override}" ]; then
+  export MED_AGENT_HUB_CONTEXT="${hub_context_override}"
+fi
+if [ -n "${compose_override_override}" ]; then
+  export MVP_COMPOSE_OVERRIDE_FILE="${compose_override_override}"
+fi
 
 compose=(
   docker compose
   --env-file "${ENV_FILE}"
   -f "${ROOT_DIR}/docker-compose.mvp.yml"
-  --profile fake
 )
+compose_override_file="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+if [ -n "${compose_override_file}" ]; then
+  if [ ! -f "${compose_override_file}" ]; then
+    echo "ERROR: compose override file does not exist: ${compose_override_file}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_override_file}")
+fi
+compose+=(--profile fake)
 
 wait_for() {
   local name="$1"
@@ -180,10 +200,39 @@ case "${model_backend}" in
     ;;
 esac
 
+role_models_json="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
+if [ -z "${role_models_json}" ]; then
+  role_models_json="$(
+    MODEL_ID="${model_id}" python3 - <<'PY'
+import json
+import os
+
+model_id = os.environ["MODEL_ID"]
+print(json.dumps({"query_generate": model_id, "query_review": model_id}))
+PY
+  )"
+fi
+role_models_json="$(
+  EXPECTED_ROLE_MODELS_JSON="${role_models_json}" python3 - <<'PY'
+import json
+import os
+
+role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
+expected_roles = {"query_generate", "query_review"}
+if not isinstance(role_models, dict) or set(role_models) != expected_roles:
+    raise SystemExit(
+        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and query_review"
+    )
+if any(not isinstance(model, str) or not model.strip() for model in role_models.values()):
+    raise SystemExit("MVP_EXPECTED_ROLE_MODELS_JSON model IDs must be non-empty strings")
+print(json.dumps(role_models, sort_keys=True, separators=(",", ":")))
+PY
+)"
+
 check_router() {
   "${compose[@]}" exec -T \
     -e "ROUTER_URL=${router_url}" \
-    -e "EXPECTED_MODEL_ID=${model_id}" \
+    -e "EXPECTED_ROLE_MODELS_JSON=${role_models_json}" \
     med-agent-hub python - <<'PY'
 import json
 import os
@@ -193,9 +242,11 @@ with urllib.request.urlopen(
     os.environ["ROUTER_URL"] + "/v1/models", timeout=5
 ) as response:
     models = json.load(response).get("data", [])
-expected = os.environ["EXPECTED_MODEL_ID"]
-if expected not in {item.get("id") for item in models}:
-    raise SystemExit(f"expected model {expected!r} is not served")
+expected = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
+served = {item.get("id") for item in models}
+missing = sorted(set(expected.values()) - served)
+if missing:
+    raise SystemExit(f"expected profile models are not served: {missing!r}")
 PY
 }
 
@@ -217,16 +268,18 @@ PY
 check_hub_profile() {
   HUB_URL="http://localhost:${MED_AGENT_HUB_PORT:-8082}" \
   PROFILE_ID="${profile_id}" \
-  EXPECTED_MODEL_ID="${model_id}" \
+  EXPECTED_ROLE_MODELS_JSON="${role_models_json}" \
   python3 - <<'PY'
+import hashlib
 import json
 import os
+import re
 import urllib.request
 
 with urllib.request.urlopen(os.environ["HUB_URL"] + "/v1/models", timeout=5) as response:
     models = json.load(response).get("data", [])
 profile_id = os.environ["PROFILE_ID"]
-expected_model = os.environ["EXPECTED_MODEL_ID"]
+expected_role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
 profile = next((item for item in models if item.get("id") == profile_id), None)
 if not profile or profile.get("available") is not True:
     reasons = (profile or {}).get("unavailable_reasons", [])
@@ -234,10 +287,58 @@ if not profile or profile.get("available") is not True:
 if "catalyst.query.v1" not in profile.get("outputContracts", []):
     raise SystemExit("catalyst.query.v1 is not advertised")
 role_models = profile.get("role_models", {})
-if not role_models or set(role_models.values()) != {expected_model}:
+if role_models != expected_role_models:
     raise SystemExit(
-        f"{profile_id} role models {role_models!r} do not match {expected_model!r}"
+        f"{profile_id} role models {role_models!r} do not match "
+        f"{expected_role_models!r}"
     )
+followup_profile = len(set(expected_role_models.values())) > 1
+if followup_profile:
+    if profile.get("revisionCapable") is not True:
+        raise SystemExit(f"{profile_id} is not advertised as revision capable")
+    profile_evidence = profile.get("profileEvidence")
+    if not isinstance(profile_evidence, dict):
+        raise SystemExit(f"{profile_id} does not expose profileEvidence")
+    if profile_evidence.get("profileId") != profile_id:
+        raise SystemExit("profileEvidence.profileId does not match the selected profile")
+    if profile_evidence.get("profileName") != profile.get("label"):
+        raise SystemExit("profileEvidence.profileName does not match the profile label")
+    if not re.fullmatch(r"[a-f0-9]{64}", str(profile_evidence.get("profileDigest", ""))):
+        raise SystemExit("profileEvidence.profileDigest is not a SHA-256 digest")
+    model_classes = []
+    for public_role, configured_role in (
+        ("writer", "query_generate"),
+        ("reviewer", "query_review"),
+    ):
+        role_evidence = profile_evidence.get(public_role)
+        expected_model = expected_role_models[configured_role]
+        if not isinstance(role_evidence, dict) or role_evidence.get("role") != public_role:
+            raise SystemExit(f"profileEvidence.{public_role} is incomplete")
+        if role_evidence.get("modelId") != expected_model:
+            raise SystemExit(
+                f"profileEvidence.{public_role}.modelId does not match {configured_role}"
+            )
+        for field in ("providerId", "modelClass"):
+            if not isinstance(role_evidence.get(field), str) or not role_evidence[field]:
+                raise SystemExit(f"profileEvidence.{public_role}.{field} is required")
+        if not isinstance(role_evidence.get("config"), dict):
+            raise SystemExit(f"profileEvidence.{public_role}.config is required")
+        prompt = role_evidence.get("systemPrompt")
+        if not isinstance(prompt, dict):
+            raise SystemExit(f"profileEvidence.{public_role}.systemPrompt is required")
+        for field in ("promptId", "version", "promptRef", "promptDigest", "text"):
+            if not isinstance(prompt.get(field), str) or not prompt[field]:
+                raise SystemExit(
+                    f"profileEvidence.{public_role}.systemPrompt.{field} is required"
+                )
+        prompt_digest = hashlib.sha256(prompt["text"].encode("utf-8")).hexdigest()
+        if prompt["promptDigest"] != prompt_digest:
+            raise SystemExit(
+                f"profileEvidence.{public_role} prompt digest does not match its text"
+            )
+        model_classes.append(role_evidence["modelClass"])
+    if len(set(model_classes)) != 2:
+        raise SystemExit("follow-up writer and reviewer must use different model classes")
 PY
 }
 
@@ -287,16 +388,31 @@ pipeline_json="$(
     LIMIT 1;
   "
 )"
-hub_commit="$(git -C "${ROOT_DIR}/.med-agent-hub" rev-parse HEAD)"
+hub_context="${MED_AGENT_HUB_CONTEXT:-${ROOT_DIR}/.med-agent-hub}"
+if ! git -C "${hub_context}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "ERROR: med-agent-hub source is unavailable at ${hub_context}." >&2
+  exit 1
+fi
+hub_commit="$(git -C "${hub_context}" rev-parse HEAD)"
+hub_source="standalone-fallback"
+if [ -n "${MED_AGENT_HUB_CONTEXT:-}" ]; then
+  hub_source="harness-sibling"
+fi
+hub_dirty=false
+if [ -n "$(git -C "${hub_context}" status --porcelain)" ]; then
+  hub_dirty=true
+fi
 mkdir -p "${ROOT_DIR}/logs"
 PIPELINE_JSON="${pipeline_json}" \
 PROVENANCE_PATH="${ROOT_DIR}/logs/mvp-provenance.json" \
 OPENELIS_VERSION="${OPENELIS_VERSION:-unknown}" \
 DATA_PIPES_COMMIT="${PINNED_COMMIT}" \
 HUB_COMMIT="${hub_commit}" \
+HUB_SOURCE="${hub_source}" \
+HUB_DIRTY="${hub_dirty}" \
 ROUTER_MODE="${router_mode}" \
 ROUTER_URL="${router_url}" \
-MODEL_ID="${model_id}" \
+ROLE_MODELS_JSON="${role_models_json}" \
 PROFILE_ID="${profile_id}" \
 MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
 MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
@@ -306,12 +422,17 @@ import json
 import os
 from pathlib import Path
 
+role_models = json.loads(os.environ["ROLE_MODELS_JSON"])
+model_ids = sorted(set(role_models.values()))
 model_router = {
     "mode": os.environ["ROUTER_MODE"],
     "baseUrl": os.environ["ROUTER_URL"],
-    "modelId": os.environ["MODEL_ID"],
+    "modelIds": model_ids,
+    "roleModels": role_models,
     "profileId": os.environ["PROFILE_ID"],
 }
+if len(model_ids) == 1:
+    model_router["modelId"] = model_ids[0]
 if os.environ["ROUTER_MODE"] == "local":
     model_router["artifact"] = {
         "repository": os.environ["MODEL_REPO"],
@@ -329,7 +450,8 @@ payload = {
     "fhirDataPipes": {"commit": os.environ["DATA_PIPES_COMMIT"], "spark": False},
     "medAgentHub": {
         "commit": os.environ["HUB_COMMIT"],
-        "patch": "patches/med-agent-hub/catalyst-query-profile.patch",
+        "source": os.environ["HUB_SOURCE"],
+        "workingTreeDirty": os.environ["HUB_DIRTY"] == "true",
     },
     "modelRouter": model_router,
     "catalog": {

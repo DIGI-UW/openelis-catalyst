@@ -7,7 +7,11 @@ import type {
   QueryOptions,
   WorkbenchEditorCatalog,
   WorkbenchExecution,
+  WorkbenchGenerationEvidence,
   WorkbenchSession,
+  WorkbenchTurn,
+  WorkbenchTurnRequest,
+  WorkbenchTurnTimeline,
   WorkbenchValidation,
   WorkbenchVersionDraft,
 } from "./types";
@@ -44,6 +48,20 @@ export interface CatalystApi {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<WorkbenchSession>;
+  createWorkbenchTurn?(
+    sessionId: string,
+    request: WorkbenchTurnRequest,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchTurn>;
+  getWorkbenchTurns?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchTurnTimeline>;
+  getWorkbenchGenerationEvidence?(
+    sessionId: string,
+    turnId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchGenerationEvidence>;
   getWorkbenchCatalog?(signal?: AbortSignal): Promise<WorkbenchEditorCatalog>;
   createWorkbenchVersion?(
     sessionId: string,
@@ -276,6 +294,53 @@ export const createCatalystApi = ({
         throw new CatalystApiError(errorMessage(body, response.status), response.status);
       }
       return body as unknown as WorkbenchSession;
+    },
+
+    async createWorkbenchTurn(sessionId, request, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/turns`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.turn.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchTurn;
+    },
+
+    async getWorkbenchTurns(sessionId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/turns`,
+        {
+          headers: { Accept: "application/json" },
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.turn.timeline.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchTurnTimeline;
+    },
+
+    async getWorkbenchGenerationEvidence(sessionId, turnId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/generation-evidence`,
+        {
+          headers: { Accept: "application/json" },
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.generation-evidence.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchGenerationEvidence;
     },
 
     async getWorkbenchCatalog(signal) {

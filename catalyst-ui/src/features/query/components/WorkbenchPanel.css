@@ -249,9 +249,32 @@
   background: #fff8e1;
 }
 
+.workbench-execution__warnings {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.workbench-execution__blank-cell {
+  color: var(--workbench-muted);
+  font-style: italic;
+}
+
+.workbench-execution__status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .workbench-execution__table-wrap {
   overflow-x: auto;
   border: 1px solid #e0e0e0;
+}
+
+.workbench-execution__table-wrap--bounded {
+  overflow: auto;
+  max-height: min(32rem, 58dvh);
 }
 
 .workbench-execution table {
@@ -274,6 +297,9 @@
 }
 
 .workbench-execution th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
   background: #e8e8e8;
 }
 
@@ -438,5 +464,10 @@
 
   .workbench-actions p {
     margin-left: 0;
+  }
+
+  .workbench-execution__status {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

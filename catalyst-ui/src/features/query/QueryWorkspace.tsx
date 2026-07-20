@@ -9,7 +9,16 @@ import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
 import { ResultsTable } from "./components/ResultsTable";
+import {
+  TurnNotebook,
+  type NotebookGrounding,
+  type NotebookTurn,
+} from "./components/TurnNotebook";
 import { WorkbenchPanel } from "./components/WorkbenchPanel";
+import {
+  editorContentMatchesVersion,
+  workbenchEditorDigest,
+} from "./editorDigest";
 import {
   isPreview,
   isTable,
@@ -21,8 +30,11 @@ import {
   type CatalystTable,
   type QueryOptions,
   type WorkbenchEditorCatalog,
+  type WorkbenchGenerationEvidence,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
+  type WorkbenchTurnRequest,
+  type WorkbenchTurnTimeline,
 } from "./types";
 
 type WorkflowState =
@@ -77,6 +89,98 @@ const forgetActiveWorkbenchSession = () => {
 
 const sessionEditorDraft = (session: WorkbenchSession) =>
   session.currentVersion ?? session.draftSeed ?? null;
+
+const notebookTurns = (
+  timeline: WorkbenchTurnTimeline | null,
+  session: WorkbenchSession | null,
+): NotebookTurn[] =>
+  (timeline?.turns ?? []).map((turn) => ({
+    turnId: turn.turnId,
+    ordinal: turn.ordinal,
+    kind: turn.kind,
+    instruction: turn.instruction,
+    status: turn.status,
+    selectedVersionId: turn.selectedVersionId,
+    profileSnapshot: {
+      profileName: turn.profileSnapshot.profileName,
+      writer: turn.profileSnapshot.writer
+        ? { modelId: turn.profileSnapshot.writer.modelId }
+        : null,
+      reviewer: turn.profileSnapshot.reviewer
+        ? { modelId: turn.profileSnapshot.reviewer.modelId }
+        : null,
+    },
+    outputVersions: turn.outputVersions.map((output) => ({
+      selected: output.selected,
+      role: output.role,
+      contractValid: output.contractValid,
+      versionId: output.versionId,
+      version: session?.versions.find(
+        (version) => version.versionId === output.versionId,
+      ),
+    })),
+    failure: turn.failure ? { message: turn.failure.message } : null,
+  }));
+
+const notebookGrounding = (
+  session: WorkbenchSession,
+  sql: string,
+  parameters: BoundParameter[],
+): NotebookGrounding => {
+  const baseVersion = session.currentVersion;
+  const content = {
+    sql,
+    parameters,
+    expectedColumns: baseVersion?.expectedColumns ?? [],
+  };
+  const editorDigest = editorContentMatchesVersion(content, baseVersion)
+    ? baseVersion!.queryDigest
+    : workbenchEditorDigest(content);
+  const execution = [...session.executions]
+    .sort((left, right) => right.ordinal - left.ordinal)
+    .find((candidate) => candidate.queryDigest === editorDigest);
+
+  if (execution) {
+    const version = session.versions.find(
+      (candidate) => candidate.versionId === execution.versionId,
+    );
+    const queryLabel = version ? `Query v${version.ordinal}` : "the current query";
+    if (execution.status === "failed") {
+      return {
+        kind: "matching",
+        text:
+          `Execution summary: ${queryLabel} · Run ${execution.ordinal} failed. ` +
+          "The database diagnostic is available to the model; result row values are not.",
+      };
+    }
+    const returned = execution.result?.rowCount.returned;
+    return {
+      kind: "matching",
+      text:
+        `Execution summary: ${queryLabel} · Run ${execution.ordinal}` +
+        (returned === undefined
+          ? ". "
+          : ` · ${returned} ${returned === 1 ? "row" : "rows"}. `) +
+        "Result row values are not included in model context.",
+    };
+  }
+
+  if (session.executions.length > 0) {
+    return {
+      kind: "stale",
+      text:
+        "Displayed results are stale for this editor. Run the current SQL to include " +
+        "a matching execution summary; result row values are not included.",
+    };
+  }
+
+  return {
+    kind: "not-executed",
+    text:
+      "This query has not been executed. Refinement uses the current SQL without " +
+      "an execution summary or result row values.",
+  };
+};
 
 const createIdempotencyKey = () => {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -249,11 +353,36 @@ export const QueryWorkspace = ({
     "validating" | "running" | null
   >(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
+  const [workbenchTimeline, setWorkbenchTimeline] =
+    useState<WorkbenchTurnTimeline | null>(null);
+  const [followupInstruction, setFollowupInstruction] = useState("");
+  const [followupBusy, setFollowupBusy] = useState(false);
+  const [generationEvidence, setGenerationEvidence] =
+    useState<WorkbenchGenerationEvidence | null>(null);
+  const [generationEvidenceLoadingTurnId, setGenerationEvidenceLoadingTurnId] =
+    useState<string | null>(null);
+  const [generationEvidenceError, setGenerationEvidenceError] =
+    useState<string | null>(null);
   const usesWorkbench = Boolean(
     api.createWorkbenchSession &&
       api.createWorkbenchVersion &&
       api.executeWorkbenchVersion,
   );
+  const usesNotebook = Boolean(
+    api.createWorkbenchTurn && api.getWorkbenchTurns,
+  );
+  const revisionProfiles = queryOptions?.profiles.filter(
+    (profile) => profile.available && profile.revisionCapable === true,
+  ) ?? [];
+  const fallbackRevisionProfileId =
+    revisionProfiles.find(
+      (profile) => profile.id === queryOptions?.defaultProfileId,
+    )?.id ?? revisionProfiles[0]?.id ?? "";
+  const selectedRevisionProfileId = revisionProfiles.some(
+    (profile) => profile.id === profileId,
+  )
+    ? profileId
+    : fallbackRevisionProfileId;
 
   useEffect(() => {
     if (!api.getQueryOptions) return;
@@ -311,6 +440,15 @@ export const QueryWorkspace = ({
             ? session.browserState.sqlWrapLines
             : true,
         );
+        if (api.getWorkbenchTurns) {
+          void api.getWorkbenchTurns(sessionId, controller.signal)
+            .then((timeline) => {
+              if (!controller.signal.aborted) setWorkbenchTimeline(timeline);
+            })
+            .catch(() => {
+              if (!controller.signal.aborted) setWorkbenchTimeline(null);
+            });
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) forgetActiveWorkbenchSession();
@@ -369,6 +507,11 @@ export const QueryWorkspace = ({
             ? session.browserState.sqlWrapLines
             : true,
         );
+        if (api.getWorkbenchTurns) {
+          setWorkbenchTimeline(await api.getWorkbenchTurns(session.sessionId));
+        } else {
+          setWorkbenchTimeline(null);
+        }
         setState({ kind: "idle" });
         return;
       }
@@ -412,6 +555,7 @@ export const QueryWorkspace = ({
   };
 
   const startNewSession = () => {
+    if (followupBusy) return;
     setQuestion("");
     setState({ kind: "idle" });
     setWorkbenchSession(null);
@@ -419,6 +563,12 @@ export const QueryWorkspace = ({
     setWorkbenchParameters([]);
     setWorkbenchBusy(null);
     setWorkbenchError(null);
+    setWorkbenchTimeline(null);
+    setFollowupInstruction("");
+    setFollowupBusy(false);
+    setGenerationEvidence(null);
+    setGenerationEvidenceLoadingTurnId(null);
+    setGenerationEvidenceError(null);
     forgetActiveWorkbenchSession();
     window.setTimeout(() => {
       document.getElementById("catalyst-question")?.focus();
@@ -426,8 +576,19 @@ export const QueryWorkspace = ({
   };
 
   const clearWorkbenchDraft = () => {
+    if (followupBusy) return;
     setWorkbenchSql("");
     setWorkbenchParameters([]);
+    setWorkbenchError(null);
+  };
+
+  const restoreCurrentWorkbenchVersion = () => {
+    const current = workbenchSession?.currentVersion;
+    if (!current) return;
+    setWorkbenchSql(current.sql);
+    setWorkbenchParameters(
+      current.parameters.map((parameter) => ({ ...parameter })),
+    );
     setWorkbenchError(null);
   };
 
@@ -454,11 +615,22 @@ export const QueryWorkspace = ({
       throw new Error("Catalyst did not return the saved query version.");
     }
     setWorkbenchSession(session);
+    setWorkbenchTimeline((current) =>
+      current?.sessionId === session.sessionId
+        ? {
+            ...current,
+            currentVersion: {
+              versionId: session.currentVersion!.versionId,
+              queryDigest: session.currentVersion!.queryDigest,
+            },
+          }
+        : current,
+    );
     return { session, version: session.currentVersion };
   };
 
   const validateWorkbenchDraft = async () => {
-    if (workbenchBusy) return;
+    if (workbenchBusy || followupBusy) return;
     setWorkbenchBusy("validating");
     setWorkbenchError(null);
     try {
@@ -471,7 +643,7 @@ export const QueryWorkspace = ({
   };
 
   const runWorkbenchDraft = async () => {
-    if (workbenchBusy || !api.executeWorkbenchVersion) return;
+    if (workbenchBusy || followupBusy || !api.executeWorkbenchVersion) return;
     setWorkbenchBusy("running");
     setWorkbenchError(null);
     try {
@@ -489,6 +661,115 @@ export const QueryWorkspace = ({
       setWorkbenchError(messageFromError(error));
     } finally {
       setWorkbenchBusy(null);
+    }
+  };
+
+  const generateNextWorkbenchQuery = async () => {
+    if (
+      followupBusy ||
+      workbenchBusy ||
+      !workbenchSession ||
+      !api.createWorkbenchTurn ||
+      !selectedRevisionProfileId ||
+      !workbenchSql.trim()
+    ) return;
+    if (!followupInstruction.trim()) {
+      setWorkbenchError("Enter a follow-up instruction for the current query.");
+      document.getElementById("catalyst-followup")?.focus();
+      return;
+    }
+
+    setFollowupBusy(true);
+    setWorkbenchError(null);
+    setGenerationEvidence(null);
+    setGenerationEvidenceError(null);
+    const baseVersion = workbenchSession.currentVersion;
+    const content = {
+      sql: workbenchSql,
+      parameters: workbenchParameters,
+      expectedColumns: baseVersion?.expectedColumns ?? [],
+    };
+    const editorDigest = editorContentMatchesVersion(content, baseVersion)
+      ? baseVersion!.queryDigest
+      : workbenchEditorDigest(content);
+    const request: WorkbenchTurnRequest = {
+      contractVersion: "catalyst.workbench.turn.request.v1",
+      instruction: followupInstruction,
+      profileId: selectedRevisionProfileId,
+      observedBase: baseVersion
+        ? {
+            versionId: baseVersion.versionId,
+            queryDigest: baseVersion.queryDigest,
+          }
+        : null,
+      editorSnapshot: {
+        contractVersion: "catalyst.workbench.editor-snapshot.v1",
+        ...content,
+        editorDigest,
+      },
+    };
+
+    try {
+      const turn = await api.createWorkbenchTurn(
+        workbenchSession.sessionId,
+        request,
+      );
+      setWorkbenchTimeline((current) => {
+        if (!current || current.sessionId !== workbenchSession.sessionId) {
+          return current;
+        }
+        const turns = current.turns.some((item) => item.turnId === turn.turnId)
+          ? current.turns.map((item) => item.turnId === turn.turnId ? turn : item)
+          : [...current.turns, turn];
+        return {
+          ...current,
+          currentTurnId: turn.turnId,
+          currentVersion: turn.resultingCurrentVersion,
+          turns,
+        };
+      });
+
+      const restored = api.getWorkbenchSession
+        ? await api.getWorkbenchSession(workbenchSession.sessionId)
+        : workbenchSession;
+      setWorkbenchSession(restored);
+      const draft = sessionEditorDraft(restored);
+      setWorkbenchSql(draft?.sql ?? workbenchSql);
+      setWorkbenchParameters(
+        draft?.parameters.map((parameter) => ({ ...parameter })) ??
+          workbenchParameters,
+      );
+      if (api.getWorkbenchTurns) {
+        setWorkbenchTimeline(
+          await api.getWorkbenchTurns(workbenchSession.sessionId),
+        );
+      }
+      setFollowupInstruction("");
+    } catch (error) {
+      setWorkbenchError(messageFromError(error));
+    } finally {
+      setFollowupBusy(false);
+    }
+  };
+
+  const showWorkbenchGenerationEvidence = async (turnId: string) => {
+    if (!workbenchSession || !api.getWorkbenchGenerationEvidence) {
+      setGenerationEvidenceError("Generation evidence is unavailable.");
+      return;
+    }
+    setGenerationEvidenceLoadingTurnId(turnId);
+    setGenerationEvidenceError(null);
+    try {
+      setGenerationEvidence(
+        await api.getWorkbenchGenerationEvidence(
+          workbenchSession.sessionId,
+          turnId,
+        ),
+      );
+    } catch (error) {
+      setGenerationEvidenceError(messageFromError(error));
+    } finally {
+      setGenerationEvidenceLoadingTurnId(null);
     }
   };
 
@@ -513,27 +794,49 @@ export const QueryWorkspace = ({
 
   const questionIsLocked =
     state.kind === "preview" ||
-    state.kind === "polling";
+    state.kind === "polling" ||
+    workbenchSession !== null;
+
+  const activeNotebookTurns = notebookTurns(
+    workbenchTimeline,
+    workbenchSession,
+  );
+
+  const activeGrounding = workbenchSession
+    ? notebookGrounding(workbenchSession, workbenchSql, workbenchParameters)
+    : null;
+  const hasRefineDock = Boolean(
+    usesNotebook && workbenchSession && workbenchTimeline,
+  );
+  const hasQueryDock = hasRefineDock || workbenchSession === null;
 
   return (
-    <main className="app-shell">
+    <main
+      className={`app-shell${hasQueryDock ? " app-shell--with-query-dock" : ""}`}
+    >
       <div className="app-shell__intro">
         <p className="product-mark">OpenELIS Global / Catalyst</p>
         <p>Governed query review and typed table results</p>
       </div>
 
-      <DatasetBrowser api={api} />
-
-      <QuestionForm
-        question={question}
-        busy={state.kind === "submitting"}
-        disabled={questionIsLocked}
-        onQuestionChange={setQuestion}
-        onSubmit={submitQuestion}
-        profiles={queryOptions?.profiles ?? []}
-        selectedProfileId={profileId}
-        onProfileChange={setProfileId}
+      <DatasetBrowser
+        api={api}
+        catalog={workbenchCatalog}
+        catalogLoadingFailed={workbenchCatalogFailed}
       />
+
+      {!workbenchSession && (
+        <QuestionForm
+          question={question}
+          busy={state.kind === "submitting"}
+          disabled={questionIsLocked}
+          onQuestionChange={setQuestion}
+          onSubmit={submitQuestion}
+          profiles={queryOptions?.profiles ?? []}
+          selectedProfileId={profileId}
+          onProfileChange={setProfileId}
+        />
+      )}
 
       {state.kind === "submitting" && (
         <ExecutionState
@@ -549,6 +852,34 @@ export const QueryWorkspace = ({
         />
       )}
 
+      {usesNotebook && workbenchSession && workbenchTimeline && (
+        <TurnNotebook
+          turns={activeNotebookTurns}
+          baseVersion={workbenchSession.currentVersion}
+          instruction={followupInstruction}
+          profiles={queryOptions?.profiles ?? []}
+          selectedProfileId={selectedRevisionProfileId}
+          grounding={activeGrounding!}
+          editorEmpty={!workbenchSql.trim()}
+          editorState={
+            workbenchSession.currentVersion
+              ? "ready"
+              : workbenchSession.draftSeed
+                ? "unresolved"
+                : "empty"
+          }
+          busy={followupBusy || workbenchBusy !== null}
+          generating={followupBusy}
+          evidence={generationEvidence}
+          evidenceLoadingTurnId={generationEvidenceLoadingTurnId}
+          evidenceError={generationEvidenceError}
+          onInstructionChange={setFollowupInstruction}
+          onProfileChange={setProfileId}
+          onGenerate={generateNextWorkbenchQuery}
+          onShowEvidence={showWorkbenchGenerationEvidence}
+        />
+      )}
+
       {workbenchSession && (
         <WorkbenchPanel
           session={workbenchSession}
@@ -557,12 +888,13 @@ export const QueryWorkspace = ({
           editorCatalog={workbenchCatalog}
           catalogLoadingFailed={workbenchCatalogFailed}
           wrapLines={workbenchWrapLines}
-          busy={workbenchBusy}
+          busy={followupBusy ? "generating" : workbenchBusy}
           error={workbenchError}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}
           onClearDraft={clearWorkbenchDraft}
+          onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
           onNewSession={startNewSession}
           onValidate={validateWorkbenchDraft}
           onRun={runWorkbenchDraft}

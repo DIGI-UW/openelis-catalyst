@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -225,6 +225,159 @@ const unresolvedRawSession = {
   executions: [],
 } satisfies WorkbenchSession;
 
+const notebookQueryOptions = {
+  ...queryOptions,
+  defaultProfileId: "catalyst-query-gemma-4-12b",
+  profiles: [
+    {
+      id: "catalyst-query-gemma-4-12b",
+      label: "Gemma writer + Qwen reviewer",
+      available: true,
+      revisionCapable: true,
+      requiredModels: ["gemma-4-12b", "qwen2.5-14b"],
+      roleModels: {
+        query_generate: "gemma-4-12b",
+        query_review: "qwen2.5-14b",
+      },
+      stages: ["query_generate", "query_lint", "query_review"],
+      unavailableReasons: [],
+    },
+    ...queryOptions.profiles.map((profile) => ({
+      ...profile,
+      revisionCapable: profile.id === "catalyst-query-split-models",
+    })),
+  ],
+};
+
+const notebookSession = {
+  ...workbenchSession,
+  profileId: "catalyst-query-gemma-4-12b",
+  provenance: {
+    ...workbenchSession.provenance,
+    profileSnapshot: {
+      profileId: "catalyst-query-gemma-4-12b",
+      roleModels: {
+        query_generate: "gemma-4-12b",
+        query_review: "qwen2.5-14b",
+      },
+    },
+  },
+} satisfies WorkbenchSession;
+
+const notebookProfileSnapshot = {
+  profileId: "catalyst-query-gemma-4-12b",
+  profileName: "Gemma writer + Qwen reviewer",
+  profileDigest: "d".repeat(64),
+  writer: { modelId: "gemma-4-12b" },
+  reviewer: { modelId: "qwen2.5-14b" },
+  omissions: [],
+};
+
+const initialNotebookTurn = {
+  contractVersion: "catalyst.workbench.turn.v1" as const,
+  sessionId: notebookSession.sessionId,
+  turnId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  ordinal: 1,
+  kind: "initial" as const,
+  origin: "recorded" as const,
+  instruction: QUESTION,
+  instructionDigest: "e".repeat(64),
+  profileSnapshot: notebookProfileSnapshot,
+  observedBase: null,
+  editorSnapshot: null,
+  snapshotClassification: "not_applicable" as const,
+  unresolvedPaths: [],
+  effectiveBaseVersion: null,
+  manualVersion: null,
+  revisionContext: null,
+  hubRequestDigest: "f".repeat(64),
+  catalystTraceId: "catalyst-trace-1",
+  hubTraceId: "hub-trace-1",
+  generationEvidenceRef: {
+    evidenceId: "99999999-9999-4999-8999-999999999999",
+    evidenceDigest: "1".repeat(64),
+    detailPath:
+      `/v1/catalyst/workbench/sessions/${notebookSession.sessionId}/turns/` +
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/generation-evidence",
+  },
+  recoveryReferences: null,
+  status: "completed" as const,
+  outputVersions: [
+    {
+      versionId: workbenchVersion.versionId,
+      queryDigest: workbenchVersion.queryDigest,
+      parentVersionId: null,
+      role: "writer" as const,
+      authorType: "model" as const,
+      contractValid: true,
+      validationId: workbenchValidation.validationId,
+      selected: true,
+    },
+  ],
+  selectedVersionId: workbenchVersion.versionId,
+  resultingCurrentVersion: {
+    versionId: workbenchVersion.versionId,
+    queryDigest: workbenchVersion.queryDigest,
+  },
+  events: [],
+  failure: null,
+  createdAt: "2026-07-17T00:00:00Z",
+  updatedAt: "2026-07-17T00:00:02Z",
+};
+
+const notebookTimeline = {
+  contractVersion: "catalyst.workbench.turn.timeline.v1" as const,
+  sessionId: notebookSession.sessionId,
+  currentTurnId: initialNotebookTurn.turnId,
+  currentVersion: initialNotebookTurn.resultingCurrentVersion,
+  turns: [initialNotebookTurn],
+};
+
+const completedFollowupTurn = {
+  ...initialNotebookTurn,
+  turnId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  ordinal: 2,
+  kind: "followup" as const,
+  instruction: "Only include released results",
+  instructionDigest: "2".repeat(64),
+  observedBase: initialNotebookTurn.resultingCurrentVersion,
+  snapshotClassification: "reused" as const,
+  effectiveBaseVersion: initialNotebookTurn.resultingCurrentVersion,
+  selectedVersionId: "33333333-3333-4333-8333-333333333333",
+  resultingCurrentVersion: {
+    versionId: "33333333-3333-4333-8333-333333333333",
+    queryDigest: "3".repeat(64),
+  },
+  outputVersions: [
+    {
+      versionId: "33333333-3333-4333-8333-333333333333",
+      queryDigest: "3".repeat(64),
+      parentVersionId: workbenchVersion.versionId,
+      role: "writer" as const,
+      authorType: "model" as const,
+      contractValid: true,
+      validationId: "44444444-4444-4444-8444-444444444444",
+      selected: true,
+    },
+  ],
+};
+
+const makeNotebookApi = (
+  session: WorkbenchSession = notebookSession,
+  timeline: unknown = notebookTimeline,
+) =>
+  Object.assign(makeApi(), {
+    getQueryOptions: vi.fn().mockResolvedValue(notebookQueryOptions),
+    getWorkbenchCatalog: vi.fn().mockResolvedValue(editorCatalog),
+    createWorkbenchSession: vi.fn().mockResolvedValue(session),
+    getWorkbenchSession: vi.fn().mockResolvedValue(session),
+    getWorkbenchTurns: vi.fn().mockResolvedValue(timeline),
+    createWorkbenchTurn: vi.fn().mockResolvedValue(completedFollowupTurn),
+    getWorkbenchGenerationEvidence: vi.fn(),
+    createWorkbenchVersion: vi.fn(),
+    executeWorkbenchVersion: vi.fn(),
+  });
+
 const editorCatalog: WorkbenchEditorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1",
   catalogVersion: "analytics-catalog-v1",
@@ -236,10 +389,27 @@ const editorCatalog: WorkbenchEditorCatalog = {
       views: [
         {
           name: "lab_result_fact_v1",
+          qualifiedName: "analytics.lab_result_fact_v1",
+          grain: "One row per FHIR Observation.",
           columns: [
-            { name: "patient_id", logicalType: "string" },
-            { name: "result_value", logicalType: "decimal" },
-            { name: "test_name", logicalType: "string" },
+            {
+              name: "patient_id",
+              logicalType: "string",
+              nullable: false,
+              description: "FHIR Patient resource identifier.",
+            },
+            {
+              name: "result_value",
+              logicalType: "decimal",
+              nullable: true,
+              description: "Numeric result value.",
+            },
+            {
+              name: "test_name",
+              logicalType: "string",
+              nullable: true,
+              description: "Laboratory test display name.",
+            },
           ],
         },
       ],
@@ -492,7 +662,7 @@ describe("Catalyst query workflow", () => {
 
     const user = userEvent.setup();
     const browserToggle = screen.getByRole("button", {
-      name: "Browse available laboratory records",
+      name: "Preview available laboratory records",
     });
     expect(browserToggle).toHaveAttribute("aria-expanded", "false");
     await user.click(browserToggle);
@@ -562,7 +732,7 @@ describe("Catalyst query workflow", () => {
 
     expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(/^$/);
     expect(screen.queryByLabelText("Parameter 1 name")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Question")).toHaveValue(QUESTION);
+    expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
     expect(screen.getByText(workbenchSession.sessionId)).toBeVisible();
     expect(screen.getByText("Version 1")).toBeVisible();
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
@@ -594,6 +764,359 @@ describe("Catalyst query workflow", () => {
     );
     expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBeNull();
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("submits an unchanged editor as the exact current-version snapshot without a duplicate version", async () => {
+    const api = makeNotebookApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toHaveValue(
+      notebookQueryOptions.defaultProfileId,
+    );
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Refine Query v1" }),
+    ).toBeVisible();
+    expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("textarea:not([disabled])")).toHaveLength(1);
+    expect(
+      screen.getByText(/This query has not been executed.*without an execution summary/i),
+    ).toBeVisible();
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Only include released results",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const [sessionId, request] = vi.mocked(api.createWorkbenchTurn).mock.calls[0]!;
+    expect(sessionId).toBe(notebookSession.sessionId);
+    expect(request).toEqual({
+      contractVersion: "catalyst.workbench.turn.request.v1",
+      instruction: "Only include released results",
+      profileId: "catalyst-query-gemma-4-12b",
+      observedBase: {
+        versionId: workbenchVersion.versionId,
+        queryDigest: workbenchVersion.queryDigest,
+      },
+      editorSnapshot: {
+        contractVersion: "catalyst.workbench.editor-snapshot.v1",
+        sql: workbenchVersion.sql,
+        parameters: workbenchVersion.parameters,
+        expectedColumns: workbenchVersion.expectedColumns,
+        editorDigest: workbenchVersion.queryDigest,
+      },
+    });
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+    expect(api.executeWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("submits a dirty contract-valid buffer exactly and lets the turn endpoint promote it once", async () => {
+    const api = makeNotebookApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    expect(
+      await screen.findByRole("heading", { name: "Refine Query v1" }),
+    ).toBeVisible();
+
+    const minimum = screen.getByLabelText("Parameter 2 value");
+    await user.clear(minimum);
+    await user.type(minimum, "2500");
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Keep the same shape and use the edited threshold",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const request = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1];
+    expect(request.observedBase).toEqual({
+      versionId: workbenchVersion.versionId,
+      queryDigest: workbenchVersion.queryDigest,
+    });
+    expect(request.editorSnapshot).toEqual({
+      contractVersion: "catalyst.workbench.editor-snapshot.v1",
+      sql: workbenchVersion.sql,
+      parameters: [
+        workbenchVersion.parameters[0],
+        {
+          ...workbenchVersion.parameters[1],
+          source: "human",
+          value: 2500,
+        },
+      ],
+      expectedColumns: workbenchVersion.expectedColumns,
+      editorDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(request.editorSnapshot.editorDigest).not.toBe(
+      workbenchVersion.queryDigest,
+    );
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("freezes the exact editor snapshot and session actions during follow-up generation", async () => {
+    const api = makeNotebookApi();
+    api.createWorkbenchTurn = vi.fn().mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Follow-up instruction" }),
+      "Only include released results",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveAttribute(
+      "contenteditable",
+      "false",
+    );
+    expect(screen.getByLabelText("Parameter 1 value")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+  });
+
+  it("disables and guards refinement while validation is saving a version", async () => {
+    const api = makeNotebookApi();
+    api.createWorkbenchVersion = vi.fn().mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const instruction = await screen.findByRole("textbox", {
+      name: "Follow-up instruction",
+    });
+    await user.type(instruction, "Only include released results");
+    await user.click(screen.getByRole("button", { name: "Validate query" }));
+
+    await waitFor(() => expect(api.createWorkbenchVersion).toHaveBeenCalledOnce());
+    expect(instruction).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toBeDisabled();
+    const generate = screen.getByRole("button", {
+      name: "Generate next query",
+    });
+    expect(generate).toBeDisabled();
+    fireEvent.submit(generate.closest("form")!);
+    expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
+  });
+
+  it("sends a nonempty unresolved buffer for correction without first saving it as a version", async () => {
+    const unresolvedNotebookSession = {
+      ...unresolvedRawSession,
+      profileId: "catalyst-query-gemma-4-12b",
+    } satisfies WorkbenchSession;
+    const unresolvedTimeline = {
+      ...notebookTimeline,
+      sessionId: unresolvedNotebookSession.sessionId,
+      currentVersion: null,
+      turns: [
+        {
+          ...initialNotebookTurn,
+          sessionId: unresolvedNotebookSession.sessionId,
+          status: "failed" as const,
+          selectedVersionId: null,
+          resultingCurrentVersion: null,
+          outputVersions: [],
+          failure: {
+            stage: "writer_output_contract",
+            code: "writer_output_contract_failed",
+            message: "The generated parameter structure was unresolved.",
+          },
+        },
+      ],
+    };
+    const api = makeNotebookApi(unresolvedNotebookSession, unresolvedTimeline);
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    expect(await screen.findByText("Unresolved model draft")).toBeVisible();
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Repair the missing parameter names",
+    );
+    const generate = screen.getByRole("button", {
+      name: "Generate next query",
+    });
+    expect(generate).toBeEnabled();
+    await user.click(generate);
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const request = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1];
+    expect(request.observedBase).toBeNull();
+    expect(request.editorSnapshot).toEqual({
+      contractVersion: "catalyst.workbench.editor-snapshot.v1",
+      sql: unresolvedRawSql,
+      parameters: unresolvedRawSession.draftSeed!.parameters,
+      expectedColumns: [],
+      editorDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("disables an empty follow-up and restores the current query locally without a version", async () => {
+    const api = makeNotebookApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    expect(
+      await screen.findByRole("heading", { name: "Refine Query v1" }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Clear draft" }));
+    expect(
+      screen.getByRole("button", { name: "Generate next query" }),
+    ).toBeDisabled();
+    expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Restore Query v1" }));
+    expect(screen.getByRole("textbox", { name: "SQL query" }))
+      .toHaveTextContent(workbenchVersion.sql);
+    expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
+    expect(
+      screen.getByRole("button", { name: "Generate next query" }),
+    ).toBeEnabled();
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("restores the notebook after refresh and New Session removes every prior turn context", async () => {
+    const api = makeNotebookApi();
+    localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      notebookSession.sessionId,
+    );
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await waitFor(() =>
+      expect(api.getWorkbenchSession).toHaveBeenCalledWith(
+        notebookSession.sessionId,
+        expect.any(AbortSignal),
+      ),
+    );
+    await waitFor(() =>
+      expect(api.getWorkbenchTurns).toHaveBeenCalledWith(
+        notebookSession.sessionId,
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(
+      await screen.findByRole("button", { name: /query turn 1/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Refine Query v1" }),
+    ).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "SQL query" }))
+      .toHaveTextContent(workbenchVersion.sql);
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toHaveValue(
+      notebookSession.profileId,
+    );
+    expect(api.createWorkbenchSession).not.toHaveBeenCalled();
+    expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "New session" }));
+    expect(screen.queryByRole("button", { name: /query turn 1/i }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Follow-up instruction" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByLabelText("Question")).toHaveValue("");
+    await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
+    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBeNull();
+
+    await user.type(screen.getByLabelText("Question"), "Count creatinine results");
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
+      "Count creatinine results",
+      "catalyst-query-gemma-4-12b",
+    );
+    expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
+  });
+
+  it("uses an available revision profile after restoring a legacy session without rewriting its turn snapshot", async () => {
+    const legacySession = {
+      ...notebookSession,
+      profileId: "catalyst-query-gemma-e4b",
+    } satisfies WorkbenchSession;
+    const legacyTimeline = {
+      ...notebookTimeline,
+      turns: [
+        {
+          ...initialNotebookTurn,
+          profileSnapshot: {
+            ...notebookProfileSnapshot,
+            profileId: "catalyst-query-gemma-e4b",
+            profileName: "Legacy same-family profile",
+            writer: { modelId: "gemma-e4b" },
+            reviewer: { modelId: "gemma-e4b" },
+          },
+        },
+      ],
+    };
+    const api = makeNotebookApi(legacySession, legacyTimeline);
+    localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      legacySession.sessionId,
+    );
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /query turn 1/i }),
+    );
+    expect(await screen.findByText("Legacy same-family profile")).toBeVisible();
+    const profileSelector = screen.getByRole("combobox", {
+      name: "Model profile",
+    });
+    await waitFor(() =>
+      expect(profileSelector).toHaveValue("catalyst-query-gemma-4-12b"),
+    );
+    expect(
+      within(profileSelector).queryByRole("option", {
+        name: /Catalyst governed query/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Only include released results",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1].profileId).toBe(
+      "catalyst-query-gemma-4-12b",
+    );
+    expect(screen.getByText("Legacy same-family profile")).toBeVisible();
   });
 
   it("hydrates parseable raw JSON as an explicitly unresolved manual draft", async () => {
@@ -679,9 +1202,9 @@ describe("Catalyst query workflow", () => {
     await user.type(screen.getByLabelText("Question"), QUESTION);
     await user.click(screen.getByRole("button", { name: "Generate query" }));
 
-    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
-      workbenchVersion.sql,
-    );
+    expect(
+      await screen.findByRole("textbox", { name: "SQL query" }),
+    ).toHaveTextContent(workbenchVersion.sql);
     expect(screen.queryByText("Unresolved model draft")).not.toBeInTheDocument();
   });
 
@@ -795,14 +1318,12 @@ describe("Catalyst query workflow", () => {
     expect(
       await screen.findByRole("heading", { name: "Query workbench" }),
     ).toBeVisible();
-    expect(screen.getByLabelText("Question")).toHaveValue(QUESTION);
+    expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
       "COUNT(DISTINCT patient_id)",
     );
     resolveQueryOptions(queryOptions);
-    expect(await screen.findByLabelText("Model profile")).toHaveValue(
-      restoredSession.profileId,
-    );
+    await waitFor(() => expect(api.getQueryOptions).toHaveBeenCalled());
   });
 
   it("shows clarification without exposing an acceptance action", async () => {

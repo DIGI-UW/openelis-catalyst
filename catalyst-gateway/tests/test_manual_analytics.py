@@ -9,7 +9,12 @@ from uuid import UUID
 import psycopg
 import pytest
 
-from src.catalyst.analytics import ManualAnalyticsError, PostgresAnalyticsAdapter
+from src.catalyst.analytics import (
+    AnalyticsColumn,
+    ManualAnalyticsError,
+    ManualAnalyticsResult,
+    PostgresAnalyticsAdapter,
+)
 
 
 class _Connection:
@@ -24,6 +29,179 @@ class _Connection:
 
     def cursor(self):
         return self._cursor
+
+
+def test_manual_result_warns_about_blank_columns_without_treating_values_as_empty():
+    result = ManualAnalyticsResult(
+        columns=[
+            AnalyticsColumn(0, "name_display", "text", 25, "string"),
+            AnalyticsColumn(1, "active", "bool", 16, "boolean"),
+            AnalyticsColumn(2, "score", "int4", 23, "integer"),
+        ],
+        rows=[
+            [
+                {"type": "null"},
+                {"type": "boolean", "value": False},
+                {"type": "integer", "value": 0},
+            ],
+            [
+                {"type": "string", "value": "  "},
+                {"type": "boolean", "value": True},
+                {"type": "integer", "value": 1},
+            ],
+        ],
+        truncated=False,
+    )
+
+    assert result.as_dict()["warnings"] == [
+        "`name_display` was blank or NULL in all 2 returned rows. "
+        "Select a populated column or revise the SQL expression."
+    ]
+
+
+def test_manual_result_does_not_describe_zero_rows_as_blank():
+    result = ManualAnalyticsResult(
+        columns=[AnalyticsColumn(0, "name_display", "text", 25, "string")],
+        rows=[],
+        truncated=False,
+    )
+
+    assert result.as_dict()["warnings"] == []
+
+
+def test_manual_result_bounds_blank_warning_and_marks_truncated_scope():
+    columns = [
+        AnalyticsColumn(index, f"blank_{index}", "text", 25, "string")
+        for index in range(10)
+    ]
+    result = ManualAnalyticsResult(
+        columns=columns,
+        rows=[[{"type": "null"} for _ in columns]],
+        truncated=True,
+        truncation_reason="configured_limit",
+    )
+
+    warning = result.as_dict()["warnings"][0]
+    assert "`blank_0`, `blank_1`, `blank_2`" in warning
+    assert "and 2 more were blank or NULL in all 1 displayed row" in warning
+    assert "displayed rows only because results were truncated" in warning
+
+
+@pytest.mark.asyncio
+async def test_relation_discovery_uses_role_privileges_and_all_relation_kinds():
+    calls: list[str] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append(sql)
+
+        def fetchall(self):
+            return [
+                (
+                    "analytics",
+                    "lab_result_fact_v1",
+                    "v",
+                    False,
+                    1,
+                    "observation_id",
+                    "text",
+                    False,
+                    "One row per result",
+                    "FHIR Observation identifier",
+                ),
+                (
+                    "external",
+                    "reference_codes",
+                    "f",
+                    False,
+                    1,
+                    "code",
+                    "character varying",
+                    False,
+                    None,
+                    None,
+                ),
+                (
+                    "public",
+                    "patient_flat_v1",
+                    "r",
+                    True,
+                    1,
+                    "patient_id",
+                    "uuid",
+                    False,
+                    None,
+                    None,
+                ),
+                (
+                    "public",
+                    "result_partitioned",
+                    "p",
+                    True,
+                    1,
+                    "payload",
+                    "jsonb",
+                    True,
+                    None,
+                    None,
+                ),
+                (
+                    "reporting",
+                    "daily_counts",
+                    "m",
+                    False,
+                    1,
+                    "result_count",
+                    "bigint",
+                    False,
+                    None,
+                    None,
+                ),
+            ]
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: _Connection(Cursor()),
+    )
+
+    relations = await adapter.discover_relations()
+
+    discovery_sql = calls[1]
+    assert "has_schema_privilege" in discovery_sql
+    assert "has_table_privilege" in discovery_sql
+    assert "pg_table_is_visible" in discovery_sql
+    assert "relation.relkind IN ('r', 'p', 'v', 'm', 'f')" in discovery_sql
+    assert "pg_catalog" in discovery_sql
+    assert [relation["relationType"] for relation in relations] == [
+        "view",
+        "foreign-table",
+        "table",
+        "partitioned-table",
+        "materialized-view",
+    ]
+    assert relations[0] == {
+        "name": "analytics.lab_result_fact_v1",
+        "relationType": "view",
+        "unqualifiedVisible": False,
+        "grain": "One row per result",
+        "fields": [
+            {
+                "name": "observation_id",
+                "type": "string",
+                "databaseType": "text",
+                "description": "FHIR Observation identifier",
+                "nullable": False,
+            }
+        ],
+    }
+    assert relations[2]["unqualifiedVisible"] is True
+    assert relations[3]["fields"][0]["type"] == "json"
 
 
 @pytest.mark.asyncio
@@ -225,6 +403,44 @@ async def test_manual_execution_fetches_only_bound_plus_one_without_sql_rewrite(
     assert len(result.rows) == 2
     assert result.truncated is True
     assert result.truncation_reason == "configured_limit"
+
+
+@pytest.mark.asyncio
+async def test_manual_execution_treats_explicit_query_limit_as_complete_result():
+    class Cursor:
+        description = [SimpleNamespace(name="patient_id", type_code=25)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            return None
+
+        def fetchmany(self, count):
+            assert count == 101
+            return [("p-1",), ("p-2",)]
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: _Connection(Cursor()),
+    )
+
+    result = await adapter.execute_manual(
+        sql=(
+            "SELECT patient_id FROM analytics.lab_result_fact_v1 "
+            "ORDER BY patient_id LIMIT 2"
+        ),
+        parameters=[],
+        max_rows=100,
+        statement_timeout_ms=500,
+    )
+
+    assert len(result.rows) == 2
+    assert result.truncated is False
+    assert result.truncation_reason is None
 
 
 @pytest.mark.asyncio

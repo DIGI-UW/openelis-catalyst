@@ -7,6 +7,7 @@ ENV_FILE="${ROOT_DIR}/.env"
 COMPOSE_FILE="${OPENELIS_COMPOSE_FILE:-${ROOT_DIR}/docker-compose.mvp.yml}"
 DB_SERVICE="${OPENELIS_DB_SERVICE:-db.openelis.org}"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -15,6 +16,9 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
+if [ -n "${compose_override_override}" ]; then
+  export MVP_COMPOSE_OVERRIDE_FILE="${compose_override_override}"
+fi
 
 OPENELIS_VERSION="${OPENELIS_VERSION:-}"
 if [[ ! "${OPENELIS_VERSION}" =~ ^3\.2\.1\.[0-9]+$ ]]; then
@@ -31,6 +35,14 @@ fi
 OE_DB_PASSWORD="${OE_DB_PASSWORD:-clinlims}"
 
 compose=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
+compose_override_file="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+if [ -n "${compose_override_file}" ]; then
+  if [ ! -f "${compose_override_file}" ]; then
+    echo "ERROR: compose override file does not exist: ${compose_override_file}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_override_file}")
+fi
 
 wait_for_url() {
   local name="$1"

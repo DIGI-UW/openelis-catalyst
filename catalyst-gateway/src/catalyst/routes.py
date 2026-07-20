@@ -81,7 +81,7 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
 
     @app.get("/v1/catalyst/workbench/catalog")
     async def get_workbench_editor_catalog() -> JSONResponse:
-        return _json_response(service.workbench_editor_catalog())
+        return _json_response(await service.workbench_editor_catalog())
 
     @app.post("/v1/catalyst/workbench/sessions")
     async def create_workbench_session(request: Request) -> JSONResponse:
@@ -93,6 +93,32 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
     @app.get("/v1/catalyst/workbench/sessions/{session_id}")
     async def get_workbench_session(session_id: str) -> JSONResponse:
         return _json_response(service.get_workbench_session(session_id))
+
+    @app.get("/v1/catalyst/workbench/sessions/{session_id}/turns")
+    async def get_workbench_turns(session_id: str) -> JSONResponse:
+        return _json_response(service.get_workbench_turns(session_id))
+
+    @app.post("/v1/catalyst/workbench/sessions/{session_id}/turns")
+    async def create_workbench_turn(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(await service.create_workbench_turn(session_id, payload))
+
+    @app.get(
+        "/v1/catalyst/workbench/sessions/{session_id}/turns/"
+        "{turn_id}/generation-evidence"
+    )
+    async def get_workbench_generation_evidence(
+        session_id: str,
+        turn_id: str,
+    ) -> JSONResponse:
+        return _json_response(
+            service.get_workbench_generation_evidence(session_id, turn_id)
+        )
 
     @app.post("/v1/catalyst/workbench/sessions/{session_id}/versions")
     async def create_workbench_version(
@@ -106,7 +132,7 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
 
     @app.post("/v1/catalyst/workbench/versions/{version_id}/validate")
     async def validate_workbench_version(version_id: str) -> JSONResponse:
-        return _json_response(service.validate_workbench_version(version_id))
+        return _json_response(await service.validate_workbench_version(version_id))
 
     @app.post("/v1/catalyst/workbench/versions/{version_id}/execute")
     async def execute_workbench_version(

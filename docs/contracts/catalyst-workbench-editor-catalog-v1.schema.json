@@ -68,6 +68,24 @@
           "type": "string",
           "minLength": 1
         },
+        "qualifiedName": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "grain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "relationType": {
+          "enum": [
+            "table",
+            "partitioned-table",
+            "view",
+            "materialized-view",
+            "foreign-table",
+            "relation"
+          ]
+        },
         "columns": {
           "type": "array",
           "minItems": 1,
@@ -96,8 +114,28 @@
             "decimal",
             "boolean",
             "date",
-            "date-time"
+            "date-time",
+            "time",
+            "interval",
+            "json",
+            "array",
+            "binary"
           ]
+        },
+        "databaseType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "unitColumn": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         }
       }
     }

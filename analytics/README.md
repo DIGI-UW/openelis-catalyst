@@ -84,9 +84,16 @@ defaults to the local development endpoints and supports:
 - a PostgreSQL sink with SQL-on-FHIR ViewDefinitions;
 - no Parquet view generation or Hive resource tables.
 
-The four ViewDefinitions are intentionally single-select, non-exploding
-projections. `observation_flat_v1` therefore keeps one row per Observation;
-the semantic fact does not join repeated FHIR arrays.
+The five ViewDefinitions are intentionally single-select, non-exploding
+projections. `patient_flat_v1` keeps one row per Patient and selects the first
+identifier and name rather than expanding repeated FHIR elements. Its
+`name_display` uses the first name's FHIR `text` when present and otherwise
+joins the first structured given and family names; OpenELIS Patient resources
+may omit the optional `HumanName.text` field even when those structured fields
+are populated.
+
+`observation_flat_v1` likewise keeps one row per Observation; the semantic fact
+does not join repeated FHIR arrays.
 
 The committed `config/postgres-sink.json` contains disposable local-demo
 credentials and host names. Create that database/user or render a runtime copy
@@ -103,7 +110,7 @@ curl -fsS 'http://localhost:8090/status'
 ```
 
 The initial run must finish with `pipelineStatus` returning to `IDLE` and the
-four projection tables present before applying:
+five projection tables present before applying:
 
 ```bash
 psql "$ANALYTICS_DATABASE_URL" -v ON_ERROR_STOP=1 \
@@ -148,7 +155,7 @@ INSERT INTO analytics.pipeline_run_v1 (
   '2026-07-16T00:00:00Z', '2026-07-16T00:01:00Z',
   '2026-07-16T00:01:00Z',
   '3ea890884d674e2f31257a2da421601f2d75b5e9',
-  '{"Observation":3,"ServiceRequest":3,"Specimen":3,"DiagnosticReport":3}'
+  '{"Patient":1,"Observation":3,"ServiceRequest":3,"Specimen":3,"DiagnosticReport":3}'
 );
 ```
 

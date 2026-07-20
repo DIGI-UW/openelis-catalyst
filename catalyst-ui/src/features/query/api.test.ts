@@ -46,11 +46,59 @@ const editorCatalog = {
       views: [
         {
           name: "lab_result_fact_v1",
-          columns: [{ name: "patient_id", logicalType: "string" }],
+          qualifiedName: "analytics.lab_result_fact_v1",
+          grain: "One row per FHIR Observation.",
+          columns: [{
+            name: "patient_id",
+            logicalType: "string",
+            nullable: false,
+            description: "FHIR Patient resource identifier.",
+          }],
         },
       ],
     },
   ],
+};
+
+const turnRequest = {
+  contractVersion: "catalyst.workbench.turn.request.v1" as const,
+  instruction: "Only include released viral load results.",
+  profileId: "catalyst-query-gemma-4-12b-qwen-review",
+  observedBase: {
+    versionId: "d801dc1d-fc94-435b-bee6-2b45c3173af1",
+    queryDigest: "a".repeat(64),
+  },
+  editorSnapshot: {
+    contractVersion: "catalyst.workbench.editor-snapshot.v1" as const,
+    sql: "SELECT 1",
+    parameters: [],
+    expectedColumns: [],
+    editorDigest:
+      "82d9696f92e64acb0c4edba843633c97eb23fd3f22887d93755eb86971855105",
+  },
+};
+
+const completedTurn = {
+  contractVersion: "catalyst.workbench.turn.v1" as const,
+  sessionId: workbenchSession.sessionId,
+  turnId: "9e32d2d4-c74c-4d6f-b352-502e221b5b14",
+  status: "completed" as const,
+};
+
+const turnTimeline = {
+  contractVersion: "catalyst.workbench.turn.timeline.v1" as const,
+  sessionId: workbenchSession.sessionId,
+  turns: [completedTurn],
+  currentTurnId: completedTurn.turnId,
+  currentVersion: turnRequest.observedBase,
+};
+
+const generationEvidence = {
+  contractVersion: "catalyst.workbench.generation-evidence.v1" as const,
+  evidenceId: "b3d8b838-98ff-4743-875b-69e7204c8218",
+  sessionId: workbenchSession.sessionId,
+  turnId: completedTurn.turnId,
+  invocations: [],
 };
 
 describe("Catalyst API client", () => {
@@ -138,6 +186,53 @@ describe("Catalyst API client", () => {
         headers: { Accept: "application/json" },
         signal: undefined,
       },
+    );
+  });
+
+  it("submits the exact visible editor snapshot as a contextual follow-up", async () => {
+    fetcher.mockResolvedValue(jsonResponse(completedTurn, 201));
+
+    await expect(
+      api.createWorkbenchTurn?.(workbenchSession.sessionId, turnRequest),
+    ).resolves.toEqual(completedTurn);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `/v1/catalyst/workbench/sessions/${workbenchSession.sessionId}/turns`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(turnRequest),
+        signal: undefined,
+      },
+    );
+  });
+
+  it("restores the compact chronological turn timeline", async () => {
+    fetcher.mockResolvedValue(jsonResponse(turnTimeline));
+
+    await expect(
+      api.getWorkbenchTurns?.(workbenchSession.sessionId),
+    ).resolves.toEqual(turnTimeline);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `/v1/catalyst/workbench/sessions/${workbenchSession.sessionId}/turns`,
+      { headers: { Accept: "application/json" }, signal: undefined },
+    );
+  });
+
+  it("loads typed generation evidence only when the user asks for detail", async () => {
+    fetcher.mockResolvedValue(jsonResponse(generationEvidence));
+
+    await expect(
+      api.getWorkbenchGenerationEvidence?.(
+        workbenchSession.sessionId,
+        completedTurn.turnId,
+      ),
+    ).resolves.toEqual(generationEvidence);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      `/v1/catalyst/workbench/sessions/${workbenchSession.sessionId}/turns/${completedTurn.turnId}/generation-evidence`,
+      { headers: { Accept: "application/json" }, signal: undefined },
     );
   });
 

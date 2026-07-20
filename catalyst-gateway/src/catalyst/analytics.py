@@ -91,6 +91,11 @@ class ManualAnalyticsResult:
     truncation_reason: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        warnings = manual_result_warnings(
+            self.columns,
+            self.rows,
+            truncated=self.truncated,
+        )
         return {
             "columns": [column.as_dict() for column in self.columns],
             "rows": self.rows,
@@ -99,7 +104,54 @@ class ManualAnalyticsResult:
                 "truncated": self.truncated,
                 "truncationReason": self.truncation_reason,
             },
+            "warnings": warnings,
         }
+
+
+def manual_result_warnings(
+    columns: Sequence[AnalyticsColumn | Mapping[str, Any]],
+    rows: Sequence[Sequence[Mapping[str, Any]]],
+    *,
+    truncated: bool,
+) -> list[str]:
+    """Describe blank projected columns without changing execution success."""
+
+    if not rows or not columns:
+        return []
+
+    blank_columns: list[str] = []
+    for index, column in enumerate(columns):
+        name = (
+            column.name if isinstance(column, AnalyticsColumn) else column.get("name")
+        )
+        if not isinstance(name, str) or not name:
+            continue
+        if all(len(row) > index and _manual_cell_is_blank(row[index]) for row in rows):
+            blank_columns.append(name)
+    if not blank_columns:
+        return []
+
+    displayed_names = ", ".join(f"`{name}`" for name in blank_columns[:8])
+    if len(blank_columns) > 8:
+        displayed_names += f", and {len(blank_columns) - 8} more"
+    row_label = "row" if len(rows) == 1 else "rows"
+    scope = "displayed" if truncated else "returned"
+    verb = "was" if len(blank_columns) == 1 else "were"
+    warning = (
+        f"{displayed_names} {verb} blank or NULL in all {len(rows)} {scope} {row_label}. "
+        "Select a populated column or revise the SQL expression."
+    )
+    if truncated:
+        warning += (
+            " This check covers displayed rows only because results were truncated."
+        )
+    return [warning]
+
+
+def _manual_cell_is_blank(cell: Mapping[str, Any]) -> bool:
+    if cell.get("type") == "null":
+        return True
+    return cell.get("type") == "string" and not str(cell.get("value", "")).strip()
 
 
 _POSTGRES_TYPE_NAMES: dict[int, str] = {
@@ -170,8 +222,10 @@ _LOGICAL_TYPES: dict[str, str] = {
     "bytea": "binary",
     "text": "string",
     "varchar": "string",
+    "character varying": "string",
     "bpchar": "string",
     "char": "string",
+    "character": "string",
     "name": "string",
     "uuid": "string",
     "inet": "string",
@@ -263,6 +317,18 @@ class PostgresAnalyticsAdapter:
         except Exception as error:
             raise AnalyticsError(
                 f"PostgreSQL freshness lookup failed: {error}"
+            ) from error
+
+    async def discover_relations(self) -> list[dict[str, Any]]:
+        """Describe every non-system relation the configured role can SELECT."""
+
+        try:
+            return await asyncio.to_thread(self._discover_relations_sync)
+        except AnalyticsError:
+            raise
+        except Exception as error:
+            raise AnalyticsError(
+                f"PostgreSQL relation discovery failed: {error}"
             ) from error
 
     async def dataset_overview(self) -> dict[str, Any]:
@@ -364,10 +430,6 @@ class PostgresAnalyticsAdapter:
 
         truncated = len(raw_rows) > max_rows
         truncation_reason = "configured_limit" if truncated else None
-        sql_limit = self._literal_sql_limit(sql)
-        if not truncated and sql_limit is not None and len(raw_rows) >= sql_limit:
-            truncated = True
-            truncation_reason = "query_limit_reached"
         bounded_rows = raw_rows[:max_rows]
         rows = [
             self._serialize_manual_row(row, columns, row_index)
@@ -443,6 +505,101 @@ class PostgresAnalyticsAdapter:
             "completionState": "complete",
             "observedLagSeconds": max(0, int(observed_lag_seconds)),
         }
+
+    def _discover_relations_sync(self) -> list[dict[str, Any]]:
+        with self._connect(
+            self.dsn,
+            connect_timeout=self.connect_timeout_seconds,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute(
+                    """
+                    SELECT
+                        namespace.nspname,
+                        relation.relname,
+                        relation.relkind,
+                        pg_catalog.pg_table_is_visible(relation.oid),
+                        attribute.attnum,
+                        attribute.attname,
+                        pg_catalog.format_type(attribute.atttypid, NULL),
+                        NOT attribute.attnotnull,
+                        pg_catalog.obj_description(relation.oid, 'pg_class'),
+                        pg_catalog.col_description(relation.oid, attribute.attnum)
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    JOIN pg_catalog.pg_attribute AS attribute
+                      ON attribute.attrelid = relation.oid
+                    WHERE relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+                      AND attribute.attnum > 0
+                      AND NOT attribute.attisdropped
+                      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                      AND namespace.nspname !~ '^pg_(toast|temp)'
+                      AND pg_catalog.has_schema_privilege(namespace.oid, 'USAGE')
+                      AND pg_catalog.has_table_privilege(relation.oid, 'SELECT')
+                    ORDER BY namespace.nspname, relation.relname, attribute.attnum
+                    """
+                )
+                rows = cursor.fetchall()
+
+        relation_types = {
+            "r": "table",
+            "p": "partitioned-table",
+            "v": "view",
+            "m": "materialized-view",
+            "f": "foreign-table",
+        }
+        by_name: dict[str, dict[str, Any]] = {}
+        for (
+            schema_name,
+            relation_name,
+            relation_kind,
+            unqualified_visible,
+            _ordinal,
+            column_name,
+            database_type,
+            nullable,
+            relation_description,
+            column_description,
+        ) in rows:
+            qualified_name = f"{schema_name}.{relation_name}"
+            relation_type = relation_types.get(str(relation_kind), "relation")
+            relation = by_name.setdefault(
+                qualified_name,
+                {
+                    "name": qualified_name,
+                    "relationType": relation_type,
+                    "unqualifiedVisible": bool(unqualified_visible),
+                    "grain": (
+                        str(relation_description)
+                        if relation_description
+                        else f"Rows readable from {qualified_name} ({relation_type})"
+                    ),
+                    "fields": [],
+                },
+            )
+            rendered_database_type = str(database_type)
+            logical_type = self._logical_type(rendered_database_type)
+            if logical_type == "unknown":
+                logical_type = "string"
+            relation["fields"].append(
+                {
+                    "name": str(column_name),
+                    "type": logical_type,
+                    "databaseType": rendered_database_type,
+                    "description": (
+                        str(column_description)
+                        if column_description
+                        else (
+                            f"{qualified_name}.{column_name} "
+                            f"(PostgreSQL {rendered_database_type})"
+                        )
+                    ),
+                    "nullable": bool(nullable),
+                }
+            )
+        return list(by_name.values())
 
     def _dataset_overview_sync(self) -> dict[str, Any]:
         with self._connect(

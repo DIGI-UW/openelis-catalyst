@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 import sqlite3
 
@@ -15,6 +16,7 @@ from src.catalyst.analytics import (
 )
 from src.catalyst.catalog import Catalog
 from src.catalyst.contracts import ContractRegistry
+from src.catalyst.digest import canonical_sha256, utf8_sha256
 from src.catalyst.hub import HubError
 from src.catalyst.policy import SqlPolicy
 from src.catalyst.service import CatalystService
@@ -215,6 +217,46 @@ class FakeHub:
         self.requests: list[dict] = []
 
     async def list_query_profiles(self) -> list[dict]:
+        writer_prompt = "Write one complete PostgreSQL query."
+        reviewer_prompt = "Review and return one complete PostgreSQL query."
+        profile_evidence = {
+            "profileId": PROFILE_ID,
+            "profileName": "Catalyst query checked",
+            "profileDigest": "0" * 64,
+            "writer": {
+                "role": "writer",
+                "providerId": "llama.cpp",
+                "modelClass": "qwen-2.5",
+                "modelId": "qwen2.5-coder-14b",
+                "config": {"temperature": 0, "seed": 42},
+                "systemPrompt": {
+                    "promptId": "catalyst-query-generate",
+                    "version": "1",
+                    "promptRef": "med-agent-hub:prompt:catalyst-query-generate",
+                    "promptDigest": utf8_sha256(writer_prompt),
+                    "text": writer_prompt,
+                },
+            },
+            "reviewer": {
+                "role": "reviewer",
+                "providerId": "llama.cpp",
+                "modelClass": "gemma-4",
+                "modelId": "gemma-e4b",
+                "config": {"temperature": 0, "seed": 42},
+                "systemPrompt": {
+                    "promptId": "catalyst-query-review",
+                    "version": "1",
+                    "promptRef": "med-agent-hub:prompt:catalyst-query-review",
+                    "promptDigest": utf8_sha256(reviewer_prompt),
+                    "text": reviewer_prompt,
+                },
+            },
+        }
+        compact_profile = deepcopy(profile_evidence)
+        compact_profile.pop("profileDigest")
+        compact_profile["writer"]["systemPrompt"].pop("text")
+        compact_profile["reviewer"]["systemPrompt"].pop("text")
+        profile_evidence["profileDigest"] = canonical_sha256(compact_profile)
         return [
             {
                 "id": PROFILE_ID,
@@ -264,6 +306,8 @@ class FakeHub:
                     },
                 },
                 "stages": ["query_generate", "query_lint", "query_review"],
+                "revisionCapable": True,
+                "profileEvidence": profile_evidence,
             }
         ]
 
@@ -271,7 +315,64 @@ class FakeHub:
         self.requests.append(deepcopy(request))
         if self.error is not None:
             raise self.error
-        return deepcopy(self.query)
+        query = deepcopy(self.query)
+        profile = (await self.list_query_profiles())[0]["profileEvidence"]
+        stage = (
+            "followup_generation"
+            if request["catalystQuery"]["contractVersion"]
+            == "catalyst.query.request.v2"
+            else "initial_generation"
+        )
+        timestamp = "2026-07-18T12:00:00Z"
+        invocations = [
+            {
+                "invocationId": "00000000-0000-0000-0000-000000000101",
+                "role": "writer",
+                "stage": stage,
+                "attempt": 1,
+                "providerId": profile["writer"]["providerId"],
+                "modelId": profile["writer"]["modelId"],
+                "startedAt": timestamp,
+                "endedAt": timestamp,
+                "durationMs": 1,
+                "requestDigest": canonical_sha256(request),
+                "responseDigest": canonical_sha256(query),
+                "failureDigest": None,
+                "outcome": "succeeded",
+            }
+        ]
+        if isinstance(query.get("modelCollaboration"), dict):
+            invocations.append(
+                {
+                    "invocationId": "00000000-0000-0000-0000-000000000102",
+                    "role": "reviewer",
+                    "stage": "review",
+                    "attempt": 1,
+                    "providerId": profile["reviewer"]["providerId"],
+                    "modelId": profile["reviewer"]["modelId"],
+                    "startedAt": timestamp,
+                    "endedAt": timestamp,
+                    "durationMs": 1,
+                    "requestDigest": canonical_sha256(
+                        {"request": request, "role": "reviewer"}
+                    ),
+                    "responseDigest": canonical_sha256(
+                        {"query": query, "role": "reviewer"}
+                    ),
+                    "failureDigest": None,
+                    "outcome": "succeeded",
+                }
+            )
+        query["_hubEvidence"] = {
+            "profileEvidence": profile,
+            "modelInvocations": invocations,
+            "totalModelInvocationDurationMs": sum(
+                invocation["durationMs"] for invocation in invocations
+            ),
+            "exactHubResponse": json.dumps(self.query, separators=(",", ":")),
+            "hubResponseContentType": "application/json",
+        }
+        return query
 
     async def readiness(self) -> dict:
         return {
@@ -282,6 +383,13 @@ class FakeHub:
 
     async def aclose(self) -> None:
         return None
+
+
+class IncompleteProfileHub(FakeHub):
+    async def list_query_profiles(self) -> list[dict]:
+        profiles = await super().list_query_profiles()
+        profiles[0].pop("profileEvidence")
+        return profiles
 
 
 class FakeAnalytics:
@@ -388,6 +496,28 @@ def _workbench_session_count(tmp_path: Path) -> int:
     return int(row[0])
 
 
+def test_initial_generation_rejects_incomplete_profile_evidence_before_events(
+    tmp_path: Path,
+) -> None:
+    hub = IncompleteProfileHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+
+    response = client.post(
+        "/v1/catalyst/workbench/sessions",
+        json={
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": QUESTION,
+            "profileId": PROFILE_ID,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "profile_evidence_unavailable"
+    assert _workbench_session_count(tmp_path) == 0
+    assert hub.requests == []
+
+
 def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None:
     editor_catalog = Catalog(
         data_source="openelis-demo",
@@ -410,7 +540,23 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
                 "version": "1",
                 "grain": "one row per result",
                 "fields": [
-                    {"name": "test_name", "type": "string", "description": "Test"}
+                    {
+                        "name": "test_name",
+                        "type": "string",
+                        "description": "Test",
+                    },
+                    {
+                        "name": "result_value",
+                        "type": "decimal",
+                        "description": "Value",
+                        "nullable": True,
+                        "unitColumn": "result_unit",
+                    },
+                    {
+                        "name": "result_unit",
+                        "type": "string",
+                        "description": "Unit",
+                    },
                 ],
             },
             {
@@ -422,11 +568,13 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
                         "name": "observed_at",
                         "type": "date-time",
                         "description": "Observed",
+                        "nullable": True,
                     },
                     {
                         "name": "patient_id",
                         "type": "string",
                         "description": "Patient",
+                        "nullable": False,
                     },
                 ],
             },
@@ -453,14 +601,48 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
                 "views": [
                     {
                         "name": "lab_result_v1",
+                        "qualifiedName": "analytics.lab_result_v1",
+                        "grain": "one row per result",
                         "columns": [
-                            {"name": "observed_at", "logicalType": "date-time"},
-                            {"name": "patient_id", "logicalType": "string"},
+                            {
+                                "name": "observed_at",
+                                "logicalType": "date-time",
+                                "description": "Observed",
+                                "nullable": True,
+                            },
+                            {
+                                "name": "patient_id",
+                                "logicalType": "string",
+                                "description": "Patient",
+                                "nullable": False,
+                            },
                         ],
                     },
                     {
                         "name": "zz_result_v1",
-                        "columns": [{"name": "test_name", "logicalType": "string"}],
+                        "qualifiedName": "analytics.zz_result_v1",
+                        "grain": "one row per result",
+                        "columns": [
+                            {
+                                "name": "result_unit",
+                                "logicalType": "string",
+                                "description": "Unit",
+                                "nullable": True,
+                            },
+                            {
+                                "name": "result_value",
+                                "logicalType": "decimal",
+                                "description": "Value",
+                                "nullable": True,
+                                "unitColumn": "result_unit",
+                            },
+                            {
+                                "name": "test_name",
+                                "logicalType": "string",
+                                "description": "Test",
+                                "nullable": True,
+                            },
+                        ],
                     },
                 ],
             },
@@ -469,9 +651,21 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
                 "views": [
                     {
                         "name": "summary_v1",
+                        "qualifiedName": "reporting.summary_v1",
+                        "grain": "one row per summary",
                         "columns": [
-                            {"name": "a_label", "logicalType": "string"},
-                            {"name": "z_count", "logicalType": "integer"},
+                            {
+                                "name": "a_label",
+                                "logicalType": "string",
+                                "description": "A",
+                                "nullable": True,
+                            },
+                            {
+                                "name": "z_count",
+                                "logicalType": "integer",
+                                "description": "Z",
+                                "nullable": True,
+                            },
                         ],
                     }
                 ],
@@ -481,6 +675,61 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
     assert editor_catalog.views == original_views
     assert _preview_count(tmp_path) == 0
     assert _workbench_session_count(tmp_path) == 0
+
+
+def test_editor_catalog_route_exposes_every_approved_fact_column(
+    tmp_path: Path,
+) -> None:
+    catalog_path = (
+        Path(__file__).resolve().parents[2]
+        / "analytics"
+        / "catalog"
+        / "analytics-catalog-v1.json"
+    )
+    client, _ = _client(
+        tmp_path,
+        _ready_query(),
+        catalog=Catalog.load(catalog_path),
+    )
+
+    response = client.get("/v1/catalyst/workbench/catalog")
+
+    assert response.status_code == 200, response.text
+    view = response.json()["schemas"][0]["views"][0]
+    assert view["qualifiedName"] == "analytics.lab_result_fact_v1"
+    assert view["grain"].startswith("Exactly one row per FHIR Observation")
+    assert [column["name"] for column in view["columns"]] == sorted(
+        [
+            "observation_id",
+            "patient_id",
+            "service_request_id",
+            "specimen_id",
+            "result_status",
+            "observed_at",
+            "issued_at",
+            "test_code_system",
+            "test_code",
+            "test_name",
+            "result_value",
+            "result_unit",
+            "result_unit_system",
+            "result_unit_code",
+            "specimen_received_at",
+            "receipt_to_release_minutes",
+        ]
+    )
+    result_value = next(
+        column for column in view["columns"] if column["name"] == "result_value"
+    )
+    assert result_value == {
+        "name": "result_value",
+        "logicalType": "decimal",
+        "description": (
+            "Numeric FHIR Quantity value; do not aggregate across unlike units."
+        ),
+        "nullable": True,
+        "unitColumn": "result_unit",
+    }
 
 
 def test_editor_catalog_failure_is_useful_and_does_not_mutate_state(
@@ -649,7 +898,7 @@ def test_collaboration_persists_writer_and_reviewer_as_linked_versions(
     assert restored.json()["versions"] == [writer, reviewer]
 
 
-def test_policy_bearing_ready_candidate_is_retained_without_a_preview(
+def test_literal_predicate_is_valid_for_workbench_and_governed_preview(
     tmp_path: Path,
 ) -> None:
     query = _policy_bearing_ready_query()
@@ -658,11 +907,8 @@ def test_policy_bearing_ready_candidate_is_retained_without_a_preview(
     session = _create_session(client)
 
     assert session["currentVersion"]["sql"] == query["sql"]
-    assert session["latestValidation"]["status"] == "invalid"
-    assert any(
-        finding["ruleCode"] == "gateway_sql_policy.unbound_literal"
-        for finding in session["latestValidation"]["findings"]
-    )
+    assert session["latestValidation"]["status"] == "valid"
+    assert session["latestValidation"]["findings"] == []
     assert _preview_count(tmp_path) == 0
 
     governed = client.post(
@@ -674,9 +920,9 @@ def test_policy_bearing_ready_candidate_is_retained_without_a_preview(
             "profileId": PROFILE_ID,
         },
     )
-    assert governed.status_code == 422
-    assert governed.json()["errorCode"] == "query_policy_rejected"
-    assert _preview_count(tmp_path) == 0
+    assert governed.status_code == 201, governed.text
+    assert governed.json()["contractVersion"] == "catalyst.preview.v1"
+    assert _preview_count(tmp_path) == 1
 
 
 def test_question_policy_is_advisory_for_workbench_but_governed_route_is_unchanged(
@@ -759,11 +1005,8 @@ def test_rejected_candidate_is_retained_and_executes_unchanged(
     session = _create_session(client)
     version = session["currentVersion"]
 
-    assert session["latestValidation"]["status"] == "invalid"
-    assert any(
-        finding["ruleCode"] == "gateway_sql_policy.unbound_literal"
-        for finding in session["latestValidation"]["findings"]
-    )
+    assert session["latestValidation"]["status"] == "valid"
+    assert session["latestValidation"]["findings"] == []
     assert (
         session["currentVersion"]["provenance"]["generationAttempts"]
         == (_rejected_query()["diagnosticCandidate"]["attempts"])
@@ -783,7 +1026,7 @@ def test_rejected_candidate_is_retained_and_executes_unchanged(
     assert first.status_code == 200, first.text
     execution = first.json()
     assert execution["status"] == "succeeded"
-    assert execution["validationStatus"] == "invalid"
+    assert execution["validationStatus"] == "valid"
     assert execution["query"] == {
         "sql": version["sql"],
         "parameters": version["parameters"],
@@ -869,6 +1112,17 @@ def test_structured_raw_only_diagnostic_is_preserved_for_manual_recovery(
         session["provenance"]["generationOutcome"]["diagnosticCandidate"]["rawOutput"]
         == raw_output
     )
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failed_turn = timeline["turns"][0]
+    assert failed_turn["status"] == "failed"
+    assert failed_turn["hubTraceId"] == "hub-trace-rejected"
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{failed_turn['turnId']}/generation-evidence"
+    ).json()
+    assert evidence["correlation"]["hubTraceId"] == "hub-trace-rejected"
 
     drafted = client.post(
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
@@ -1095,7 +1349,7 @@ def test_human_invalid_edit_runs_and_preserves_database_diagnostic(
     version = edited_session["currentVersion"]
     assert edited_session["latestValidation"]["status"] == "invalid"
     assert any(
-        finding["ruleCode"].endswith("unapproved_view")
+        finding["ruleCode"].endswith("relation_not_found")
         for finding in edited_session["latestValidation"]["findings"]
     )
 
@@ -1139,3 +1393,187 @@ def test_stale_manual_edit_is_a_conflict(tmp_path: Path) -> None:
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "stale_query_version"
+
+
+def test_stale_followup_has_no_turn_event_or_hub_generation_side_effects(
+    tmp_path: Path,
+) -> None:
+    hub = FakeHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    stale_base = session["currentVersion"]
+
+    advanced = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": stale_base["versionId"],
+            "parentQueryDigest": stale_base["queryDigest"],
+            "sql": stale_base["sql"] + " ",
+            "parameters": stale_base["parameters"],
+            "expectedColumns": stale_base["expectedColumns"],
+        },
+    )
+    assert advanced.status_code == 201, advanced.text
+    current = advanced.json()["currentVersion"]
+
+    turns_url = f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    timeline_before = client.get(turns_url).json()
+    hub_requests_before = deepcopy(hub.requests)
+    with sqlite3.connect(tmp_path / "gateway.sqlite3") as connection:
+        events_before = connection.execute(
+            "SELECT * FROM catalyst_workbench_events "
+            "WHERE session_id = ? ORDER BY sequence",
+            (session["sessionId"],),
+        ).fetchall()
+
+    stale = client.post(
+        turns_url,
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Only include finalized observations",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": stale_base["versionId"],
+                "queryDigest": stale_base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": stale_base["sql"],
+                "parameters": stale_base["parameters"],
+                "expectedColumns": stale_base["expectedColumns"],
+                "editorDigest": stale_base["queryDigest"],
+            },
+        },
+    )
+
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["error"]["code"] == "stale_query_version"
+    assert stale.json()["error"]["details"] == {
+        "currentVersionId": current["versionId"],
+        "currentQueryDigest": current["queryDigest"],
+    }
+    assert client.get(turns_url).json() == timeline_before
+    with sqlite3.connect(tmp_path / "gateway.sqlite3") as connection:
+        events_after = connection.execute(
+            "SELECT * FROM catalyst_workbench_events "
+            "WHERE session_id = ? ORDER BY sequence",
+            (session["sessionId"],),
+        ).fetchall()
+    assert events_after == events_before
+    assert hub.requests == hub_requests_before
+
+
+def test_initial_and_followup_turn_routes_preserve_exact_context_and_evidence(
+    tmp_path: Path,
+) -> None:
+    hub = FakeHub(_ready_query())
+    client, analytics = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+
+    initial = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    )
+    assert initial.status_code == 200, initial.text
+    initial_turn = initial.json()["turns"][0]
+    assert initial_turn["kind"] == "initial"
+    assert initial_turn["origin"] == "recorded"
+    assert initial_turn["status"] == "completed"
+    assert [event["status"] for event in initial_turn["events"]] == [
+        "requested",
+        "completed",
+    ]
+
+    base = session["currentVersion"]
+    snapshot = {
+        "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+        "sql": base["sql"],
+        "parameters": base["parameters"],
+        "expectedColumns": base["expectedColumns"],
+        "editorDigest": base["queryDigest"],
+    }
+    followup = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Only include finalized observations",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": snapshot,
+        },
+    )
+
+    assert followup.status_code == 201, followup.text
+    turn = followup.json()
+    assert turn["status"] == "completed"
+    assert turn["snapshotClassification"] == "reused"
+    assert turn["editorSnapshot"]["content"] == snapshot
+    assert turn["effectiveBaseVersion"] == turn["observedBase"]
+    assert turn["resultingCurrentVersion"]["versionId"] == turn["selectedVersionId"]
+    assert analytics.manual_calls == []  # generation never auto-runs SQL
+
+    request = hub.requests[-1]
+    assert request["messages"] == [
+        {"role": "user", "content": "Only include finalized observations"}
+    ]
+    assert request["catalystQuery"]["contractVersion"] == ("catalyst.query.request.v2")
+    revision = request["catalystQuery"]["revision"]
+    assert revision["editorSnapshot"] == snapshot
+    assert revision["instructionHistory"][-1]["instruction"] == QUESTION
+    assert revision["validationContext"]["queryDigest"] == base["queryDigest"]
+    assert revision["executionContext"] is None
+    assert (
+        "execution_result_rows"
+        in revision["selection"]["omissions"]["prohibitedClasses"]
+    )
+
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{turn['turnId']}/generation-evidence"
+    )
+    assert evidence.status_code == 200, evidence.text
+    detail = evidence.json()
+    assert detail["instruction"] == "Only include finalized observations"
+    assert detail["editorSnapshot"]["content"] == snapshot
+    assert detail["hubRequest"]["exactPayload"]
+    assert "execution_result_rows" in detail["prohibitedClasses"]
+    assert "hidden_reasoning" in detail["prohibitedClasses"]
+
+
+def test_followup_rejects_bad_snapshot_digest_without_events(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    base = session["currentVersion"]
+    before = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Refine this",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": "0" * 64,
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "editor_snapshot_digest_mismatch"
+    after = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    assert after == before

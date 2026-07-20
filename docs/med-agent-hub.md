@@ -48,7 +48,7 @@ product dependencies.
 
 | Configuration | Default | Availability |
 | --- | --- | --- |
-| Query profile | `catalyst-query-checked` | Implemented by Catalyst's pinned hub patch |
+| Query profile | `catalyst-query-checked` | Shipped in the pinned Hub commit |
 | Fast report profile | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 |
 | Deep report profile | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 |
 
@@ -68,10 +68,10 @@ verify that every enabled product profile:
 An unknown, hidden, experimental, or unavailable profile fails closed.
 Catalyst must not silently substitute a different profile.
 
-The pinned upstream hub commit does not advertise `catalyst.query.v1`.
-Catalyst's bootstrap applies a local patch that adds
-`capabilities.outputContracts`, strict request/response handling, and the
-checked query stages.
+The pinned Hub commit advertises `catalyst.query.v1` and contains the strict
+request/response handling and checked query stages directly. The umbrella
+harness builds its sibling Hub checkout; standalone Catalyst clones that same
+unmodified commit as a fallback.
 
 ## Checked query profile
 

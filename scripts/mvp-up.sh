@@ -13,6 +13,8 @@ local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
 fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
 external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
+hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
+compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 
 if [ ! -f .env ]; then
   cp env.recommended .env
@@ -43,12 +45,35 @@ fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
+if [ -n "${hub_context_override}" ]; then
+  export MED_AGENT_HUB_CONTEXT="${hub_context_override}"
+fi
+if [ -n "${compose_override_override}" ]; then
+  export MVP_COMPOSE_OVERRIDE_FILE="${compose_override_override}"
+fi
+
+compose=(docker compose --env-file "${ROOT_DIR}/.env" -f "${COMPOSE_FILE}")
+compose_override_file="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+if [ -n "${compose_override_file}" ]; then
+  if [ ! -f "${compose_override_file}" ]; then
+    echo "ERROR: compose override file does not exist: ${compose_override_file}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_override_file}")
+fi
 
 "${ROOT_DIR}/scripts/bootstrap-openelis.sh"
 "${ROOT_DIR}/scripts/bootstrap-fhir-data-pipes.sh"
-"${ROOT_DIR}/scripts/bootstrap-med-agent-hub.sh"
+if [ -n "${MED_AGENT_HUB_CONTEXT:-}" ]; then
+  if [ ! -f "${MED_AGENT_HUB_CONTEXT}/Dockerfile" ]; then
+    echo "ERROR: MED_AGENT_HUB_CONTEXT does not contain a Hub Dockerfile: ${MED_AGENT_HUB_CONTEXT}" >&2
+    exit 1
+  fi
+  echo "Using med-agent-hub source at ${MED_AGENT_HUB_CONTEXT}"
+else
+  "${ROOT_DIR}/scripts/bootstrap-med-agent-hub.sh"
+fi
 
-compose=(docker compose --env-file "${ROOT_DIR}/.env" -f "${COMPOSE_FILE}")
 compose_all_profiles=("${compose[@]}" --profile fake)
 model_services=()
 stale_model_services=()

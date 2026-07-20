@@ -88,6 +88,14 @@ input {
   margin: 0 auto;
 }
 
+.app-shell--with-query-dock {
+  padding-bottom: calc(20rem + env(safe-area-inset-bottom));
+}
+
+.app-shell--with-query-dock:has(.turn-composer[data-minimized="true"]) {
+  padding-bottom: calc(8rem + env(safe-area-inset-bottom));
+}
+
 .app-shell__intro {
   display: flex;
   align-items: center;
@@ -115,11 +123,22 @@ input {
 }
 
 .query-card--question {
+  position: fixed;
+  z-index: 90;
+  bottom: 0;
+  left: 50%;
+  overflow-y: auto;
+  width: min(calc(100% - 2rem), 76rem);
+  max-height: min(19rem, calc(100dvh - 3rem));
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  margin: 0;
   scroll-margin-block: 4rem;
+  box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%);
+  transform: translateX(-50%);
 }
 
 .query-composer__heading {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
 }
 
 .query-composer__heading h1 {
@@ -204,32 +223,108 @@ input {
   padding-inline-end: 0;
 }
 
-.dataset-browser table {
+.dataset-schema {
+  margin: 0 0 1rem;
+}
+
+.dataset-schema__heading {
+  margin-bottom: 1rem;
+}
+
+.dataset-schema__heading h2 {
+  margin: 0 0 0.35rem;
+  font-weight: 500;
+}
+
+.dataset-schema__heading p,
+.dataset-schema__grain {
+  margin: 0;
+  color: #525252;
+  line-height: 1.5;
+}
+
+.dataset-schema__relations {
+  border-top: 1px solid #c6c6c6;
+}
+
+.dataset-schema__relation-title,
+.dataset-schema__relation-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dataset-schema__relation-title {
+  width: 100%;
+  padding-right: 1rem;
+}
+
+.dataset-schema__relation-title > span {
+  flex: none;
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.dataset-schema__relation-title code,
+.dataset-schema td code {
+  overflow-wrap: anywhere;
+}
+
+.dataset-schema__grain {
+  font-size: 0.875rem;
+}
+
+.dataset-schema__relation-details {
+  padding-block: 0.5rem 1rem;
+}
+
+.dataset-schema__relation-meta {
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.dataset-schema__table-wrap {
+  overflow-x: auto;
+}
+
+.dataset-browser table,
+.dataset-schema table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
-.dataset-browser caption {
+.dataset-browser caption,
+.dataset-schema caption {
   padding: 0.75rem 1rem;
   color: #525252;
   text-align: left;
 }
 
 .dataset-browser th,
-.dataset-browser td {
+.dataset-browser td,
+.dataset-schema th,
+.dataset-schema td {
   padding: 0.75rem 1rem;
   border-top: 1px solid #e0e0e0;
   text-align: left;
   white-space: nowrap;
 }
 
-.dataset-browser thead th {
+.dataset-browser thead th,
+.dataset-schema thead th {
   background: #e8e8e8;
 }
 
-.dataset-browser tbody tr:nth-child(even) {
+.dataset-browser tbody tr:nth-child(even),
+.dataset-schema tbody tr:nth-child(even) {
   background: #f4f4f4;
+}
+
+.dataset-schema td:last-child {
+  min-width: 16rem;
+  white-space: normal;
 }
 
 .dataset-filters {
@@ -564,6 +659,17 @@ input {
     display: block;
   }
 
+  .app-shell--with-query-dock {
+    padding-bottom: calc(22rem + env(safe-area-inset-bottom));
+  }
+
+  .query-card--question {
+    left: 0;
+    width: 100%;
+    max-height: min(21rem, calc(100dvh - 3rem));
+    transform: none;
+  }
+
   .demo-banner__inner {
     flex-wrap: wrap;
   }
@@ -599,10 +705,51 @@ input {
   }
 }
 
+@media (max-height: 36rem) {
+  .query-card--question {
+    max-height: calc(100dvh - 2.75rem);
+  }
+
+  .query-card--question .query-composer__heading {
+    display: none;
+  }
+
+  .query-card--question .query-composer__input .cds--text-area {
+    min-height: 3rem;
+  }
+}
+
 @media (max-width: 28rem) {
   .demo-banner__inner {
-    align-items: flex-start;
-    flex-wrap: wrap;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  .demo-banner .cds--tag {
+    display: none;
+  }
+
+  .demo-banner__message {
+    overflow: hidden;
+    min-width: 0;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .ask-openelis-navigation[data-compact="true"] {
+    max-width: min(11rem, 48vw);
+    min-width: 0;
+    margin-left: auto;
+  }
+
+  .ask-openelis-navigation[data-compact="true"] .ask-openelis-jump {
+    overflow: hidden;
+    max-width: 100%;
+    min-height: 2rem;
+    padding-inline-start: 0.75rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .preview-metadata,

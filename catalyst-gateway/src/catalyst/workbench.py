@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
+import re
 from typing import Any
 
-from .digest import canonical_sha256
+from .analytics import manual_result_warnings
+from .digest import canonical_sha256, utf8_sha256
 from .policy import Violation
 
 
@@ -41,6 +43,17 @@ _SEVERITY_ALIASES = {
 }
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _REPAIRABILITY = {"deterministic", "model", "manual", "none"}
+_SENSITIVE_DIAGNOSTIC = re.compile(
+    r"(?ix)"
+    r"(?:postgres(?:ql)?|mysql)://\S+|"
+    r"\bconnection\s+to\s+server\s+at\s+(?:\"[^\"]+\"|[^\s,(]+)"
+    r"(?:\s+\([^)]*\))?|"
+    r"\bport\s+(?:\"[^\"]+\"|\d+)|"
+    r"\b(?:for\s+)?user(?:name)?\s+(?:\"[^\"]+\"|[^\s,;]+)|"
+    r"\b(?:password|passwd|pwd|user|username|host|port|dbname|database)"
+    r"\s*=\s*[^\s,;]+|"
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+)
 
 
 def workbench_query_digest(
@@ -57,6 +70,236 @@ def workbench_query_digest(
             "expectedColumns": expected_columns or [],
         }
     )
+
+
+def build_revision_context(
+    *,
+    session: Mapping[str, Any],
+    prior_turns: Iterable[Mapping[str, Any]],
+    turn_id: str,
+    instruction: str,
+    base_classification: str,
+    observed_base: Mapping[str, Any] | None,
+    effective_base: Mapping[str, Any] | None,
+    editor_snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build bounded, digest-bound context without rows or historical SQL copies."""
+
+    ordered = sorted(prior_turns, key=lambda item: int(item["ordinal"]))
+    session_id = str(session["sessionId"])
+    if any(str(turn.get("sessionId")) != session_id for turn in ordered):
+        raise ValueError("Revision history contains an unrelated session turn.")
+    initial = next((turn for turn in ordered if turn["kind"] == "initial"), None)
+    followups = [turn for turn in ordered if turn["kind"] == "followup"][-5:]
+    included = ([initial] if initial is not None else []) + followups
+    included_ids = {str(turn["turnId"]) for turn in included}
+    omitted = [turn for turn in ordered if str(turn["turnId"]) not in included_ids]
+    if len(omitted) > 1000:
+        raise ValueError("Revision history exceeds the deterministic omission bound.")
+
+    history = [
+        {
+            "turnId": str(turn["turnId"]),
+            "ordinal": int(turn["ordinal"]),
+            "kind": str(turn["kind"]),
+            "instruction": str(turn["instruction"]),
+            "instructionDigest": str(turn["instructionDigest"]),
+        }
+        for turn in included
+    ]
+    omitted_refs = [
+        {
+            "turnId": str(turn["turnId"]),
+            "ordinal": int(turn["ordinal"]),
+            "kind": str(turn["kind"]),
+            "instructionDigest": str(turn["instructionDigest"]),
+        }
+        for turn in omitted
+    ]
+    editor_digest = str(editor_snapshot["editorDigest"])
+    matching_validations = [
+        validation
+        for validation in session.get("validations", [])
+        if validation.get("queryDigest") == editor_digest
+    ]
+    validation_context = None
+    validation_ref = None
+    validation_omitted = 0
+    if matching_validations:
+        validation = matching_validations[-1]
+        findings = [
+            {
+                key: finding[key]
+                for key in (
+                    "findingId",
+                    "ruleCode",
+                    "severity",
+                    "stage",
+                    "path",
+                    "message",
+                )
+            }
+            for finding in validation.get("findings", [])[:50]
+        ]
+        validation_omitted = max(0, len(validation.get("findings", [])) - 50)
+        validation_context = {
+            "validationId": validation["validationId"],
+            "versionId": validation["versionId"],
+            "queryDigest": validation["queryDigest"],
+            "status": validation["status"],
+            "validatorRevision": validation["validatorRevision"],
+            "validatorDigest": validation["validatorDigest"],
+            "findings": findings,
+        }
+        validation_ref = {
+            key: validation[key] for key in ("validationId", "versionId", "queryDigest")
+        }
+
+    matching_executions = [
+        execution
+        for execution in session.get("executions", [])
+        if execution.get("queryDigest") == editor_digest
+    ]
+    execution_context = None
+    execution_ref = None
+    execution_columns_omitted = 0
+    diagnostic_truncated = False
+    if matching_executions:
+        execution = matching_executions[-1]
+        result = (
+            execution.get("result") if isinstance(execution.get("result"), dict) else {}
+        )
+        raw_columns = result.get("columns") if isinstance(result, dict) else []
+        raw_columns = raw_columns if isinstance(raw_columns, list) else []
+        execution_columns_omitted = max(0, len(raw_columns) - 128)
+        columns = [
+            {
+                "ordinal": int(column["ordinal"]),
+                "name": str(column["name"]),
+                "databaseType": str(column["databaseType"]),
+                "logicalType": str(column["logicalType"]),
+            }
+            for column in raw_columns[:128]
+            if isinstance(column, Mapping)
+            and all(
+                key in column
+                for key in ("ordinal", "name", "databaseType", "logicalType")
+            )
+        ]
+        if "warnings" in result:
+            raw_warnings = result.get("warnings")
+            raw_warnings = raw_warnings if isinstance(raw_warnings, list) else []
+        else:
+            raw_rows = result.get("rows")
+            rows = (
+                [
+                    row
+                    for row in raw_rows
+                    if isinstance(row, (list, tuple))
+                    and all(isinstance(cell, Mapping) for cell in row)
+                ]
+                if isinstance(raw_rows, list)
+                else []
+            )
+            row_count = result.get("rowCount")
+            raw_warnings = manual_result_warnings(
+                raw_columns,
+                rows,
+                truncated=(
+                    bool(row_count.get("truncated"))
+                    if isinstance(row_count, Mapping)
+                    else False
+                ),
+            )
+        execution_warnings = [
+            _SENSITIVE_DIAGNOSTIC.sub("[redacted]", warning)[:2000]
+            for warning in raw_warnings[:8]
+            if isinstance(warning, str) and warning.strip()
+        ]
+        diagnostic = execution.get("databaseDiagnostic")
+        if isinstance(diagnostic, Mapping):
+            bounded_diagnostic: dict[str, Any] = {}
+            for key in (
+                "sqlstate",
+                "severity",
+                "message",
+                "detail",
+                "hint",
+                "position",
+            ):
+                value = diagnostic.get(key)
+                if key in {"message", "detail", "hint"} and isinstance(value, str):
+                    value = _SENSITIVE_DIAGNOSTIC.sub("[redacted]", value)
+                    if len(value) > 4000:
+                        diagnostic_truncated = True
+                    value = value[:4000]
+                bounded_diagnostic[key] = value
+            diagnostic = bounded_diagnostic
+        else:
+            diagnostic = None
+        execution_context = {
+            "executionId": execution["executionId"],
+            "versionId": execution["versionId"],
+            "queryDigest": execution["queryDigest"],
+            "status": execution["status"],
+            "validationStatus": execution.get("validationStatus", "not_run"),
+            "rowCount": result.get("rowCount") if isinstance(result, dict) else None,
+            "columns": columns,
+            "warnings": execution_warnings,
+            "databaseDiagnostic": diagnostic,
+            "durationMs": int(execution.get("durationMs") or 0),
+        }
+        execution_ref = {
+            key: execution[key] for key in ("executionId", "versionId", "queryDigest")
+        }
+
+    selection = {
+        "includedHistoryTurnIds": [item["turnId"] for item in history],
+        "validationRef": validation_ref,
+        "executionRef": execution_ref,
+        "omissions": {
+            "historyInstructionsOmitted": len(omitted_refs),
+            "validationFindingsOmitted": validation_omitted,
+            "executionColumnsOmitted": execution_columns_omitted,
+            "diagnosticTextTruncated": diagnostic_truncated,
+            "prohibitedClasses": [
+                "database_credentials",
+                "database_connection_details",
+                "database_dsn",
+                "execution_result_rows",
+                "hidden_reasoning",
+                "historical_sql_copies",
+                "raw_chat_transcript",
+                "raw_model_outputs",
+                "raw_reasoning_traces",
+                "unrelated_session_history",
+                "unrelated_historical_sql",
+            ],
+            "omittedHistory": omitted_refs,
+            "omittedHistoryDigest": canonical_sha256(omitted_refs),
+        },
+    }
+    context = {
+        "contractVersion": "catalyst.query.revision-context.v1",
+        "turnId": turn_id,
+        "currentInstruction": instruction,
+        "instructionDigest": utf8_sha256(instruction),
+        "baseClassification": base_classification,
+        "observedBase": dict(observed_base) if observed_base is not None else None,
+        "effectiveBaseVersion": (
+            dict(effective_base) if effective_base is not None else None
+        ),
+        "editorSnapshot": dict(editor_snapshot),
+        "instructionHistory": history,
+        "validationContext": validation_context,
+        "executionContext": execution_context,
+        "selection": selection,
+        "contextDigest": "0" * 64,
+    }
+    context["contextDigest"] = canonical_sha256(
+        {key: value for key, value in context.items() if key != "contextDigest"}
+    )
+    return context
 
 
 def normalize_findings(

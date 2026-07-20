@@ -1,8 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../../App";
 import type { CatalystApi } from "../api";
+import { AskOpenElisNavigation } from "./AskOpenElisNavigation";
 
 const makeApi = (): CatalystApi => ({
   submitQuestion: vi.fn(),
@@ -130,6 +131,47 @@ describe("Ask OpenELIS reachability navigation", () => {
     expect(document.body.contains(jump)).toBe(true);
   });
 
+  it("keeps the canonical jump available when the compact viewport contains the composer", () => {
+    let compactViewportListener: ((event: MediaQueryListEvent) => void) | null =
+      null;
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(
+          (eventName: string, listener: (event: MediaQueryListEvent) => void) => {
+            if (query === "(max-width: 28rem)" && eventName === "change") {
+              compactViewportListener = listener;
+            }
+          },
+        ),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    render(<App api={makeApi()} />);
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Ask OpenELIS navigation",
+    });
+    const jump = screen.getByTestId("ask-openelis-jump");
+    emitIntersection(true, 120);
+    expect(jump).not.toBeVisible();
+
+    act(() => {
+      compactViewportListener?.({ matches: true } as MediaQueryListEvent);
+    });
+
+    expect(navigation).not.toHaveAttribute("hidden");
+    expect(navigation).toHaveAttribute("data-compact", "true");
+    expect(jump).toBeVisible();
+    expect(jump).toHaveAttribute("tabindex", "0");
+    expect(jump).toHaveAccessibleDescription(
+      "The composer is currently visible.",
+    );
+    expect(document.querySelectorAll("#catalyst-question")).toHaveLength(1);
+  });
+
   it("centers and focuses the canonical textarea while respecting reduced motion", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
@@ -155,5 +197,65 @@ describe("Ask OpenELIS reachability navigation", () => {
     });
     expect(screen.getByLabelText("Question")).toHaveFocus();
     expect(document.body.contains(jump)).toBe(true);
+  });
+
+  it("targets the follow-up composer when a notebook session is active", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <section id="ask-openelis">
+          <h1 id="question-title">Ask OpenELIS</h1>
+          <textarea id="catalyst-question" aria-label="Question" disabled />
+        </section>
+        <section id="refine-openelis">
+          <h2 id="refine-query-title">Refine Query v2</h2>
+          <textarea
+            id="catalyst-followup"
+            aria-label="Follow-up instruction"
+          />
+        </section>
+        <AskOpenElisNavigation />
+      </>,
+    );
+
+    const observer = IntersectionObserverMock.instances[0];
+    expect(observer?.observe).toHaveBeenCalledWith(
+      document.getElementById("catalyst-followup"),
+    );
+    emitIntersection(false, 900);
+    const jump = screen.getByRole("button", { name: "Refine Query v2" });
+    expect(jump).toHaveAttribute("aria-controls", "catalyst-followup");
+    expect(jump).toHaveAccessibleDescription(/below/i);
+    jump.focus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Follow-up instruction")).toHaveFocus();
+  });
+
+  it("refreshes the sticky label when the mounted follow-up heading changes", async () => {
+    const renderNotebook = (version: number) => (
+      <>
+        <section id="refine-openelis">
+          <h2 id="refine-query-title">Refine Query v{version}</h2>
+          <textarea
+            id="catalyst-followup"
+            aria-label="Follow-up instruction"
+          />
+        </section>
+        <AskOpenElisNavigation />
+      </>
+    );
+    const { rerender } = render(renderNotebook(2));
+    const followupInput = document.getElementById("catalyst-followup");
+
+    expect(screen.getByRole("button", { name: "Refine Query v2" })).toBeVisible();
+
+    rerender(renderNotebook(3));
+
+    expect(document.getElementById("catalyst-followup")).toBe(followupInput);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Refine Query v3" }),
+      ).toBeVisible();
+    });
   });
 });

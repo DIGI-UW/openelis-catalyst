@@ -198,14 +198,15 @@ The demo configuration must point med-agent-hub at the local model router.
 
 | Profile | Status | Purpose |
 | --- | --- | --- |
-| `catalyst-query-checked` | Implemented by the pinned local hub patch | Return a reviewed `catalyst.query.v1` result for approved semantic-layer views |
+| `catalyst-query-checked` | Implemented by the pinned Hub commit | Return a reviewed `catalyst.query.v1` result for approved semantic-layer views |
 | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 | Default fast, checked narrative report |
 | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 | Optional deeper team-based report and later evaluation candidate |
 
-The upstream hub commit does not yet contain `catalyst-query-checked`; Catalyst
-pins that commit and applies `patches/med-agent-hub/catalyst-query-profile.patch`.
-The assembled hub advertises the profile through `GET /v1/models`, and live
-integration tests validate its structured contract.
+The pinned Hub commit contains the Catalyst query profiles and versioned query
+contracts directly. The umbrella harness supplies that sibling checkout as the
+build context; a standalone Catalyst checkout clones the same unmodified commit
+as its fallback. The assembled Hub advertises available profiles through
+`GET /v1/models`, and live integration tests validate their structured contracts.
 
 The v1 query contract fixes the profile ID as `catalyst-query-checked`.
 Catalyst may configure approved report profile identifiers, but never model

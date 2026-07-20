@@ -113,7 +113,7 @@ def ready_query(question: str = "Count tests since July 1") -> dict:
             "checks": [{"name": "review", "status": "passed"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-e4b",
+            "profileId": "catalyst-query-gemma-4-12b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -131,7 +131,7 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
             "checks": [{"name": "scope", "status": "warned"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-e4b",
+            "profileId": "catalyst-query-gemma-4-12b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -204,13 +204,13 @@ class FakeHub:
             raise self.error
         return [
             {
-                "id": "catalyst-query-gemma-e4b",
-                "label": "Catalyst governed query — Gemma 4 E4B",
+                "id": "catalyst-query-gemma-4-12b",
+                "label": "Catalyst governed query — Gemma 4 12B",
                 "available": self.error is None,
-                "required_models": ["google/gemma-4-e4b"],
+                "required_models": ["gemma-4-12b"],
                 "role_models": {
-                    "query_generate": "google/gemma-4-e4b",
-                    "query_review": "google/gemma-4-e4b",
+                    "query_generate": "gemma-4-12b",
+                    "query_review": "gemma-4-12b",
                 },
                 "stages": [
                     "context",
@@ -325,9 +325,125 @@ def execute_body(preview: dict, key: str = "idem-1") -> dict:
     }
 
 
+def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
+    tmp_path: Path,
+):
+    class RuntimeAnalytics(FakeAnalytics):
+        async def discover_relations(self) -> list[dict]:
+            return [
+                {
+                    "name": "public.patient_flat_v1",
+                    "relationType": "table",
+                    "grain": "one row per FHIR Patient",
+                    "fields": [
+                        {
+                            "name": "patient_id",
+                            "type": "string",
+                            "databaseType": "uuid",
+                            "description": "FHIR Patient identifier",
+                            "nullable": False,
+                        }
+                    ],
+                }
+            ]
+
+    class RuntimeHub(FakeHub):
+        async def generate_query(self, request: dict) -> dict:
+            self.requests.append(deepcopy(request))
+            target = request["catalystQuery"]["target"]
+            context_id = request["catalystQuery"]["catalog"]["contextSourceId"]
+            return {
+                "contractVersion": "catalyst.query.v1",
+                "deploymentMode": "demo",
+                "status": "ready",
+                "question": request["messages"][0]["content"],
+                "target": {
+                    **target,
+                    "approvedViews": ["public.patient_flat_v1"],
+                },
+                "sql": "SELECT patient_id FROM public.patient_flat_v1 LIMIT 2",
+                "parameters": [],
+                "expectedColumns": [
+                    {
+                        "name": "patient_id",
+                        "logicalType": "string",
+                        "nullable": False,
+                    }
+                ],
+                "validation": {"status": "passed", "checks": []},
+                "provenance": {
+                    "profileId": "catalyst-query-gemma-4-12b",
+                    "traceId": "hub-runtime-schema",
+                    "contextSourceIds": [context_id],
+                },
+            }
+
+    hub = RuntimeHub()
+    service, _, _, _ = make_service(
+        tmp_path,
+        hub=hub,
+        analytics=RuntimeAnalytics(
+            AnalyticsResult(
+                column_names=["patient_id"],
+                rows=[("patient-1",)],
+                truncated=False,
+            )
+        ),
+    )
+
+    with TestClient(gateway.create_app(catalyst_service=service)) as client:
+        editor = client.get("/v1/catalyst/workbench/catalog")
+        preview = client.post(
+            "/v1/catalyst/queries",
+            json={
+                "contractVersion": "catalyst.question.request.v1",
+                "deploymentMode": "demo",
+                "question": "List patients",
+            },
+        )
+        assert preview.status_code == 201, preview.text
+        execution = client.post(
+            f"/v1/catalyst/previews/{preview.json()['previewId']}/execute",
+            json=execute_body(preview.json(), "runtime-schema-execution"),
+        )
+
+    assert editor.status_code == 200, editor.text
+    editor_body = editor.json()
+    assert editor_body["catalogVersion"].startswith("2026.07+schema.")
+    assert editor_body["schemas"] == [
+        {
+            "name": "public",
+            "views": [
+                {
+                    "name": "patient_flat_v1",
+                    "qualifiedName": "public.patient_flat_v1",
+                    "grain": "one row per FHIR Patient",
+                    "relationType": "table",
+                    "columns": [
+                        {
+                            "name": "patient_id",
+                            "logicalType": "string",
+                            "databaseType": "uuid",
+                            "description": "FHIR Patient identifier",
+                            "nullable": False,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    assert execution.status_code == 200, execution.text
+    assert preview.json()["target"]["approvedViews"] == ["public.patient_flat_v1"]
+    request = hub.requests[0]["catalystQuery"]
+    assert request["target"]["catalogVersion"] == editor_body["catalogVersion"]
+    assert [view["name"] for view in request["catalog"]["views"]] == [
+        "public.patient_flat_v1"
+    ]
+
+
 def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 15
+    assert len(registry.schemas) == 23
     assert set(registry.schemas) == {
         "catalyst-execute-request-v1.schema.json",
         "catalyst-execution-outcome-v1.schema.json",
@@ -335,14 +451,22 @@ def test_loads_and_checks_all_normative_schemas():
         "catalyst-preview-v1.schema.json",
         "catalyst-query-completion-v1.schema.json",
         "catalyst-query-request-v1.schema.json",
+        "catalyst-query-request-v2.schema.json",
+        "catalyst-query-revision-context-v1.schema.json",
         "catalyst-query-v1.schema.json",
         "catalyst-question-request-v1.schema.json",
         "catalyst-table-v1.schema.json",
         "catalyst-workbench-execute-request-v1.schema.json",
         "catalyst-workbench-editor-catalog-v1.schema.json",
+        "catalyst-workbench-editor-snapshot-v1.schema.json",
+        "catalyst-workbench-editor-snapshot-record-v1.schema.json",
         "catalyst-workbench-finding-v1.schema.json",
+        "catalyst-workbench-generation-evidence-v1.schema.json",
         "catalyst-workbench-session-request-v1.schema.json",
         "catalyst-workbench-session-v1.schema.json",
+        "catalyst-workbench-turn-request-v1.schema.json",
+        "catalyst-workbench-turn-timeline-v1.schema.json",
+        "catalyst-workbench-turn-v1.schema.json",
         "catalyst-workbench-version-request-v1.schema.json",
     }
     registry.validate(
@@ -358,10 +482,14 @@ def test_loads_and_checks_all_normative_schemas():
                     "views": [
                         {
                             "name": "lab_result_fact_v1",
+                            "qualifiedName": "analytics.lab_result_fact_v1",
+                            "grain": "one row per laboratory result",
                             "columns": [
                                 {
                                     "name": "observed_at",
                                     "logicalType": "date-time",
+                                    "description": "Observation effective time",
+                                    "nullable": True,
                                 }
                             ],
                         }
@@ -392,15 +520,15 @@ def test_loads_and_checks_all_normative_schemas():
         {
             "contractVersion": "catalyst.workbench.finding.v1",
             "findingId": "finding-" + "0" * 24,
-            "ruleCode": "gateway_sql_policy.unapproved_view",
+            "ruleCode": "gateway_sql_policy.relation_not_found",
             "severity": "error",
             "stage": "gateway_sql_policy",
-            "message": "Only approved analytics views may be queried.",
+            "message": "The relation is not in the readable PostgreSQL schema.",
             "path": "sql",
             "astUnit": None,
             "span": None,
             "evidence": {"relation": "analytics.not_a_view"},
-            "suggestedAction": "Use an approved analytics view.",
+            "suggestedAction": "Refresh the schema and use an available relation.",
             "repairability": "manual",
             "validatorRevision": "catalyst.workbench.validator.v1",
         },
@@ -475,7 +603,7 @@ def test_loads_and_checks_all_normative_schemas():
             {
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-e4b",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": False,
                         "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                     }
@@ -487,7 +615,7 @@ def test_loads_and_checks_all_normative_schemas():
             {
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-e4b",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": True,
                         "capabilities": {"outputContracts": ["other.v1"]},
                     }
@@ -524,7 +652,7 @@ async def test_hub_discovery_and_completion_are_strict():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-e4b",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {
                                 "outputContracts": ["catalyst.query.v1"],
@@ -540,7 +668,7 @@ async def test_hub_discovery_and_completion_are_strict():
             json={
                 "id": "completion-1",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-e4b",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -569,8 +697,10 @@ async def test_hub_discovery_and_completion_are_strict():
         trace_id="trace-1",
     )
     result = await client.generate_query(request)
+    evidence = result.pop("_hubEvidence")
     assert result == query
-    assert sent["model"] == "catalyst-query-gemma-e4b"
+    assert json.loads(evidence["exactHubResponse"])["id"] == "completion-1"
+    assert sent["model"] == "catalyst-query-gemma-4-12b"
     assert sent["stream"] is False
     assert sent["catalystQuery"]["requiredOutputContract"] == "catalyst.query.v1"
     assert "dsn" not in json.dumps(sent).lower()
@@ -587,7 +717,7 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
             json={
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-e4b",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": False,
                         "outputContracts": ["catalyst.query.v1"],
                     },
@@ -611,7 +741,8 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
         "queryProfile": {
             "ready": False,
             "message": (
-                "Hub does not advertise available profile " "catalyst-query-gemma-e4b."
+                "Hub does not advertise available profile "
+                "catalyst-query-gemma-4-12b."
             ),
         },
         "modelRouter": {"ready": False},
@@ -636,7 +767,7 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
             {
                 "id": "x",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-e4b",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -660,7 +791,7 @@ async def test_hub_rejects_invalid_completion(response: dict, code: str):
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-e4b",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -699,7 +830,7 @@ async def test_hub_invalid_completion_preserves_raw_model_output():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-e4b",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -711,7 +842,7 @@ async def test_hub_invalid_completion_preserves_raw_model_output():
             json={
                 "id": "completion-raw",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-e4b",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -755,7 +886,7 @@ async def test_hub_non_json_completion_preserves_raw_response_text():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-e4b",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -786,6 +917,31 @@ async def test_hub_non_json_completion_preserves_raw_response_text():
     await client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_hub_non_success_preserves_exact_response_text():
+    raw_output = '{"error":{"code":"router_overloaded","detail":"try later"}}'
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            content=raw_output.encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+    client = HubClient(
+        "http://hub",
+        ContractRegistry.load(CONTRACTS),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(HubError) as error:
+        await client._request("POST", "/v1/chat/completions", json={})
+
+    assert error.value.code == "hub_unavailable"
+    assert error.value.raw_output == raw_output
+    await client.aclose()
+
+
 @pytest.mark.parametrize(
     ("mutator", "violation"),
     [
@@ -799,10 +955,6 @@ async def test_hub_non_json_completion_preserves_raw_response_text():
             "target_mismatch",
         ),
         (lambda q: q["target"].update(dialect="duckdb"), "target_mismatch"),
-        (
-            lambda q: q["target"].update(approvedViews=["private.results"]),
-            "unapproved_view",
-        ),
         (
             lambda q: q["parameters"].append(deepcopy(q["parameters"][0])),
             "duplicate_parameter",
@@ -841,6 +993,21 @@ def test_runtime_query_invariants_are_strict(mutator, violation: str):
     assert violation in {item.code for item in error.value.violations}
 
 
+def test_runtime_invariants_do_not_treat_model_relation_names_as_a_whitelist():
+    request = build_query_request(
+        "Count tests since July 1",
+        catalog(),
+        max_rows=2,
+        statement_timeout_ms=500,
+        request_id="request-1",
+        trace_id="trace-1",
+    )
+    query = ready_query()
+    query["target"]["approvedViews"] = ["public.patient_flat_v1"]
+
+    validate_query_invariants(query, request)
+
+
 @pytest.mark.parametrize(
     ("sql", "code"),
     [
@@ -849,11 +1016,7 @@ def test_runtime_query_invariants_are_strict(mutator, violation: str):
             "SELECT * FROM analytics.lab_results; SELECT 1",
             "multiple_statements",
         ),
-        ("SELECT * FROM private.results", "unapproved_view"),
-        (
-            "SELECT * FROM analytics.lab_results WHERE test_name = 'HIV'",
-            "unbound_literal",
-        ),
+        ("SELECT * FROM private.results", "relation_not_found"),
         ("SELECT * FROM analytics.lab_results LIMIT 3", "row_limit_exceeded"),
         (
             "SELECT * INTO analytics.copy FROM analytics.lab_results",
@@ -867,7 +1030,7 @@ def test_sql_policy_rejects_unsafe_postgresql(sql: str, code: str):
     query["parameters"] = []
     violations = SqlPolicy(max_rows=2).evaluate(
         query,
-        approved_views={"analytics.lab_results"},
+        available_relations={"analytics.lab_results"},
     )
     assert code in {item.code for item in violations}
 
@@ -875,8 +1038,67 @@ def test_sql_policy_rejects_unsafe_postgresql(sql: str, code: str):
 def test_sql_policy_accepts_one_parameterized_select():
     violations = SqlPolicy(max_rows=2).evaluate(
         ready_query(),
-        approved_views={"analytics.lab_results"},
+        available_relations={"analytics.lab_results"},
     )
+    assert violations == []
+
+
+def test_sql_policy_only_accepts_unqualified_relations_visible_on_search_path():
+    query = ready_query()
+    query["sql"] = "SELECT * FROM lab_results"
+    query["parameters"] = []
+
+    missing = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results"},
+    )
+    visible = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results", "lab_results"},
+    )
+
+    assert {item.code for item in missing} == {"relation_not_found"}
+    assert visible == []
+
+
+def test_sql_policy_does_not_hide_qualified_relation_matching_cte_name():
+    query = ready_query()
+    query["sql"] = "WITH x AS (SELECT * FROM private.x) SELECT * FROM x"
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"public.x"},
+    )
+
+    assert {item.code for item in violations} == {"relation_not_found"}
+
+
+def test_sql_policy_does_not_use_relations_as_a_security_whitelist():
+    query = ready_query()
+    query["sql"] = "SELECT * FROM any_schema.any_relation"
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(query)
+
+    assert violations == []
+
+
+def test_sql_policy_allows_cte_rank_filter_literal_for_manual_iteration():
+    query = ready_query()
+    query["sql"] = (
+        "WITH ranked AS ("
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY test_name "
+        "ORDER BY result_date DESC) AS rn FROM analytics.lab_results"
+        ") SELECT * FROM ranked WHERE rn = 1"
+    )
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results"},
+    )
+
     assert violations == []
 
 
@@ -1402,7 +1624,7 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
     assert preview["question"] == question
     assert preview["reasoningTrace"] == {
         "traceId": "hub-trace-1",
-        "profileId": "catalyst-query-gemma-e4b",
+        "profileId": "catalyst-query-gemma-4-12b",
         "status": "passed",
         "stages": [
             "context",
@@ -1411,8 +1633,8 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
             "query_finalize",
         ],
         "roleModels": {
-            "query_generate": "google/gemma-4-e4b",
-            "query_review": "google/gemma-4-e4b",
+            "query_generate": "gemma-4-12b",
+            "query_review": "gemma-4-12b",
         },
         "checks": [{"name": "review", "status": "passed"}],
     }

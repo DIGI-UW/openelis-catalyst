@@ -7,6 +7,7 @@ import type {
   WorkbenchExecution,
   WorkbenchSession,
 } from "../types";
+import { editorContentMatchesVersion } from "../editorDigest";
 import { SqlEditor } from "./SqlEditor";
 import { workbenchCatalogRelations } from "./workbenchPanelSupport";
 import "./WorkbenchPanel.css";
@@ -32,12 +33,13 @@ interface WorkbenchPanelProps {
   editorCatalog?: WorkbenchEditorCatalog | null;
   catalogLoadingFailed?: boolean;
   wrapLines: boolean;
-  busy?: "validating" | "running" | null;
+  busy?: "generating" | "validating" | "running" | null;
   error?: string | null;
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
   onClearDraft: () => void;
+  onRestoreCurrentVersion: () => void;
   onNewSession: () => void;
   onValidate: () => void;
   onRun: () => void;
@@ -122,10 +124,54 @@ const renderTaggedCell = (cell: TaggedCell | undefined) => {
   if (!cell || cell.type === "null") {
     return <span aria-label="No value">—</span>;
   }
+  if (cell.type === "string" && !cell.value.trim()) {
+    return (
+      <span className="workbench-execution__blank-cell" aria-label="Empty string">
+        Empty string
+      </span>
+    );
+  }
   if (cell.type === "json" || cell.type === "array") {
     return JSON.stringify(cell.value);
   }
   return String(cell.value);
+};
+
+const executionResultWarnings = (
+  result: NonNullable<WorkbenchExecution["result"]>,
+) => {
+  if (result.warnings !== undefined) return result.warnings;
+  if (result.rows.length === 0 || result.columns.length === 0) return [];
+
+  const blankColumns = result.columns
+    .filter((_, columnIndex) =>
+      result.rows.every((row) => {
+        const cell = row[columnIndex];
+        return (
+          cell?.type === "null" ||
+          (cell?.type === "string" && !cell.value.trim())
+        );
+      }),
+    )
+    .map((column) => column.name);
+  if (blankColumns.length === 0) return [];
+
+  const displayedNames = blankColumns
+    .slice(0, 8)
+    .map((name) => `\`${name}\``)
+    .join(", ");
+  const omitted = blankColumns.length - 8;
+  const names = omitted > 0 ? `${displayedNames}, and ${omitted} more` : displayedNames;
+  const rowLabel = result.rows.length === 1 ? "row" : "rows";
+  const scope = result.rowCount.truncated ? "displayed" : "returned";
+  const verb = blankColumns.length === 1 ? "was" : "were";
+  const truncatedNote = result.rowCount.truncated
+    ? " This check covers displayed rows only because results were truncated."
+    : "";
+  return [
+    `${names} ${verb} blank or NULL in all ${result.rows.length} ${scope} ${rowLabel}. ` +
+      `Select a populated column or revise the SQL expression.${truncatedNote}`,
+  ];
 };
 
 const validationLabel = (status: string) =>
@@ -338,10 +384,15 @@ const ValidationSummary = ({ session }: { session: WorkbenchSession }) => {
 
 interface ParameterEditorProps {
   parameters: BoundParameter[];
+  disabled?: boolean;
   onChange: (parameters: BoundParameter[]) => void;
 }
 
-const ParameterEditor = ({ parameters, onChange }: ParameterEditorProps) => {
+const ParameterEditor = ({
+  parameters,
+  disabled = false,
+  onChange,
+}: ParameterEditorProps) => {
   const updateParameter = (
     index: number,
     update: Partial<BoundParameter>,
@@ -378,7 +429,13 @@ const ParameterEditor = ({ parameters, onChange }: ParameterEditorProps) => {
           <h3 id="parameters-title">Parameters</h3>
           <p>Names must match the SQL placeholders exactly.</p>
         </div>
-        <Button type="button" kind="ghost" size="sm" onClick={addParameter}>
+        <Button
+          type="button"
+          kind="ghost"
+          size="sm"
+          disabled={disabled}
+          onClick={addParameter}
+        >
           Add parameter
         </Button>
       </div>
@@ -391,6 +448,7 @@ const ParameterEditor = ({ parameters, onChange }: ParameterEditorProps) => {
             return (
               <fieldset
                 className="workbench-parameter"
+                disabled={disabled}
                 key={`parameter-${index}`}
               >
                 <legend>Parameter {ordinal}</legend>
@@ -589,9 +647,36 @@ const latestExecution = (executions: WorkbenchExecution[]) =>
     null,
   );
 
-const ExecutionResult = ({ session }: { session: WorkbenchSession }) => {
+const ExecutionResult = ({
+  session,
+  sql,
+  parameters,
+}: {
+  session: WorkbenchSession;
+  sql: string;
+  parameters: BoundParameter[];
+}) => {
   const execution = latestExecution(session.executions);
   if (!execution) return null;
+  const executionVersion = session.versions.find(
+    (version) => version.versionId === execution.versionId,
+  ) ?? null;
+  const queryLabel = executionVersion
+    ? `Query v${executionVersion.ordinal}`
+    : "query version unavailable";
+  const editorMatchesExecution = executionVersion
+    ? editorContentMatchesVersion(
+        {
+          sql,
+          parameters,
+          expectedColumns: executionVersion.expectedColumns,
+        },
+        executionVersion,
+      )
+    : sql === execution.query.sql &&
+      JSON.stringify(parameters) === JSON.stringify(execution.query.parameters);
+  const resultIsStale =
+    session.currentVersionId !== execution.versionId || !editorMatchesExecution;
 
   if (execution.status === "failed") {
     const diagnostic = execution.databaseDiagnostic;
@@ -599,7 +684,7 @@ const ExecutionResult = ({ session }: { session: WorkbenchSession }) => {
       <section className="workbench-execution" aria-label="Latest execution">
         <div className="workbench-subheading workbench-subheading--row">
           <div>
-            <h3>Latest execution</h3>
+            <h3>Execution failed for {queryLabel}</h3>
             <p>Execution {execution.ordinal}</p>
           </div>
           <Tag type="red">Failed</Tag>
@@ -647,7 +732,7 @@ const ExecutionResult = ({ session }: { session: WorkbenchSession }) => {
   if (!result) {
     return (
       <section className="workbench-execution" aria-label="Latest execution">
-        <h3>Latest execution</h3>
+        <h3>Results from {queryLabel}</h3>
         <p>The database reported success without a tabular result.</p>
       </section>
     );
@@ -655,17 +740,21 @@ const ExecutionResult = ({ session }: { session: WorkbenchSession }) => {
   const columnOrder = result.columns
     .map((_, index) => index)
     .sort((left, right) => result.columns[left]!.ordinal - result.columns[right]!.ordinal);
+  const resultWarnings = executionResultWarnings(result);
 
   return (
     <section className="workbench-execution" aria-label="Latest execution">
       <div className="workbench-subheading workbench-subheading--row">
         <div>
-          <h3>Latest execution</h3>
+          <h3>Results from {queryLabel}</h3>
           <p>
             {result.rowCount.returned} {result.rowCount.returned === 1 ? "row" : "rows"} returned in {execution.durationMs} ms.
           </p>
         </div>
-        <Tag type="green">Succeeded</Tag>
+        <div className="workbench-execution__status">
+          {resultIsStale && <Tag type="warm-gray">Stale — editor has changes</Tag>}
+          <Tag type="green">Succeeded</Tag>
+        </div>
       </div>
       {result.rowCount.truncated && (
         <p className="workbench-execution__notice">
@@ -676,10 +765,27 @@ const ExecutionResult = ({ session }: { session: WorkbenchSession }) => {
           .
         </p>
       )}
+      {resultWarnings.length > 0 && (
+        <div className="workbench-execution__warnings">
+          {resultWarnings.map((warning, index) => (
+            <InlineNotification
+              key={`${execution.executionId}-warning-${index}`}
+              lowContrast
+              hideCloseButton
+              kind="warning"
+              title="Returned values need review"
+              subtitle={warning}
+            />
+          ))}
+        </div>
+      )}
       {result.rows.length === 0 ? (
-        <p className="workbench-empty-note">The query returned no rows.</p>
+        <p className="workbench-empty-note">
+          The query ran successfully but matched no rows. Review the filter values and
+          joins, then run it again.
+        </p>
       ) : (
-        <div className="workbench-execution__table-wrap">
+        <div className="workbench-execution__table-wrap workbench-execution__table-wrap--bounded">
           <table>
             <caption>Execution {execution.ordinal} results</caption>
             <thead>
@@ -722,6 +828,7 @@ export const WorkbenchPanel = ({
   onParametersChange,
   onWrapLinesChange,
   onClearDraft,
+  onRestoreCurrentVersion,
   onNewSession,
   onValidate,
   onRun,
@@ -782,6 +889,7 @@ export const WorkbenchPanel = ({
           value={sql}
           onChange={onSqlChange}
           catalog={relations}
+          readOnly={busy !== null}
           wrapLines={wrapLines}
           onWrapLinesChange={onWrapLinesChange}
         />
@@ -793,9 +901,6 @@ export const WorkbenchPanel = ({
         )}
       </div>
 
-      <ParameterEditor parameters={parameters} onChange={onParametersChange} />
-      <ValidationSummary session={session} />
-
       <div className="workbench-actions" aria-label="Workbench actions">
         <Button
           type="button"
@@ -805,6 +910,16 @@ export const WorkbenchPanel = ({
         >
           Clear draft
         </Button>
+        {!hasSql && session.currentVersion && (
+          <Button
+            type="button"
+            kind="ghost"
+            disabled={busy !== null}
+            onClick={onRestoreCurrentVersion}
+          >
+            Restore Query v{session.currentVersion.ordinal}
+          </Button>
+        )}
         <Button
           type="button"
           kind="secondary"
@@ -825,7 +940,14 @@ export const WorkbenchPanel = ({
         <p>Run remains available when validation reports errors.</p>
       </div>
 
-      <ExecutionResult session={session} />
+      <ParameterEditor
+        parameters={parameters}
+        disabled={busy !== null}
+        onChange={onParametersChange}
+      />
+      <ValidationSummary session={session} />
+
+      <ExecutionResult session={session} sql={sql} parameters={parameters} />
       <GenerationEvidence session={session} />
       <div className="workbench-records">
         <ProvenanceSummary session={session} />

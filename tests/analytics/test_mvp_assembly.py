@@ -16,6 +16,7 @@ class MvpComposeContractTests(unittest.TestCase):
         cls.env = (ROOT / "env.recommended").read_text()
         cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
+        cls.hub_bootstrap = (ROOT / "scripts/bootstrap-med-agent-hub.sh").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
@@ -32,13 +33,56 @@ class MvpComposeContractTests(unittest.TestCase):
             self.assertRegex(self.compose, rf"(?m)^  {re.escape(service)}:")
         self.assertNotRegex(self.compose, r"(?m)^  spark:")
 
+    def test_hub_source_is_injectable_and_standalone_fallback_is_unmodified(self):
+        expected_context = 'build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"'
+        self.assertIn(expected_context, self.compose)
+        self.assertIn(
+            expected_context,
+            (ROOT / "docker-compose.full-stack.yml").read_text(),
+        )
+        self.assertIn("MED_AGENT_HUB_CONTEXT", self.up_script)
+        self.assertIn("harness-sibling", self.health_script)
+        self.assertNotIn('"patch"', self.health_script)
+        self.assertNotIn("git apply", self.hub_bootstrap)
+        self.assertIn(
+            "bcbfa74e8af9b2171eefe00cfc3a97b2926b4312",
+            self.hub_bootstrap,
+        )
+        self.assertFalse(
+            (ROOT / "patches/med-agent-hub/catalyst-query-profile.patch").exists()
+        )
+
+    def test_lifecycle_scripts_accept_one_optional_compose_override(self):
+        for script_name in (
+            "mvp-up.sh",
+            "mvp-seed.sh",
+            "mvp-health.sh",
+            "mvp-down.sh",
+            "mvp-reset.sh",
+        ):
+            with self.subTest(script=script_name):
+                script = (ROOT / "scripts" / script_name).read_text()
+                self.assertIn("MVP_COMPOSE_OVERRIDE_FILE", script)
+                self.assertIn(
+                    'if [ -n "${compose_override_file}" ]; then',
+                    script,
+                )
+                self.assertIn(
+                    'compose+=(-f "${compose_override_file}")',
+                    script,
+                )
+                self.assertIn(
+                    "compose override file does not exist",
+                    script,
+                )
+
     def test_data_pipes_is_built_from_the_pinned_checkout_without_spark(self):
         self.assertIn("context: ./.fhir-data-pipes", self.compose)
         self.assertIn("./analytics/config:/app/config:ro", self.compose)
         self.assertTrue((ROOT / "analytics/config/flink-conf.yaml").is_file())
-        self.assertIn("FHIRDATA_GENERATEPARQUETFILES: \"false\"", self.compose)
-        self.assertIn("FHIRDATA_CREATEHIVERESOURCETABLES: \"false\"", self.compose)
-        self.assertIn("FHIRDATA_CREATEPARQUETVIEWS: \"false\"", self.compose)
+        self.assertIn('FHIRDATA_GENERATEPARQUETFILES: "false"', self.compose)
+        self.assertIn('FHIRDATA_CREATEHIVERESOURCETABLES: "false"', self.compose)
+        self.assertIn('FHIRDATA_CREATEPARQUETVIEWS: "false"', self.compose)
         self.assertIn("javax.net.ssl.keyStore", self.compose)
         self.assertIn("key_trust-store-volume:/etc/openelis-global:ro", self.compose)
         self.assertIn(
@@ -97,9 +141,7 @@ class MvpComposeContractTests(unittest.TestCase):
             self.compose,
         )
         self.assertIn("HUB_LLM_PROVIDER=llama.cpp", self.env)
-        self.assertIn(
-            'LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"', self.compose
-        )
+        self.assertIn('LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"', self.compose)
         self.assertIn("host.docker.internal:host-gateway", self.compose)
         self.assertIn('model_backend="${MVP_MODEL_BACKEND:-external}"', self.up_script)
         self.assertIn(
@@ -128,13 +170,13 @@ class MvpComposeContractTests(unittest.TestCase):
 
     def test_up_stops_routers_not_selected_by_the_configured_mode(self):
         self.assertIn("stale_model_services", self.up_script)
-        self.assertIn('stale_model_services+=(model-router)', self.up_script)
-        self.assertIn('stale_model_services+=(model-router-fake)', self.up_script)
+        self.assertIn("stale_model_services+=(model-router)", self.up_script)
+        self.assertIn("stale_model_services+=(model-router-fake)", self.up_script)
         self.assertIn('stop "${stale_model_services[@]}"', self.up_script)
 
     def test_health_never_infers_mode_from_leftover_router_containers(self):
         self.assertNotIn("running_services", self.health_script)
-        self.assertNotIn("awk '$0 == \"model-router-fake\"", self.health_script)
+        self.assertNotIn('awk \'$0 == "model-router-fake"', self.health_script)
         self.assertIn("check_hub_router_config", self.health_script)
         self.assertIn('os.environ.get("LLM_BASE_URL", "")', self.health_script)
         self.assertIn('-e "EXPECTED_ROUTER_URL=${router_url}"', self.health_script)
@@ -142,10 +184,47 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_health_and_provenance_use_the_selected_router_identity(self):
         self.assertIn("MVP_EXTERNAL_MODEL_ID", self.health_script)
         self.assertIn("MVP_BUNDLED_MODEL_ID", self.health_script)
-        self.assertIn('"modelId": os.environ["MODEL_ID"]', self.health_script)
+        self.assertIn('model_router["modelId"] = model_ids[0]', self.health_script)
         self.assertIn('"baseUrl": os.environ["ROUTER_URL"]', self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.up_script)
+
+    def test_health_validates_and_records_the_exact_profile_role_model_map(self):
+        self.assertIn("MVP_EXPECTED_ROLE_MODELS_JSON", self.health_script)
+        self.assertIn(
+            "EXPECTED_ROLE_MODELS_JSON=${role_models_json}", self.health_script
+        )
+        self.assertIn(
+            "missing = sorted(set(expected.values()) - served)",
+            self.health_script,
+        )
+        self.assertIn(
+            "if role_models != expected_role_models:",
+            self.health_script,
+        )
+        self.assertIn(
+            'if profile.get("revisionCapable") is not True:',
+            self.health_script,
+        )
+        self.assertIn(
+            'profile_evidence = profile.get("profileEvidence")',
+            self.health_script,
+        )
+        self.assertIn(
+            'if profile_evidence.get("profileId") != profile_id:',
+            self.health_script,
+        )
+        self.assertIn(
+            'if role_evidence.get("modelId") != expected_model:',
+            self.health_script,
+        )
+        self.assertIn(
+            '{"query_generate": model_id, "query_review": model_id}',
+            self.health_script,
+        )
+        self.assertIn("if len(model_ids) == 1:", self.health_script)
+        self.assertIn('"roleModels": role_models', self.health_script)
+        self.assertIn('"modelIds": model_ids', self.health_script)
 
     def test_gateway_image_contains_runtime_contracts_and_catalog(self):
         dockerfile = (ROOT / "catalyst-gateway/Dockerfile").read_text()

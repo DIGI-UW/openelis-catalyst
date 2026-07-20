@@ -5,7 +5,7 @@ from typing import Any
 from .catalog import Catalog
 
 
-QUERY_PROFILE_ID = "catalyst-query-gemma-e4b"
+QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 
@@ -40,3 +40,30 @@ def build_query_request(
             "requiredOutputContract": QUERY_OUTPUT_CONTRACT,
         },
     }
+
+
+def build_revision_query_request(
+    instruction: str,
+    catalog: Catalog,
+    *,
+    revision: dict[str, Any],
+    max_rows: int,
+    statement_timeout_ms: int,
+    request_id: str,
+    trace_id: str,
+    profile_id: str,
+) -> dict[str, Any]:
+    """Build the one-message v2 request for a complete successor query."""
+
+    request = build_query_request(
+        instruction,
+        catalog,
+        max_rows=max_rows,
+        statement_timeout_ms=statement_timeout_ms,
+        request_id=request_id,
+        trace_id=trace_id,
+        profile_id=profile_id,
+    )
+    request["catalystQuery"]["contractVersion"] = "catalyst.query.request.v2"
+    request["catalystQuery"]["revision"] = revision
+    return request

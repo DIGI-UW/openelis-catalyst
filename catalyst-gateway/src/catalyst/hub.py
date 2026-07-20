@@ -91,8 +91,16 @@ class HubClient:
 
     async def generate_query(self, request: dict[str, Any]) -> dict[str, Any]:
         try:
+            context = request.get("catalystQuery")
+            request_contract = (
+                context.get("contractVersion") if isinstance(context, dict) else None
+            )
             self.contracts.validate(
-                "catalyst-query-request-v1.schema.json",
+                (
+                    "catalyst-query-request-v2.schema.json"
+                    if request_contract == "catalyst.query.request.v2"
+                    else "catalyst-query-request-v1.schema.json"
+                ),
                 request,
             )
         except ContractError as error:
@@ -114,9 +122,16 @@ class HubClient:
             ) from error
         raw_output = self._completion_raw_output(completion)
         try:
+            contract_completion = dict(completion)
+            for evidence_field in (
+                "profileEvidence",
+                "modelInvocations",
+                "totalInvocationDurationMs",
+            ):
+                contract_completion.pop(evidence_field, None)
             self.contracts.validate(
                 "catalyst-query-completion-v1.schema.json",
-                completion,
+                contract_completion,
             )
             content = completion["choices"][0]["message"]["content"]
             query = json.loads(content)
@@ -135,6 +150,28 @@ class HubClient:
                 f"Hub returned an invalid structured query completion: {error}",
                 raw_output=raw_output,
             ) from error
+        evidence = {
+            key: query.pop(key)
+            for key in (
+                "profileEvidence",
+                "modelInvocations",
+                "totalModelInvocationDurationMs",
+            )
+            if key in query
+        }
+        evidence["exactHubResponse"] = response.text
+        evidence["hubResponseContentType"] = response.headers.get(
+            "content-type", "application/json"
+        )
+        for key in (
+            "profileEvidence",
+            "modelInvocations",
+            "totalModelInvocationDurationMs",
+        ):
+            if key in completion and key not in evidence:
+                evidence[key] = completion[key]
+        if evidence:
+            query = {**query, "_hubEvidence": evidence}
         return query
 
     async def readiness(self) -> dict[str, dict[str, Any]]:
@@ -199,6 +236,7 @@ class HubClient:
             raise HubError(
                 "hub_unavailable",
                 f"Hub returned HTTP {response.status_code}.",
+                raw_output=response.text,
             )
         return response
 

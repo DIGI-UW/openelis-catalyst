@@ -159,7 +159,7 @@ services:
       - openelis-network
 
   med-agent-hub:
-    build: ./.med-agent-hub
+    build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
     ports:
       - "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080"
     environment:

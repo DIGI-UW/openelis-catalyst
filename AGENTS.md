@@ -24,7 +24,7 @@ Do not duplicate product architecture in this file. This file is an environment
 and test runbook.
 
 The query-to-table MVP implements the target path in Gateway, analytics, the
-patched hub checkout, and `catalyst-ui/`. The earlier OGC-70
+pinned hub checkout, and `catalyst-ui/`. The earlier OGC-70
 RouterAgent/CatalystAgent/MCP path remains legacy compatibility scaffolding.
 
 ### Toolchain
@@ -98,6 +98,10 @@ Bootstrap creates:
 - `.med-agent-hub/` from
   [`pmanko/med-agent-hub`](https://github.com/pmanko/med-agent-hub)
 
+That Hub checkout is the unmodified standalone fallback. When Catalyst is run
+through the Clinical AI Validation Harness, the harness supplies its sibling
+`targets/med-agent-hub` submodule as the Compose build context instead.
+
 All services share `openelis-network`.
 
 `docker-compose.full-stack.yml` is the older co-location stack.
@@ -134,8 +138,8 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 med-agent-hub and its local model router own providers, models, prompts, stage
 ordering, review, grounding, and context budgets. The v1 query profile is fixed
 as `catalyst-query-checked`; Catalyst configures only the hub base URL. The
-bootstrap pins upstream hub commit `7869c62` and applies the checked-in query
-profile patch because this repository cannot push to the upstream hub.
+standalone bootstrap checks out the pinned Hub commit without local patches;
+the harness owns and pins the same Hub repository as a sibling submodule.
 
 #### Current prototype
 

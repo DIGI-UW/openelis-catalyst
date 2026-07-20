@@ -146,16 +146,38 @@ const catalog: WorkbenchEditorCatalog = {
   schemas: [
     {
       name: "public",
-      views: [{ name: "facilities", columns: [{ name: "id", logicalType: "string" }] }],
+      views: [{
+        name: "facilities",
+        qualifiedName: "public.facilities",
+        grain: "One row per facility.",
+        columns: [{
+          name: "id",
+          logicalType: "string",
+          nullable: false,
+          description: "Facility identifier.",
+        }],
+      }],
     },
     {
       name: "analytics",
       views: [
         {
           name: "lab_result_fact_v1",
+          qualifiedName: "analytics.lab_result_fact_v1",
+          grain: "One row per FHIR Observation.",
           columns: [
-            { name: "result_value", logicalType: "decimal" },
-            { name: "patient_id", logicalType: "string" },
+            {
+              name: "result_value",
+              logicalType: "decimal",
+              nullable: true,
+              description: "Numeric result value.",
+            },
+            {
+              name: "patient_id",
+              logicalType: "string",
+              nullable: false,
+              description: "FHIR Patient resource identifier.",
+            },
           ],
         },
       ],
@@ -172,6 +194,7 @@ const defaultProps = {
   onParametersChange: vi.fn(),
   onWrapLinesChange: vi.fn(),
   onClearDraft: vi.fn(),
+  onRestoreCurrentVersion: vi.fn(),
   onNewSession: vi.fn(),
   onValidate: vi.fn(),
   onRun: vi.fn(),
@@ -220,6 +243,17 @@ describe("WorkbenchPanel", () => {
 
     const validate = screen.getByRole("button", { name: "Validate query" });
     const run = screen.getByRole("button", { name: "Run query" });
+    const editor = screen.getByRole("textbox", { name: "SQL query" })
+      .closest(".workbench-editor")!;
+    const actions = screen.getByLabelText("Workbench actions");
+    const parameters = screen.getByRole("heading", { name: "Parameters" })
+      .closest(".workbench-parameters")!;
+    expect(
+      editor.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      actions.compareDocumentPosition(parameters) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(validate).toBeEnabled();
     expect(run).toBeEnabled();
     await user.click(validate);
@@ -244,6 +278,102 @@ describe("WorkbenchPanel", () => {
     );
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+  });
+
+  it("freezes the editor and every session mutation while a successor is generating", () => {
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession()}
+        busy="generating"
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveAttribute(
+      "contenteditable",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Wrap lines" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Format SQL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add parameter" })).toBeDisabled();
+    expect(screen.getByLabelText("Parameter 1 name")).toBeDisabled();
+    expect(screen.getByLabelText("Parameter 1 type")).toBeDisabled();
+    expect(screen.getByLabelText("Parameter 1 value")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Remove parameter 1" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+  });
+
+  it("offers an explicit restore action after the user clears the draft", async () => {
+    const user = userEvent.setup();
+    const onRestoreCurrentVersion = vi.fn();
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession()}
+        sql=""
+        parameters={[]}
+        onRestoreCurrentVersion={onRestoreCurrentVersion}
+      />,
+    );
+
+    const restore = screen.getByRole("button", { name: "Restore Query v1" });
+    expect(restore).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    await user.click(restore);
+    expect(onRestoreCurrentVersion).toHaveBeenCalledOnce();
+  });
+
+  it("keeps prior results visible and marks them stale when the editor changes", () => {
+    const execution: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: version!.queryDigest,
+      idempotencyKey: "run-stale",
+      validationStatus: "valid",
+      query: { sql: SQL, parameters: [parameter] },
+      statementTimeoutMs: 3000,
+      maxRows: 100,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "patient_id",
+            databaseType: "text",
+            typeOid: 25,
+            logicalType: "string",
+          },
+        ],
+        rows: [[{ type: "string", value: "patient-7" }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 7,
+      executionId: "execution-stale",
+      sessionId: "session-1",
+      versionId: version!.versionId,
+      ordinal: 1,
+      completedAt: "2026-07-17T12:02:00Z",
+    };
+
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession({ executions: [execution] })}
+        sql={`${SQL}\nLIMIT 10`}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Results from Query v1" }),
+    ).toBeVisible();
+    expect(screen.getByText("Stale — editor has changes")).toBeVisible();
+    expect(screen.getByText("patient-7")).toBeVisible();
   });
 
   it("shows the retained candidate and raw model output independently with diagnostics", () => {
@@ -420,6 +550,9 @@ describe("WorkbenchPanel", () => {
     );
 
     const results = screen.getByRole("region", { name: "Latest execution" });
+    expect(
+      results.querySelector(".workbench-execution__table-wrap--bounded"),
+    ).toBeInTheDocument();
     expect(within(results).getByRole("columnheader", { name: "patient_id" })).toBeVisible();
     expect(within(results).getByRole("columnheader", { name: "result_value" })).toBeVisible();
     expect(within(results).getByText("patient-7")).toBeVisible();
@@ -428,6 +561,127 @@ describe("WorkbenchPanel", () => {
     expect(within(results).getByText('["reviewed",1]')).toBeVisible();
     expect(within(results).getByLabelText("No value")).toBeVisible();
     expect(within(results).getByText(/truncated.*max_rows/i)).toBeVisible();
+  });
+
+  it("derives nonblocking blank-value feedback for a retained legacy execution", () => {
+    const execution: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: "sha256:query-v1",
+      idempotencyKey: "run-blank",
+      validationStatus: "valid",
+      query: { sql: SQL, parameters: [parameter] },
+      statementTimeoutMs: 3000,
+      maxRows: 100,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          { ordinal: 0, name: "name_display", databaseType: "text", typeOid: 25, logicalType: "string" },
+        ],
+        rows: [[{ type: "null" }], [{ type: "string", value: "" }]],
+        rowCount: { returned: 2, truncated: false, truncationReason: null },
+      },
+      durationMs: 7,
+      executionId: "execution-blank",
+      sessionId: "session-1",
+      versionId: "version-1",
+      ordinal: 1,
+      completedAt: "2026-07-17T12:02:00Z",
+    };
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession({ executions: [execution] })}
+      />,
+    );
+
+    const results = screen.getByRole("region", { name: "Latest execution" });
+    expect(within(results).getByText("Returned values need review")).toBeVisible();
+    expect(
+      within(results).getByText(/`name_display` was blank or NULL in all 2 returned rows/i),
+    ).toBeVisible();
+    expect(within(results).getByLabelText("No value")).toBeVisible();
+    expect(within(results).getByLabelText("Empty string")).toBeVisible();
+    expect(within(results).getByRole("table")).toBeVisible();
+    expect(within(results).getByText("Succeeded")).toBeVisible();
+  });
+
+  it("keeps backend result warnings authoritative", () => {
+    const execution: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: "sha256:query-v1",
+      idempotencyKey: "run-authoritative-warning",
+      validationStatus: "valid",
+      query: { sql: SQL, parameters: [parameter] },
+      statementTimeoutMs: 3000,
+      maxRows: 100,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          { ordinal: 0, name: "name_display", databaseType: "text", typeOid: 25, logicalType: "string" },
+        ],
+        rows: [[{ type: "null" }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+        warnings: ["Authoritative execution warning."],
+      },
+      durationMs: 7,
+      executionId: "execution-authoritative-warning",
+      sessionId: "session-1",
+      versionId: "version-1",
+      ordinal: 1,
+      completedAt: "2026-07-17T12:02:00Z",
+    };
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession({ executions: [execution] })}
+      />,
+    );
+
+    const results = screen.getByRole("region", { name: "Latest execution" });
+    expect(within(results).getByText("Authoritative execution warning.")).toBeVisible();
+    expect(within(results).queryByText(/name_display.*blank or NULL/i)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a successful zero-row result from blank returned values", () => {
+    const execution: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: "sha256:query-v1",
+      idempotencyKey: "run-empty",
+      validationStatus: "valid",
+      query: { sql: SQL, parameters: [parameter] },
+      statementTimeoutMs: 3000,
+      maxRows: 100,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          { ordinal: 0, name: "name_display", databaseType: "text", typeOid: 25, logicalType: "string" },
+        ],
+        rows: [],
+        rowCount: { returned: 0, truncated: false, truncationReason: null },
+      },
+      durationMs: 6,
+      executionId: "execution-empty",
+      sessionId: "session-1",
+      versionId: "version-1",
+      ordinal: 1,
+      completedAt: "2026-07-17T12:02:00Z",
+    };
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession({ executions: [execution] })}
+      />,
+    );
+
+    const results = screen.getByRole("region", { name: "Latest execution" });
+    expect(
+      within(results).getByText(/ran successfully but matched no rows/i),
+    ).toBeVisible();
+    expect(within(results).queryByText("Returned values need review")).not.toBeInTheDocument();
+    expect(within(results).queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("renders a failed database diagnostic with actionable fields", () => {
