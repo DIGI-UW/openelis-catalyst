@@ -124,4 +124,32 @@ describe("SqlEditor", () => {
     expect(screen.getByRole("button", { name: "Wrap lines" })).toHaveFocus();
     expect(onChange).not.toHaveBeenCalledWith(expect.stringContaining("\t"));
   });
+
+  it("waits to honor a focus request until a generated editor unlocks", async () => {
+    const { rerender } = render(
+      <SqlEditor
+        label="Generated SQL"
+        value="SELECT 1"
+        onChange={vi.fn()}
+        readOnly
+        focusRequestId={1}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Generated SQL" })).not.toHaveFocus();
+
+    rerender(
+      <SqlEditor
+        label="Generated SQL"
+        value="SELECT 2"
+        onChange={vi.fn()}
+        readOnly={false}
+        focusRequestId={1}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Generated SQL" })).toHaveFocus(),
+    );
+  });
 });

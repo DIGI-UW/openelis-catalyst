@@ -159,8 +159,8 @@ export const SqlEditor = ({
   }, [readOnly]);
 
   useEffect(() => {
-    if (focusRequestId > 0) viewRef.current?.focus();
-  }, [focusRequestId]);
+    if (focusRequestId > 0 && !readOnly) viewRef.current?.focus();
+  }, [focusRequestId, readOnly]);
 
   const toggleWrapping = () => {
     const nextValue = !wrapLines;
