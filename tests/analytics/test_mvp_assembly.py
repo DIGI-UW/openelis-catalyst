@@ -445,6 +445,17 @@ class MvpScriptContractTests(unittest.TestCase):
         script = (ROOT / "scripts/mvp-seed.sh").read_text()
         self.assertIn("--set=ON_ERROR_STOP=1", script)
 
+    def test_seed_gates_the_semantic_cohort_not_only_its_row_count(self):
+        script = (ROOT / "scripts/mvp-seed.sh").read_text()
+        self.assertIn("count(DISTINCT test_name)", script)
+        self.assertIn("WHERE test_name = 'Viral Load'", script)
+        self.assertIn(
+            "1152|96|9|384|1152|9|2025-07-15|2026-04-27",
+            script,
+        )
+        self.assertIn("FROM public.service_request_flat_v1", script)
+        self.assertIn("1152|1152|9", script)
+
     def test_http_readiness_and_backfill_calls_are_bounded(self):
         for relative_path in (
             "scripts/mvp-seed.sh",

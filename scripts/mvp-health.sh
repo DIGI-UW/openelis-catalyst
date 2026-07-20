@@ -283,11 +283,29 @@ check_mart() {
         count(DISTINCT patient_id)::text || '|' ||
         count(DISTINCT test_name)::text || '|' ||
         count(*) FILTER (WHERE test_name = 'Viral Load')::text || '|' ||
+        count(*) FILTER (
+          WHERE test_code_system = 'http://loinc.org'
+            AND NULLIF(test_code, '') IS NOT NULL
+        )::text || '|' ||
+        count(DISTINCT test_code)::text || '|' ||
         min(observed_at)::date::text || '|' ||
         max(observed_at)::date::text
       FROM analytics.lab_result_fact_v1;
     "
-  )" = "1152|96|9|384|2025-07-15|2026-04-27" &&
+  )" = "1152|96|9|384|1152|9|2025-07-15|2026-04-27" &&
+    test "$(
+      analytics_psql --command="
+        SELECT
+          count(*)::text || '|' ||
+          count(*) FILTER (
+            WHERE test_code_system = 'http://loinc.org'
+              AND NULLIF(test_code, '') IS NOT NULL
+              AND NULLIF(test_name, '') IS NOT NULL
+          )::text || '|' ||
+          count(DISTINCT test_code)::text
+        FROM public.service_request_flat_v1;
+      "
+    )" = "1152|1152|9" &&
     test "$(
       analytics_psql --command="
         SELECT count(*)

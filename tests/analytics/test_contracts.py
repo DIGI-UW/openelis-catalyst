@@ -175,6 +175,9 @@ class SeedContractTests(unittest.TestCase):
         cls.seed = (
             ANALYTICS / "openelis/seed-openelis-3.2.1.sql"
         ).read_text()
+        cls.cohort_seed = (
+            ANALYTICS / "openelis/seed-catalyst-cohort-v1.sql"
+        ).read_text()
         cls.backfill = (ANALYTICS / "openelis/backfill-hapi.sh").read_text()
         cls.runner = (ROOT / "scripts/mvp-seed.sh").read_text()
 
@@ -201,6 +204,33 @@ class SeedContractTests(unittest.TestCase):
         )
         self.assertEqual(["1200", "450", "80"], value_rows)
         self.assertEqual(3, len(set(re.findall(r"'CATVL\d{4}'", self.seed))))
+
+    def test_cohort_seed_supplies_exportable_test_terminology(self):
+        mappings = {
+            "b50d156e-0f6f-40cd-921c-4e831602a623": "25836-8",
+            "a6718123-8d56-4103-9bbe-26b19306b83d": "24467-3",
+            "614652de-5e04-4fe7-a897-77d976317d2b": "8123-2",
+            "466b3775-e117-4268-92a7-3d3de95d43b3": "718-7",
+            "17ff4ca7-b8b6-44a1-bae0-97f38affc35c": "777-3",
+            "e08bdd35-b7e4-4910-ae73-da5b6447e901": "6690-2",
+            "d7f672c4-52ea-4c26-bdf0-e9527d2ba95f": "2160-0",
+            "3a3661a1-a166-4590-90bc-937912789739": "1742-6",
+            "8410a83b-d09a-475d-a71c-1fcbcca94e58": "2345-7",
+        }
+        for test_guid, loinc in mappings.items():
+            self.assertIn(f"('{test_guid}', '{loinc}')", self.cohort_seed)
+        self.assertIn(
+            "AND NULLIF(btrim(test.loinc), '') IS NULL",
+            self.cohort_seed,
+        )
+        self.assertIn(
+            "Catalyst fixture test lacks an exportable LOINC code",
+            self.cohort_seed,
+        )
+        self.assertIn(
+            "Catalyst fixture test has a conflicting LOINC code",
+            self.cohort_seed,
+        )
 
     def test_backfill_waits_for_every_resource_contract(self):
         self.assertIn("/OEToFhir", self.backfill)

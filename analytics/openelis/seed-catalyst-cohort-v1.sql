@@ -28,6 +28,25 @@ CREATE TEMP TABLE catalyst_fixture_result (
     accession_number text NOT NULL UNIQUE
 ) ON COMMIT DROP;
 
+-- OpenELIS omits FHIR CodeableConcepts when a test has neither an active
+-- terminology mapping nor a legacy test.loinc value. Keep the synthetic
+-- fixture exportable while preserving any nonblank site-configured mapping.
+CREATE TEMP TABLE catalyst_fixture_test_terminology (
+    test_guid uuid PRIMARY KEY,
+    loinc text NOT NULL
+) ON COMMIT DROP;
+
+INSERT INTO catalyst_fixture_test_terminology VALUES
+    ('b50d156e-0f6f-40cd-921c-4e831602a623', '25836-8'),
+    ('a6718123-8d56-4103-9bbe-26b19306b83d', '24467-3'),
+    ('614652de-5e04-4fe7-a897-77d976317d2b', '8123-2'),
+    ('466b3775-e117-4268-92a7-3d3de95d43b3', '718-7'),
+    ('17ff4ca7-b8b6-44a1-bae0-97f38affc35c', '777-3'),
+    ('e08bdd35-b7e4-4910-ae73-da5b6447e901', '6690-2'),
+    ('d7f672c4-52ea-4c26-bdf0-e9527d2ba95f', '2160-0'),
+    ('3a3661a1-a166-4590-90bc-937912789739', '1742-6'),
+    ('8410a83b-d09a-475d-a71c-1fcbcca94e58', '2345-7');
+
 -- Complete the original patient trajectory with an undetectable-boundary result.
 INSERT INTO catalyst_fixture_result VALUES (
     1,
@@ -162,6 +181,45 @@ BEGIN
         WHERE test.id IS NULL
     ) THEN
         RAISE EXCEPTION 'Catalyst cohort references a missing or inactive test GUID';
+    END IF;
+
+    IF EXISTS (
+        SELECT fixture.test_guid
+        FROM (SELECT DISTINCT test_guid FROM catalyst_fixture_result) AS fixture
+        LEFT JOIN catalyst_fixture_test_terminology AS terminology
+          ON terminology.test_guid = fixture.test_guid
+        WHERE terminology.test_guid IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Catalyst cohort test is missing fixture terminology';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM catalyst_fixture_test_terminology AS terminology
+        JOIN clinlims.test AS test ON test.guid = terminology.test_guid::text
+        WHERE NULLIF(btrim(test.loinc), '') IS NOT NULL
+          AND test.loinc <> terminology.loinc
+    ) THEN
+        RAISE EXCEPTION 'Catalyst fixture test has a conflicting LOINC code';
+    END IF;
+
+    UPDATE clinlims.test AS test
+    SET loinc = terminology.loinc,
+        lastupdated = GREATEST(
+            COALESCE(test.lastupdated, timestamp '2026-07-16 00:00:00'),
+            timestamp '2026-07-16 00:00:00'
+        )
+    FROM catalyst_fixture_test_terminology AS terminology
+    WHERE test.guid = terminology.test_guid::text
+      AND NULLIF(btrim(test.loinc), '') IS NULL;
+
+    IF EXISTS (
+        SELECT 1
+        FROM catalyst_fixture_test_terminology AS terminology
+        JOIN clinlims.test AS test ON test.guid = terminology.test_guid::text
+        WHERE NULLIF(btrim(test.loinc), '') IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Catalyst fixture test lacks an exportable LOINC code';
     END IF;
 
     FOR v_patient IN SELECT generate_series(1, 96) AS patient_index LOOP

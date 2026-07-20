@@ -19,7 +19,7 @@
   "viralLoad": {
     "openelisTestGuid": "b50d156e-0f6f-40cd-921c-4e831602a623",
     "unit": "copies/ml",
-    "terminologyGuidance": "LOINC 20447-9",
+    "terminologyGuidance": "LOINC 25836-8",
     "trajectories": [
       "sustained-suppression",
       "improving-to-suppression",
@@ -38,6 +38,21 @@
     "GPT/ALAT",
     "Glucose"
   ],
+  "terminology": {
+    "system": "http://loinc.org",
+    "assignmentRule": "Populate a blank OpenELIS test.loinc value only; preserve nonblank site-configured mappings.",
+    "mappings": [
+      {"test": "Viral Load", "openelisTestGuid": "b50d156e-0f6f-40cd-921c-4e831602a623", "code": "25836-8", "basis": "OpenELIS 3.2.1.11 Liquibase mapping"},
+      {"test": "CD4 absolute count", "openelisTestGuid": "a6718123-8d56-4103-9bbe-26b19306b83d", "code": "24467-3", "basis": "Active LOINC term; fixture mapping pending upstream catalog curation"},
+      {"test": "CD4 percent (%)", "openelisTestGuid": "614652de-5e04-4fe7-a897-77d976317d2b", "code": "8123-2", "basis": "Active LOINC term; fixture mapping pending upstream catalog curation"},
+      {"test": "Hemoglobin", "openelisTestGuid": "466b3775-e117-4268-92a7-3d3de95d43b3", "code": "718-7", "basis": "OpenELIS 3.2.1.11 Liquibase mapping"},
+      {"test": "Platelets", "openelisTestGuid": "17ff4ca7-b8b6-44a1-bae0-97f38affc35c", "code": "777-3", "basis": "OpenELIS 3.2.1.11 Liquibase mapping"},
+      {"test": "White Blood Cells Count (WBC)", "openelisTestGuid": "e08bdd35-b7e4-4910-ae73-da5b6447e901", "code": "6690-2", "basis": "OpenELIS 3.2.1.11 Liquibase mapping"},
+      {"test": "Creatinine", "openelisTestGuid": "d7f672c4-52ea-4c26-bdf0-e9527d2ba95f", "code": "2160-0", "basis": "OpenELIS 3.2.1.11 shipped test configuration"},
+      {"test": "GPT/ALAT", "openelisTestGuid": "3a3661a1-a166-4590-90bc-937912789739", "code": "1742-6", "basis": "Active LOINC term used by the canonical ALT row; fixture mapping pending upstream catalog curation"},
+      {"test": "Glucose", "openelisTestGuid": "8410a83b-d09a-475d-a71c-1fcbcca94e58", "code": "2345-7", "basis": "OpenELIS 3.2.1.11 shipped test configuration"}
+    ]
+  },
   "sourceResearch": {
     "openmrsDemo": {
       "patients": 5284,
@@ -52,6 +67,6 @@
     },
     "synthea": "Breadth reference only; not a runtime dependency",
     "who": "Threshold and trajectory semantics",
-    "loinc": "Terminology guidance only unless a direct mapping is separately verified"
+    "loinc": "Fixture mappings and their OpenELIS or LOINC basis are recorded above; inferred mappings are not production terminology governance."
   }
 }
