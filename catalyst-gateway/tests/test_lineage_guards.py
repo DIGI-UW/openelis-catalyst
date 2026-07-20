@@ -130,11 +130,17 @@ class LineageHub:
         mismatched_response_profile: bool = False,
         omit_reviewer_invocation: bool = False,
         mismatched_reviewer_model: bool = False,
+        writer_outcome: str = "succeeded",
+        reviewer_outcome: str = "succeeded",
+        repair_linted_writer: bool = False,
     ) -> None:
         self.requests: list[dict] = []
         self.mismatched_response_profile = mismatched_response_profile
         self.omit_reviewer_invocation = omit_reviewer_invocation
         self.mismatched_reviewer_model = mismatched_reviewer_model
+        self.writer_outcome = writer_outcome
+        self.reviewer_outcome = reviewer_outcome
+        self.repair_linted_writer = repair_linted_writer
 
     async def list_query_profiles(self) -> list[dict]:
         evidence = _profile_evidence()
@@ -178,6 +184,53 @@ class LineageHub:
                 "contextSourceIds": [context["catalog"]["contextSourceId"]],
             },
         }
+        if self.repair_linted_writer:
+            query["sql"] = query["sql"].replace(
+                " LIMIT 2", " ORDER BY test_name LIMIT 2"
+            )
+            final_candidate = {
+                key: deepcopy(query[key])
+                for key in (
+                    "status",
+                    "target",
+                    "sql",
+                    "parameters",
+                    "expectedColumns",
+                )
+            }
+            writer_candidate = deepcopy(final_candidate)
+            writer_candidate["sql"] = (
+                "SELECT invented_writer_column FROM analytics.lab_results LIMIT 2"
+            )
+            writer_candidate["expectedColumns"] = [
+                {
+                    "name": "invented_writer_column",
+                    "logicalType": "string",
+                    "nullable": False,
+                }
+            ]
+            query["modelCollaboration"] = {
+                "writer": {
+                    "model": "gemma-4-12b",
+                    "candidate": writer_candidate,
+                    "lintFindings": [
+                        {
+                            "code": "catalog.unknown_column",
+                            "stage": "catalog_identifiers",
+                            "severity": "error",
+                            "path": "sql",
+                            "message": "SQL references a field absent from the catalog.",
+                        }
+                    ],
+                },
+                "reviewer": {
+                    "model": "qwen-2.5-14b",
+                    "decision": "repair",
+                    "candidate": final_candidate,
+                    "checks": [{"name": "field-grounding", "status": "passed"}],
+                },
+                "finalLintFindings": [],
+            }
         response_profile = _profile_evidence()
         if self.mismatched_response_profile:
             response_profile["profileId"] = "catalyst-query-other"
@@ -203,8 +256,25 @@ class LineageHub:
                 "durationMs": 1000,
                 "requestDigest": canonical_sha256(request),
                 "responseDigest": canonical_sha256(query),
-                "failureDigest": None,
-                "outcome": "succeeded",
+                "failureDigest": (
+                    canonical_sha256(
+                        {
+                            "outcome": (
+                                "validation_failed"
+                                if self.repair_linted_writer
+                                else self.writer_outcome
+                            )
+                        }
+                    )
+                    if self.repair_linted_writer
+                    or self.writer_outcome != "succeeded"
+                    else None
+                ),
+                "outcome": (
+                    "validation_failed"
+                    if self.repair_linted_writer
+                    else self.writer_outcome
+                ),
             }
         ]
         if not self.omit_reviewer_invocation:
@@ -234,8 +304,12 @@ class LineageHub:
                     "responseDigest": canonical_sha256(
                         {"query": query, "role": "reviewer"}
                     ),
-                    "failureDigest": None,
-                    "outcome": "succeeded",
+                    "failureDigest": (
+                        canonical_sha256({"outcome": self.reviewer_outcome})
+                        if self.reviewer_outcome != "succeeded"
+                        else None
+                    ),
+                    "outcome": self.reviewer_outcome,
                 }
             )
         query["_hubEvidence"] = {
@@ -554,8 +628,15 @@ async def test_validation_keeps_request_catalog_when_hub_await_changes_snapshot(
     [
         LineageHub(omit_reviewer_invocation=True),
         LineageHub(mismatched_reviewer_model=True),
+        LineageHub(writer_outcome="validation_failed"),
+        LineageHub(reviewer_outcome="validation_failed"),
     ],
-    ids=["missing-reviewer", "mismatched-reviewer"],
+    ids=[
+        "missing-reviewer",
+        "mismatched-reviewer",
+        "failed-writer-without-repair",
+        "failed-reviewer",
+    ],
 )
 async def test_ready_query_requires_profile_bound_writer_and_reviewer_evidence(
     tmp_path: Path,
@@ -573,6 +654,54 @@ async def test_ready_query_requires_profile_bound_writer_and_reviewer_evidence(
         session["sessionId"], turn["turnId"]
     ).body
     assert evidence["invocations"] == []
+    await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ready_query_accepts_reviewer_repair_of_linted_writer(
+    tmp_path: Path,
+) -> None:
+    hub = LineageHub()
+    service, _, _ = _service(tmp_path, hub=hub)
+
+    session = await _create_session(service)
+    base = session["currentVersion"]
+    hub.repair_linted_writer = True
+    response = await service.create_workbench_turn(
+        session["sessionId"],
+        {
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Sort these results by test name.",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": base["queryDigest"],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    turn = response.body
+    assert turn["status"] == "completed"
+    assert len(turn["outputVersions"]) == 2
+
+    restored = service.get_workbench_session(session["sessionId"]).body
+    assert restored["currentVersion"]["authorType"] == "model_repair"
+    assert "ORDER BY test_name" in restored["currentVersion"]["sql"]
+    evidence = service.get_workbench_generation_evidence(
+        session["sessionId"], turn["turnId"]
+    ).body
+    assert [item["outcome"] for item in evidence["invocations"]] == [
+        "validation_failed",
+        "succeeded",
+    ]
     await service.aclose()
 
 

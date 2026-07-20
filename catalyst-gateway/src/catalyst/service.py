@@ -1851,6 +1851,7 @@ class CatalystService:
                 f"Hub model invocation evidence is invalid: {error}",
             ) from error
 
+        validation_failed_roles: set[str] = set()
         succeeded_roles: set[str] = set()
         for invocation in invocations:
             role = str(invocation["role"])
@@ -1867,10 +1868,14 @@ class CatalystService:
                     "hub_invalid_response",
                     f"Hub {role} invocation does not match the requested profile.",
                 )
-            if invocation.get("outcome") == "succeeded":
+            outcome = invocation.get("outcome")
+            if outcome == "validation_failed":
+                validation_failed_roles.add(role)
+            if outcome == "succeeded":
                 succeeded_roles.add(role)
 
         collaboration = query.get("modelCollaboration")
+        repaired_linted_writer = False
         if isinstance(collaboration, dict):
             for role in ("writer", "reviewer"):
                 role_evidence = collaboration.get(role)
@@ -1885,13 +1890,49 @@ class CatalystService:
                         f"Hub {role} collaboration evidence does not match the "
                         "requested profile.",
                     )
+            writer_evidence = collaboration.get("writer")
+            reviewer_evidence = collaboration.get("reviewer")
+            reviewer_candidate = (
+                reviewer_evidence.get("candidate")
+                if isinstance(reviewer_evidence, dict)
+                else None
+            )
+            repaired_linted_writer = (
+                "writer" in validation_failed_roles
+                and isinstance(writer_evidence, dict)
+                and isinstance(writer_evidence.get("lintFindings"), list)
+                and bool(writer_evidence["lintFindings"])
+                and isinstance(reviewer_evidence, dict)
+                and reviewer_evidence.get("decision") == "repair"
+                and isinstance(reviewer_candidate, dict)
+                and collaboration.get("finalLintFindings") == []
+                and writer_evidence.get("disposition") in {None, "superseded"}
+                and reviewer_evidence.get("disposition") in {None, "selected"}
+                and all(
+                    query.get(key) == reviewer_candidate.get(key)
+                    for key in (
+                        "status",
+                        "target",
+                        "sql",
+                        "parameters",
+                        "expectedColumns",
+                    )
+                )
+            )
 
-        if ready and succeeded_roles != {"writer", "reviewer"}:
-            missing = ", ".join(sorted({"writer", "reviewer"} - succeeded_roles))
+        if ready and (
+            ("writer" not in succeeded_roles and not repaired_linted_writer)
+            or "reviewer" not in succeeded_roles
+        ):
+            missing = []
+            if "writer" not in succeeded_roles and not repaired_linted_writer:
+                missing.append("successful writer or coherent reviewer repair")
+            if "reviewer" not in succeeded_roles:
+                missing.append("successful reviewer invocation")
             raise HubError(
                 "hub_invalid_response",
-                "A ready Hub query requires successful invocation evidence for "
-                f"both configured roles; missing: {missing}.",
+                "A ready Hub query requires completed writer and successful reviewer "
+                f"invocation evidence; missing: {', '.join(missing)}.",
             )
 
     @staticmethod
