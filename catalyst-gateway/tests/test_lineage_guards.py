@@ -251,8 +251,9 @@ class LineageHub:
                 "modelId": "gemma-4-12b",
                 "configuration": {
                     "temperature": 0,
+                    "dryMultiplier": 0,
                     "maxTokens": None,
-                    "responseFormat": "json_object",
+                    "responseFormat": "catalyst_query_candidate_v1",
                 },
                 "startedAt": "2026-07-20T12:00:00Z",
                 "endedAt": "2026-07-20T12:00:01Z",
@@ -294,8 +295,9 @@ class LineageHub:
                     ),
                     "configuration": {
                         "temperature": 0,
+                        "dryMultiplier": 0,
                         "maxTokens": None,
-                        "responseFormat": "json_object",
+                        "responseFormat": "catalyst_query_review_v1",
                     },
                     "startedAt": "2026-07-20T12:00:01Z",
                     "endedAt": "2026-07-20T12:00:02Z",
@@ -706,6 +708,23 @@ async def test_ready_query_accepts_reviewer_repair_of_linted_writer(
         "validation_failed",
         "succeeded",
     ]
+    assert [item["configuration"] for item in evidence["invocations"]] == [
+        {
+            "temperature": 0,
+            "dryMultiplier": 0,
+            "maxTokens": None,
+            "responseFormat": "catalyst_query_candidate_v1",
+        },
+        {
+            "temperature": 0,
+            "dryMultiplier": 0,
+            "maxTokens": None,
+            "responseFormat": "catalyst_query_review_v1",
+        },
+    ]
+    ContractRegistry.load(CONTRACTS).validate(
+        "catalyst-workbench-generation-evidence-v1.schema.json", evidence
+    )
     await service.aclose()
 
 

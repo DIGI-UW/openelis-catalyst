@@ -2193,11 +2193,16 @@ class CatalystService:
                 "failureDigest",
                 "outcome",
             )
-            return [
-                {key: deepcopy(item.get(key)) for key in fields}
-                for item in supplied
-                if isinstance(item, dict)
-            ]
+            projected: list[dict[str, Any]] = []
+            for item in supplied:
+                if not isinstance(item, dict):
+                    continue
+                invocation = {key: deepcopy(item.get(key)) for key in fields}
+                configuration = item.get("configuration")
+                if isinstance(configuration, dict):
+                    invocation["configuration"] = deepcopy(configuration)
+                projected.append(invocation)
+            return projected
         # Model invocations are Hub-owned evidence. A Gateway-to-Hub request is
         # not relabelled as a writer call when the Hub could not report whether
         # dispatch occurred (transport failure, cancellation, or non-2xx).

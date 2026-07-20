@@ -419,6 +419,7 @@ def test_terminal_evidence_ref_is_final_in_immutable_version_and_created_event(
 
     assert evidence is not None
     assert restored is not None
+    assert "configuration" not in evidence["invocations"][0]
     final_ref = completed["generationEvidenceRef"]
     assert final_ref["evidenceDigest"] == evidence["evidenceDigest"]
     version = restored["currentVersion"]
