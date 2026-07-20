@@ -269,8 +269,7 @@ class LineageHub:
                             )
                         }
                     )
-                    if self.repair_linted_writer
-                    or self.writer_outcome != "succeeded"
+                    if self.repair_linted_writer or self.writer_outcome != "succeeded"
                     else None
                 ),
                 "outcome": (
