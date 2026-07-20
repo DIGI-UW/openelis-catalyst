@@ -445,6 +445,17 @@ class MvpScriptContractTests(unittest.TestCase):
         script = (ROOT / "scripts/mvp-seed.sh").read_text()
         self.assertIn("--set=ON_ERROR_STOP=1", script)
 
+    def test_http_readiness_and_backfill_calls_are_bounded(self):
+        for relative_path in (
+            "scripts/mvp-seed.sh",
+            "scripts/mvp-health.sh",
+            "analytics/openelis/backfill-hapi.sh",
+        ):
+            with self.subTest(path=relative_path):
+                script = (ROOT / relative_path).read_text()
+                self.assertIn("--connect-timeout", script)
+                self.assertIn("--max-time", script)
+
     def test_health_gates_full_contract_and_emits_provenance(self):
         script = (ROOT / "scripts/mvp-health.sh").read_text()
         for marker in (

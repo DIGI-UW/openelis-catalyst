@@ -8,9 +8,18 @@ OE_USERNAME="${OE_USERNAME:-admin}"
 OE_PASSWORD="${OE_PASSWORD:-adminADMIN!}"
 FHIR_WAIT_ATTEMPTS="${FHIR_WAIT_ATTEMPTS:-60}"
 FHIR_WAIT_SECONDS="${FHIR_WAIT_SECONDS:-2}"
+CURL_CONNECT_TIMEOUT_SECONDS="${MVP_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 
-oe_curl=(curl -fsS)
-hapi_curl=(curl -fsS)
+oe_curl=(
+  curl -fsS
+  --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}"
+  --max-time "${OE_BACKFILL_TIMEOUT_SECONDS:-600}"
+)
+hapi_curl=(
+  curl -fsS
+  --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}"
+  --max-time "${MVP_CURL_MAX_TIME_SECONDS:-15}"
+)
 
 if [ "${OE_TLS_INSECURE:-true}" = "true" ]; then
   oe_curl+=(-k)

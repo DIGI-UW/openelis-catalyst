@@ -6,6 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
 PINNED_OPENELIS_DOCKER_COMMIT="f118d0ae778a30028c16be2af549843ec166f655"
+CURL_CONNECT_TIMEOUT_SECONDS="${MVP_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${MVP_CURL_MAX_TIME_SECONDS:-15}"
 # shellcheck disable=SC1091
 . "${ROOT_DIR}/scripts/mvp-model-config.sh"
 model_backend_override="${MVP_MODEL_BACKEND:-}"
@@ -225,6 +227,8 @@ check_openelis_deployment_pin() {
 
 check_openelis_app() {
   curl -kfsS \
+    --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+    --max-time "${CURL_MAX_TIME_SECONDS}" \
     "https://localhost:${OPENELIS_HTTPS_PORT:-8443}/OpenELIS-Global/" \
     >/dev/null
 }
@@ -235,6 +239,8 @@ check_hapi_seed() {
   while IFS='|' read -r resource expected ids; do
     response="$(
       curl -kfsS \
+        --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+        --max-time "${CURL_MAX_TIME_SECONDS}" \
         --cert "${hapi_client_pem}" \
         "${base}/${resource}?_summary=count&_id=${ids}"
     )"
@@ -257,9 +263,14 @@ check_data_pipes() {
     git -C "${ROOT_DIR}/.fhir-data-pipes" rev-parse HEAD
   )" = "${PINNED_COMMIT}" &&
     curl -fsS \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+      --max-time "${CURL_MAX_TIME_SECONDS}" \
       "http://localhost:${DATA_PIPES_PORT:-8090}/actuator/health" >/dev/null &&
     test "$(
-      curl -fsS "http://localhost:${DATA_PIPES_PORT:-8090}/status" |
+      curl -fsS \
+        --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+        --max-time "${CURL_MAX_TIME_SECONDS}" \
+        "http://localhost:${DATA_PIPES_PORT:-8090}/status" |
         python3 -c 'import json,sys; print(json.load(sys.stdin).get("pipelineStatus", ""))'
     )" = "IDLE"
 }
@@ -415,7 +426,10 @@ PY
 }
 
 check_ui() {
-  curl -fsS "http://localhost:${CATALYST_UI_PORT:-3000}/health" >/dev/null
+  curl -fsS \
+    --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+    --max-time "${CURL_MAX_TIME_SECONDS}" \
+    "http://localhost:${CATALYST_UI_PORT:-3000}/health" >/dev/null
 }
 
 wait_for "OpenELIS deployment pin" check_openelis_deployment_pin

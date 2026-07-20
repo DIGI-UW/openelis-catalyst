@@ -7,6 +7,8 @@ ENV_FILE="${ROOT_DIR}/.env"
 COMPOSE_FILE="${OPENELIS_COMPOSE_FILE:-${ROOT_DIR}/docker-compose.mvp.yml}"
 DB_SERVICE="${OPENELIS_DB_SERVICE:-db.openelis.org}"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+CURL_CONNECT_TIMEOUT_SECONDS="${MVP_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
+CURL_MAX_TIME_SECONDS="${MVP_CURL_MAX_TIME_SECONDS:-15}"
 model_backend_override="${MVP_MODEL_BACKEND:-}"
 external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
 local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
@@ -151,7 +153,10 @@ wait_for_url() {
   local attempts="${3:-120}"
   local attempt
   for attempt in $(seq 1 "${attempts}"); do
-    if curl -kfsS "${url}" >/dev/null 2>&1; then
+    if curl -kfsS \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+      --max-time "${CURL_MAX_TIME_SECONDS}" \
+      "${url}" >/dev/null 2>&1; then
       echo "OK: ${name}"
       return 0
     fi
@@ -180,6 +185,8 @@ chmod 600 "${hapi_client_p12}" "${hapi_client_pem}"
 
 for attempt in $(seq 1 "${FHIR_WAIT_ATTEMPTS:-120}"); do
   if curl -kfsS \
+    --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+    --max-time "${CURL_MAX_TIME_SECONDS}" \
     --cert "${hapi_client_pem}" \
     "https://localhost:${HAPI_HTTPS_PORT:-8444}/fhir/metadata" \
     >/dev/null 2>&1; then
@@ -251,6 +258,8 @@ run_id="full-$(date -u +%Y%m%dT%H%M%SZ)"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 run_response="$(
   curl -fsS -X POST \
+    --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+    --max-time "${MVP_DATA_PIPES_REQUEST_TIMEOUT_SECONDS:-30}" \
     "http://localhost:${DATA_PIPES_PORT:-8090}/run?runMode=FULL"
 )"
 if [ "${run_response}" != "SUCCESS" ]; then
@@ -260,7 +269,10 @@ fi
 
 for attempt in $(seq 1 "${DATA_PIPES_RUN_ATTEMPTS:-180}"); do
   status="$(
-    curl -fsS "http://localhost:${DATA_PIPES_PORT:-8090}/status" |
+    curl -fsS \
+      --connect-timeout "${CURL_CONNECT_TIMEOUT_SECONDS}" \
+      --max-time "${CURL_MAX_TIME_SECONDS}" \
+      "http://localhost:${DATA_PIPES_PORT:-8090}/status" |
       python3 -c 'import json,sys; print(json.load(sys.stdin).get("pipelineStatus", ""))'
   )"
   if [ "${status}" = "IDLE" ]; then
