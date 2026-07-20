@@ -387,6 +387,8 @@ export const QueryWorkspace = ({
     "validating" | "running" | null
   >(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
+  const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
+  const [sqlEditorFocusRequestId, setSqlEditorFocusRequestId] = useState(0);
   const [workbenchTimeline, setWorkbenchTimeline] =
     useState<WorkbenchTurnTimeline | null>(null);
   const [followupInstruction, setFollowupInstruction] = useState("");
@@ -597,6 +599,8 @@ export const QueryWorkspace = ({
     setWorkbenchParameters([]);
     setWorkbenchBusy(null);
     setWorkbenchError(null);
+    setWorkbenchAnnouncement("");
+    setSqlEditorFocusRequestId(0);
     setWorkbenchTimeline(null);
     setFollowupInstruction("");
     setFollowupBusy(false);
@@ -715,6 +719,7 @@ export const QueryWorkspace = ({
 
     setFollowupBusy(true);
     setWorkbenchError(null);
+    setWorkbenchAnnouncement("");
     setGenerationEvidence(null);
     setGenerationEvidenceError(null);
     const baseVersion = workbenchSession.currentVersion;
@@ -777,6 +782,18 @@ export const QueryWorkspace = ({
         setWorkbenchTimeline(
           await api.getWorkbenchTurns(workbenchSession.sessionId),
         );
+      }
+      if (
+        turn.status === "completed" &&
+        turn.resultingCurrentVersion &&
+        restored.currentVersion?.versionId ===
+          turn.resultingCurrentVersion.versionId
+      ) {
+        setWorkbenchAnnouncement(
+          `Query v${restored.currentVersion.ordinal} generated. ` +
+            "The SQL editor now contains the successor query.",
+        );
+        setSqlEditorFocusRequestId((requestId) => requestId + 1);
       }
       setFollowupInstruction("");
     } catch (error) {
@@ -924,6 +941,8 @@ export const QueryWorkspace = ({
           wrapLines={workbenchWrapLines}
           busy={followupBusy ? "generating" : workbenchBusy}
           error={workbenchError}
+          announcement={workbenchAnnouncement}
+          sqlEditorFocusRequestId={sqlEditorFocusRequestId}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}

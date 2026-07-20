@@ -179,6 +179,9 @@ class MvpComposeContractTests(unittest.TestCase):
             "proxy_read_timeout 420s",
             (ROOT / "catalyst-ui/nginx.conf").read_text(),
         )
+        ui_proxy = (ROOT / "catalyst-ui/nginx.conf").read_text()
+        self.assertIn("resolver 127.0.0.11 valid=10s ipv6=off", ui_proxy)
+        self.assertIn("proxy_pass $catalyst_gateway", ui_proxy)
 
     def test_external_gemma_router_is_the_recommended_manual_backend(self):
         self.assertIn("MVP_MODEL_BACKEND=external", self.env)

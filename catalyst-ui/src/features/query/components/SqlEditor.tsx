@@ -18,6 +18,7 @@ export interface SqlEditorProps {
   readOnly?: boolean;
   wrapLines?: boolean;
   onWrapLinesChange?: (wrapLines: boolean) => void;
+  focusRequestId?: number;
 }
 
 const EMPTY_CATALOG: readonly SqlCatalogRelation[] = [];
@@ -30,6 +31,7 @@ export const SqlEditor = ({
   readOnly = false,
   wrapLines: controlledWrapLines,
   onWrapLinesChange,
+  focusRequestId = 0,
 }: SqlEditorProps) => {
   const labelId = useId();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -155,6 +157,10 @@ export const SqlEditor = ({
       ]),
     });
   }, [readOnly]);
+
+  useEffect(() => {
+    if (focusRequestId > 0) viewRef.current?.focus();
+  }, [focusRequestId]);
 
   const toggleWrapping = () => {
     const nextValue = !wrapLines;

@@ -816,6 +816,58 @@ describe("Catalyst query workflow", () => {
     expect(api.executeWorkbenchVersion).not.toHaveBeenCalled();
   });
 
+  it("announces a generated successor and returns focus to the single SQL editor", async () => {
+    const successorVersion = {
+      ...workbenchVersion,
+      versionId: completedFollowupTurn.resultingCurrentVersion.versionId,
+      parentVersionId: workbenchVersion.versionId,
+      ordinal: 2,
+      sql: `${workbenchVersion.sql} AND result_status = 'final'`,
+      queryDigest: completedFollowupTurn.resultingCurrentVersion.queryDigest,
+      createdAt: "2026-07-17T00:00:03Z",
+    } satisfies WorkbenchQueryVersion;
+    const successorSession = {
+      ...notebookSession,
+      currentVersionId: successorVersion.versionId,
+      currentVersion: successorVersion,
+      versions: [workbenchVersion, successorVersion],
+      updatedAt: successorVersion.createdAt,
+    } satisfies WorkbenchSession;
+    const successorTimeline = {
+      ...notebookTimeline,
+      currentTurnId: completedFollowupTurn.turnId,
+      currentVersion: completedFollowupTurn.resultingCurrentVersion,
+      turns: [initialNotebookTurn, completedFollowupTurn],
+    };
+    const api = makeNotebookApi();
+    api.getWorkbenchSession = vi.fn().mockResolvedValue(successorSession);
+    api.getWorkbenchTurns = vi.fn()
+      .mockResolvedValueOnce(notebookTimeline)
+      .mockResolvedValueOnce(successorTimeline);
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const editor = await screen.findByRole("textbox", { name: "SQL query" });
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Only include released results",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Query v2 generated. The SQL editor now contains the successor query.",
+      ),
+    ).toHaveAttribute("role", "status");
+    await waitFor(() => expect(editor).toHaveFocus());
+    expect(editor).toHaveTextContent(successorVersion.sql);
+    expect(screen.getAllByRole("textbox", { name: "SQL query" })).toHaveLength(1);
+  });
+
   it("submits a dirty contract-valid buffer exactly and lets the turn endpoint promote it once", async () => {
     const api = makeNotebookApi();
     const user = userEvent.setup();

@@ -52,6 +52,8 @@ interface WorkbenchPanelProps {
   wrapLines: boolean;
   busy?: "generating" | "validating" | "running" | null;
   error?: string | null;
+  announcement?: string;
+  sqlEditorFocusRequestId?: number;
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
@@ -867,6 +869,8 @@ export const WorkbenchPanel = ({
   wrapLines,
   busy = null,
   error = null,
+  announcement = "",
+  sqlEditorFocusRequestId = 0,
   onSqlChange,
   onParametersChange,
   onWrapLinesChange,
@@ -916,6 +920,15 @@ export const WorkbenchPanel = ({
         />
       )}
 
+      <p
+        className="visually-hidden"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </p>
+
       {!session.currentVersion && session.draftSeed && (
         <InlineNotification
           lowContrast
@@ -935,6 +948,7 @@ export const WorkbenchPanel = ({
           readOnly={busy !== null}
           wrapLines={wrapLines}
           onWrapLinesChange={onWrapLinesChange}
+          focusRequestId={sqlEditorFocusRequestId}
         />
         {catalogLoadingFailed && (
           <p className="workbench-editor__catalog-note" role="status">
