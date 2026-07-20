@@ -37,9 +37,10 @@ The query-to-table sandbox implements that path with:
 - a pinned synthetic multi-analyte OpenELIS cohort;
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- Hub-owned Gemma and Qwen generation/review profiles selectable in the UI;
+- Hub-owned Gemma and Qwen generation/review profiles selectable in the UI,
+  with SQL roles fixed at temperature zero and DRY repetition penalty zero;
 - deterministic Catalyst SQL policy, explicit preview acceptance, read-only
-  execution, typed table contracts, and provenance;
+  execution, typed table contracts, and declared/effective model provenance;
 - a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
 
 The original `/v1/chat/completions` and Router/Agent/MCP code remain available

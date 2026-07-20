@@ -248,6 +248,12 @@ switching is allowed and fully recorded. Catalyst selects a profile ID but never
 overrides that profile's models, prompts, stages or sampling configuration. A
 profile change is digest-bound and governed in med-agent-hub.
 
+Implemented query profiles require `temperature: 0` and `dry: 0` for both roles.
+Hub sends the latter to the router as `dry_multiplier: 0`; declared role knobs
+and effective per-invocation configuration are retained in workbench evidence.
+These settings prevent a prose-oriented repetition penalty from corrupting
+repeated SQL identifiers, but they are not treated as reproducibility proof.
+
 ## Query contract
 
 Initial queries use

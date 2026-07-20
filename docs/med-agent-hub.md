@@ -57,6 +57,11 @@ Catalyst discovers query profiles and shows only those currently available.
 The profile ID is selected per turn and bound into request/response provenance;
 model IDs, prompts and sampling remain Hub-owned configuration.
 
+Catalyst query profiles use temperature zero and disable the router's DRY
+repetition penalty. Profile evidence records `dry: 0`; effective invocation
+evidence records `dryMultiplier: 0` alongside the response format and token cap.
+Older invocation evidence without that optional field remains valid.
+
 At startup and during readiness checks, Catalyst must use `GET /v1/models` to
 verify that every enabled product profile:
 
