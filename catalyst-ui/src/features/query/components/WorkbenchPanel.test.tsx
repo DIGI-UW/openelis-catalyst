@@ -435,6 +435,50 @@ describe("WorkbenchPanel", () => {
     expect(screen.queryByText(/chain.of.thought/i)).not.toBeInTheDocument();
   });
 
+  it("shows the profile that produced the current query lineage after switching", () => {
+    const switchedVersion = {
+      ...version!,
+      versionId: "version-2",
+      parentVersionId: version!.versionId,
+      ordinal: 2,
+      queryDigest: "sha256:query-v2",
+      provenance: {
+        profileId: "catalyst-query-split-models",
+        profileLabel: "Gemma writer + Qwen reviewer",
+        roleModels: {
+          query_generate: "gemma-4-12b",
+          query_review: "qwen2.5-14b",
+        },
+      },
+    };
+    const manualVersion = {
+      ...switchedVersion,
+      versionId: "version-3",
+      parentVersionId: switchedVersion.versionId,
+      ordinal: 3,
+      authorType: "human" as const,
+      queryDigest: "sha256:query-v3",
+      provenance: { editedFromVersionId: switchedVersion.versionId },
+    };
+    const switched = makeSession({
+      currentVersionId: manualVersion.versionId,
+      currentVersion: manualVersion,
+      versions: [version!, switchedVersion, manualVersion],
+    });
+
+    render(<WorkbenchPanel {...defaultProps} session={switched} />);
+
+    const provenance = screen.getByRole("region", { name: "Run provenance" });
+    expect(within(provenance).getByText("Gemma writer + Qwen reviewer"))
+      .toBeVisible();
+    expect(within(provenance).getByText("catalyst-query-split-models"))
+      .toBeVisible();
+    expect(within(provenance).getByText("gemma-4-12b")).toBeVisible();
+    expect(within(provenance).getByText("qwen2.5-14b")).toBeVisible();
+    expect(within(provenance).queryByText("Catalyst Gemma E4B"))
+      .not.toBeInTheDocument();
+  });
+
   it("shows writer and reviewer candidates, models, findings, and linked SQL versions", () => {
     const writerSql = "SELECT COUNT(*) FROM analytics.lab_results";
     const reviewerSql = "SELECT COUNT(*) AS count FROM analytics.lab_results";

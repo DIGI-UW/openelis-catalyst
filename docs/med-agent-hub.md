@@ -48,13 +48,14 @@ product dependencies.
 
 | Configuration | Default | Availability |
 | --- | --- | --- |
-| Query profile | `catalyst-query-checked` | Shipped in the pinned Hub commit |
+| Default query/revision profile | `catalyst-query-gemma-4-12b` | Gemma 4 12B writer + Qwen 2.5 14B reviewer; shipped in the pinned Hub commit |
+| Fast initial-query baseline | `catalyst-query-gemma-e4b` | Shipped in the pinned Hub commit; not revision capable |
 | Fast report profile | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 |
 | Deep report profile | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 |
 
-The v1 query profile ID is fixed as `catalyst-query-checked` because the
-normative contracts bind request and provenance to it. Report profile IDs are
-deployment configuration. Model IDs are not Catalyst configuration.
+Catalyst discovers query profiles and shows only those currently available.
+The profile ID is selected per turn and bound into request/response provenance;
+model IDs, prompts and sampling remain Hub-owned configuration.
 
 At startup and during readiness checks, Catalyst must use `GET /v1/models` to
 verify that every enabled product profile:
@@ -75,9 +76,9 @@ unmodified commit as a fallback.
 
 ## Checked query profile
 
-`catalyst-query-checked` is a new med-agent-hub product profile required by the
-query-to-table MVP. Existing answer profiles generate clinical prose and do not
-meet the structured query requirement.
+The Hub's `catalyst-query-*` product profiles implement the query-to-table MVP.
+Existing answer profiles generate clinical prose and do not meet the structured
+query requirement.
 
 The hub owns this profile's:
 
@@ -110,20 +111,26 @@ the final SQL before execution.
 
 ## Query request
 
-The normative request schema is
+Initial requests use
 [`contracts/catalyst-query-request-v1.schema.json`](contracts/catalyst-query-request-v1.schema.json).
-It defines the complete OpenAI-compatible request envelope:
+Revisions use
+[`contracts/catalyst-query-request-v2.schema.json`](contracts/catalyst-query-request-v2.schema.json)
+and the linked revision-context/editor-snapshot/turn contracts. They define the
+complete OpenAI-compatible request envelope:
 
-- `model`: fixed v1 query profile ID `catalyst-query-checked`;
+- `model`: the selected available Catalyst query profile ID;
 - `stream`: `false` for the first query-contract version;
-- `messages[0].content`: the demo user question;
-- `catalystQuery`: analytics target, compact approved catalog, non-secret query
-  policy, correlation IDs, and `requiredOutputContract: catalyst.query.v1`.
+- `messages[0].content`: the current initial or follow-up instruction;
+- `catalystQuery`: analytics target, compact runtime catalog, non-secret query
+  policy, correlation IDs, and `requiredOutputContract: catalyst.query.v1`;
+- for v2, the exact active editor SQL/parameters/digest, current stored version
+  and digest, initial instruction plus at most five prior follow-ups, and only
+  exact-base validation/execution summaries.
 
 The demo request contains no production actor, facility, tenant, or
 authorization context.
 
-The patched hub implements the `catalystQuery` extension and owns conversion of
+The pinned Hub implements the `catalystQuery` extension directly and owns conversion of
 `requiredOutputContract` into the model-backend structured-output mechanism;
 Catalyst does not configure profile internals.
 
@@ -137,6 +144,7 @@ The request does not contain:
 - arbitrary production table DDL;
 - query results;
 - patient/result rows;
+- every historical SQL copy, unrelated sessions or raw hidden traces;
 - model or sampling overrides;
 - instructions that weaken profile policy.
 
@@ -175,8 +183,9 @@ mismatch, or an approved view that was not present in the request catalog.
 Normalized intent may appear in hub trace metadata but cannot replace the
 execution contract question.
 
-Named SQL placeholders use `:name`. Parameters extracted from the question
-carry their typed JSON value.
+Named SQL placeholders use `:name` when the candidate uses parameters. Literal
+read-only SQL remains valid; named parameters are a recommendation for longer
+queries, not a mandatory generation gate.
 
 The colon syntax is the Catalyst contract grammar, not a claim that every
 warehouse driver accepts it directly. The execution adapter for the selected

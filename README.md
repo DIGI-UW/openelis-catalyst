@@ -98,7 +98,8 @@ cp env.recommended .env
 
 The recommended configuration connects the containerized Hub to the existing
 host llama.cpp router at `http://host.docker.internal:8077` and selects the
-`catalyst-query-gemma-e4b` profile backed by the exact `gemma-e4b` model ID.
+revision-capable `catalyst-query-gemma-4-12b` profile: Gemma 4 12B writes and
+Qwen 2.5 14B reviews. Both exact model IDs must be served.
 Open the sidecar at `http://localhost:3000`.
 
 To use a different OpenAI-compatible server, set its root without a trailing
@@ -109,32 +110,35 @@ export MVP_MODEL_BACKEND=external
 export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
 export MVP_EXTERNAL_MODEL_ID=my-exact-model-id
 export MVP_EXTERNAL_PROFILE_ID=my-hub-profile-id
+# For a multi-model profile, map every exact role model for this backend:
+export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","query_review":"reviewer-id"}'
 ./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
 ./scripts/mvp-health.sh
 ```
 
-The server's advertised model ID must exactly match a configured Hub profile.
-The UI marks profiles unavailable until their required model is served.
+The server's advertised model IDs must exactly match a configured Hub profile.
+The UI lists only profiles whose required models are currently served.
 
 An optional bundled fallback downloads Qwen2.5-Coder 1.5B and advertises its
 truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
 
 ```bash
-MVP_MODEL_BACKEND=local ./scripts/mvp-up.sh
+export MVP_MODEL_BACKEND=local
+./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
-MVP_MODEL_BACKEND=local ./scripts/mvp-health.sh
+./scripts/mvp-health.sh
 ```
 
 Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
 
-Deterministic fake-backend mode (the selected mode must be supplied to both
-startup and health checks, or recorded in `.env`):
+Deterministic fake-backend mode:
 
 ```bash
-MVP_MODEL_BACKEND=fake ./scripts/mvp-up.sh
+export MVP_MODEL_BACKEND=fake
+./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
-MVP_MODEL_BACKEND=fake ./scripts/mvp-health.sh
+./scripts/mvp-health.sh
 ```
 
 Stop or reset disposable demo state:
@@ -178,6 +182,8 @@ npx playwright test --project=demo-video e2e/query-to-table.spec.ts
 The seeded MVP and its local golden scenarios are engineering evidence, not
 clinical validation.
 
-The MVP exit criteria now pass. The next evaluation phase should move to the
-[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness).
-That external update is intentionally deferred.
+The automated component and mocked-browser gates pass. Live G2.8c acceptance
+with the Gemma 4 12B writer, Qwen 2.5 14B reviewer, and an independent
+PostgreSQL result comparison remains pending. The
+[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness)
+is now the active umbrella integration and experiment path.

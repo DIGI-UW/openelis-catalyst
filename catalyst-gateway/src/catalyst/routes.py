@@ -128,7 +128,9 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         payload = await _request_object(request)
         if isinstance(payload, JSONResponse):
             return payload
-        return _json_response(service.create_workbench_version(session_id, payload))
+        return _json_response(
+            await service.create_workbench_version(session_id, payload)
+        )
 
     @app.post("/v1/catalyst/workbench/versions/{version_id}/validate")
     async def validate_workbench_version(version_id: str) -> JSONResponse:

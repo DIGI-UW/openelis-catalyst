@@ -37,7 +37,10 @@ def _default_catalyst_service() -> CatalystService:
         sql_policy=SqlPolicy(max_rows=config.max_rows),
         max_rows=config.max_rows,
         statement_timeout_ms=config.statement_timeout_ms,
-        workbench_store=WorkbenchStore(config.preview_store_path),
+        workbench_store=WorkbenchStore(
+            config.preview_store_path,
+            execution_lease_seconds=config.execution_lease_seconds,
+        ),
     )
 
 

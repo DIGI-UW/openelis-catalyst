@@ -865,6 +865,50 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
   });
 
+  it("clears model expected columns after a manual SQL edit", async () => {
+    const versionWithColumns = {
+      ...workbenchVersion,
+      expectedColumns: [
+        { name: "count", logicalType: "integer" as const, nullable: false },
+      ],
+    };
+    const sessionWithColumns = {
+      ...notebookSession,
+      currentVersion: versionWithColumns,
+      versions: [versionWithColumns],
+    };
+    const api = makeNotebookApi(sessionWithColumns, {
+      ...notebookTimeline,
+      currentVersion: {
+        versionId: versionWithColumns.versionId,
+        queryDigest: versionWithColumns.queryDigest,
+      },
+    });
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await screen.findByRole("textbox", { name: "SQL query" });
+    await user.click(screen.getByRole("button", { name: "Format SQL" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Keep the manually edited limit",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const request = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1];
+    expect(request.editorSnapshot.sql).not.toBe(workbenchVersion.sql);
+    expect(request.editorSnapshot.sql).toContain("SELECT");
+    expect(request.editorSnapshot.expectedColumns).toEqual([]);
+    expect(request.editorSnapshot.editorDigest).not.toBe(
+      versionWithColumns.queryDigest,
+    );
+  });
+
   it("freezes the exact editor snapshot and session actions during follow-up generation", async () => {
     const api = makeNotebookApi();
     api.createWorkbenchTurn = vi.fn().mockImplementation(

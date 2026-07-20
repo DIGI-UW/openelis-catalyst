@@ -26,6 +26,23 @@ const PARAMETER_TYPES: readonly ParameterType[] = [
 const stableCompare = (left: string, right: string) =>
   left < right ? -1 : left > right ? 1 : 0;
 
+const versionLineage = (session: WorkbenchSession) => {
+  const lineage: NonNullable<WorkbenchSession["currentVersion"]>[] = [];
+  const visited = new Set<string>();
+  let current = session.currentVersion;
+  while (current && !visited.has(current.versionId)) {
+    lineage.push(current);
+    visited.add(current.versionId);
+    const parentVersionId = current.parentVersionId;
+    current = parentVersionId
+      ? session.versions.find(
+          (version) => version.versionId === parentVersionId,
+        ) ?? null
+      : null;
+  }
+  return lineage;
+};
+
 interface WorkbenchPanelProps {
   session: WorkbenchSession;
   sql: string;
@@ -514,10 +531,36 @@ const ParameterEditor = ({
 };
 
 const ProvenanceSummary = ({ session }: { session: WorkbenchSession }) => {
-  const profileSnapshot = recordAt(session.provenance, "profileSnapshot");
-  const profileLabel = textAt(profileSnapshot, "profileLabel") ?? session.profileId;
-  const roleModels = recordAt(profileSnapshot, "roleModels");
   const currentVersion = session.currentVersion;
+  const lineageProvenance = versionLineage(session).map(
+    (version) => version.provenance,
+  );
+  const currentProfileId =
+    lineageProvenance
+      .map((provenance) =>
+        textAt(recordAt(provenance, "profileSnapshot"), "profileId") ??
+        textAt(provenance, "profileId"),
+      )
+      .find(Boolean) ?? session.profileId;
+  const sessionProfileSnapshot = recordAt(session.provenance, "profileSnapshot");
+  const profileSnapshot =
+    lineageProvenance
+      .map((provenance) => recordAt(provenance, "profileSnapshot") ?? provenance)
+      .find(
+        (candidate) =>
+          textAt(candidate, "profileId") === currentProfileId &&
+          (textAt(candidate, "profileLabel") !== undefined ||
+            recordAt(candidate, "roleModels") !== undefined),
+      ) ??
+    (textAt(sessionProfileSnapshot, "profileId") === undefined ||
+    textAt(sessionProfileSnapshot, "profileId") === currentProfileId
+      ? sessionProfileSnapshot
+      : undefined);
+  const profileLabel =
+    textAt(profileSnapshot, "profileLabel") ??
+    textAt(profileSnapshot, "profileName") ??
+    currentProfileId;
+  const roleModels = recordAt(profileSnapshot, "roleModels");
 
   return (
     <section className="workbench-provenance" aria-labelledby="workbench-provenance-title">
@@ -532,7 +575,7 @@ const ProvenanceSummary = ({ session }: { session: WorkbenchSession }) => {
         </div>
         <div>
           <dt>Profile ID</dt>
-          <dd>{session.profileId}</dd>
+          <dd>{currentProfileId}</dd>
         </div>
         <div>
           <dt>Session</dt>

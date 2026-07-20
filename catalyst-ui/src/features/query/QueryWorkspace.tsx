@@ -90,6 +90,40 @@ const forgetActiveWorkbenchSession = () => {
 const sessionEditorDraft = (session: WorkbenchSession) =>
   session.currentVersion ?? session.draftSeed ?? null;
 
+const editorExpectedColumns = (
+  baseVersion: WorkbenchQueryVersion | null,
+  sql: string,
+) =>
+  baseVersion !== null && sql === baseVersion.sql
+    ? baseVersion.expectedColumns
+    : [];
+
+const currentQueryProfileId = (session: WorkbenchSession) => {
+  const visited = new Set<string>();
+  let version = session.currentVersion;
+  while (version && !visited.has(version.versionId)) {
+    visited.add(version.versionId);
+    const direct = version.provenance.profileId;
+    if (typeof direct === "string" && direct) return direct;
+    const nested = version.provenance.profileSnapshot;
+    const nestedProfileId =
+      typeof nested === "object" && nested !== null && !Array.isArray(nested)
+        ? (nested as Record<string, unknown>).profileId
+        : undefined;
+    if (
+      typeof nestedProfileId === "string" &&
+      nestedProfileId
+    ) {
+      return nestedProfileId;
+    }
+    const parentVersionId = version.parentVersionId;
+    version = parentVersionId
+      ? session.versions.find((candidate) => candidate.versionId === parentVersionId) ?? null
+      : null;
+  }
+  return session.profileId;
+};
+
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
@@ -131,7 +165,7 @@ const notebookGrounding = (
   const content = {
     sql,
     parameters,
-    expectedColumns: baseVersion?.expectedColumns ?? [],
+    expectedColumns: editorExpectedColumns(baseVersion, sql),
   };
   const editorDigest = editorContentMatchesVersion(content, baseVersion)
     ? baseVersion!.queryDigest
@@ -429,7 +463,7 @@ export const QueryWorkspace = ({
       .then((session) => {
         setWorkbenchSession(session);
         setQuestion(session.question);
-        setProfileId(session.profileId);
+        setProfileId(currentQueryProfileId(session));
         const draft = sessionEditorDraft(session);
         setWorkbenchSql(draft?.sql ?? "");
         setWorkbenchParameters(
@@ -609,7 +643,7 @@ export const QueryWorkspace = ({
         : {}),
       sql: workbenchSql,
       parameters: workbenchParameters,
-      expectedColumns: parent?.expectedColumns ?? [],
+      expectedColumns: editorExpectedColumns(parent, workbenchSql),
     });
     if (!session.currentVersion) {
       throw new Error("Catalyst did not return the saved query version.");
@@ -687,7 +721,7 @@ export const QueryWorkspace = ({
     const content = {
       sql: workbenchSql,
       parameters: workbenchParameters,
-      expectedColumns: baseVersion?.expectedColumns ?? [],
+      expectedColumns: editorExpectedColumns(baseVersion, workbenchSql),
     };
     const editorDigest = editorContentMatchesVersion(content, baseVersion)
       ? baseVersion!.queryDigest

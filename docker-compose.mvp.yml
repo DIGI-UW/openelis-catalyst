@@ -6,6 +6,18 @@ include:
     env_file: .openelis-docker/.env
 
 services:
+  certs:
+    image: itechuw/certgen@sha256:e27a8194300ba73309e835a4070e9ce531687eb3ee604895de781f3061791635
+
+  db.openelis.org:
+    image: itechuw/openelis-global-2-database@sha256:e801c93a8bedc41c2e502722e38585979fbbaf0e92ee4c248cdde72d9c33ec1e
+
+  oe.openelis.org:
+    image: itechuw/openelis-global-2@sha256:2217d76104051589d99eb808cef22ae692f6ad2d12a0fadc70ecc549162df36f
+
+  fhir.openelis.org:
+    image: itechuw/openelis-global-2-fhir@sha256:667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3
+
   analytics-db:
     image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
     environment:
@@ -150,7 +162,7 @@ services:
     command: ["python", "/opt/catalyst/fake-model-router.py"]
     environment:
       MODEL_ROUTER_PORT: "8077"
-      MODEL_ROUTER_MODEL_IDS: "${MVP_FAKE_MODEL_IDS:-gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m}"
+      MODEL_ROUTER_MODEL_IDS: "${MVP_FAKE_MODEL_IDS:-gemma-e4b,gemma-4-12b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m}"
     volumes:
       - ./scripts/fake-model-router.py:/opt/catalyst/fake-model-router.py:ro
     expose:

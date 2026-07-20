@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ANALYTICS = ROOT / "analytics"
 PINNED_DATA_PIPES_COMMIT = "3ea890884d674e2f31257a2da421601f2d75b5e9"
+PINNED_OPENELIS_DOCKER_COMMIT = "f118d0ae778a30028c16be2af549843ec166f655"
 
 
 def load_simple_yaml_section(text, section):
@@ -47,6 +48,13 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertRegex(script, r"git (?:-C .* )?checkout --detach")
         self.assertRegex(script, r"rev-parse HEAD")
         self.assertIn(".fhir-data-pipes/", (ROOT / ".gitignore").read_text().splitlines())
+
+    def test_openelis_bootstrap_is_pinned_and_detached(self):
+        script = (ROOT / "scripts/bootstrap-openelis.sh").read_text()
+        self.assertIn(PINNED_OPENELIS_DOCKER_COMMIT, script)
+        self.assertIn("checkout --detach FETCH_HEAD", script)
+        self.assertIn("rev-parse HEAD", script)
+        self.assertNotIn('OPENELIS_DOCKER_REF:-main', script)
 
 
 class DataPipesConfigTests(unittest.TestCase):
@@ -199,6 +207,8 @@ class SeedContractTests(unittest.TestCase):
         self.assertIn("checkAll=true", self.backfill)
         self.assertIn("waitForResults=true", self.backfill)
         self.assertIn("HAPI_CLIENT_P12", self.backfill)
+        self.assertIn("if not raw:", self.backfill)
+        self.assertIn("checking HAPI state", self.backfill)
         for resource, count in {
             "Patient": 1,
             "Observation": 3,

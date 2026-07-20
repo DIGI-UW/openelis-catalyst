@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 import json
 from pathlib import Path
 import sqlite3
 
 from fastapi.testclient import TestClient
+import pytest
 
 from src import gateway
 from src.catalyst.analytics import (
@@ -332,6 +334,11 @@ class FakeHub:
                 "attempt": 1,
                 "providerId": profile["writer"]["providerId"],
                 "modelId": profile["writer"]["modelId"],
+                "configuration": {
+                    "temperature": 0,
+                    "maxTokens": None,
+                    "responseFormat": "json_object",
+                },
                 "startedAt": timestamp,
                 "endedAt": timestamp,
                 "durationMs": 1,
@@ -341,28 +348,32 @@ class FakeHub:
                 "outcome": "succeeded",
             }
         ]
-        if isinstance(query.get("modelCollaboration"), dict):
-            invocations.append(
-                {
-                    "invocationId": "00000000-0000-0000-0000-000000000102",
-                    "role": "reviewer",
-                    "stage": "review",
-                    "attempt": 1,
-                    "providerId": profile["reviewer"]["providerId"],
-                    "modelId": profile["reviewer"]["modelId"],
-                    "startedAt": timestamp,
-                    "endedAt": timestamp,
-                    "durationMs": 1,
-                    "requestDigest": canonical_sha256(
-                        {"request": request, "role": "reviewer"}
-                    ),
-                    "responseDigest": canonical_sha256(
-                        {"query": query, "role": "reviewer"}
-                    ),
-                    "failureDigest": None,
-                    "outcome": "succeeded",
-                }
-            )
+        invocations.append(
+            {
+                "invocationId": "00000000-0000-0000-0000-000000000102",
+                "role": "reviewer",
+                "stage": "review",
+                "attempt": 1,
+                "providerId": profile["reviewer"]["providerId"],
+                "modelId": profile["reviewer"]["modelId"],
+                "configuration": {
+                    "temperature": 0,
+                    "maxTokens": None,
+                    "responseFormat": "json_object",
+                },
+                "startedAt": timestamp,
+                "endedAt": timestamp,
+                "durationMs": 1,
+                "requestDigest": canonical_sha256(
+                    {"request": request, "role": "reviewer"}
+                ),
+                "responseDigest": canonical_sha256(
+                    {"query": query, "role": "reviewer"}
+                ),
+                "failureDigest": None,
+                "outcome": "succeeded",
+            }
+        )
         query["_hubEvidence"] = {
             "profileEvidence": profile,
             "modelInvocations": invocations,
@@ -440,6 +451,23 @@ class FakeAnalytics:
             "offset": kwargs["offset"],
             "rows": [],
         }
+
+
+class BlockingFakeAnalytics(FakeAnalytics):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute_manual(self, **kwargs) -> ManualAnalyticsResult:
+        self.manual_calls.append(deepcopy(kwargs))
+        self.started.set()
+        await self.release.wait()
+        return ManualAnalyticsResult(
+            columns=[AnalyticsColumn(0, "test_name", "text", 25, "string")],
+            rows=[[{"type": "string", "value": "Malaria"}]],
+            truncated=False,
+        )
 
 
 def _client(
@@ -898,6 +926,21 @@ def test_collaboration_persists_writer_and_reviewer_as_linked_versions(
     assert restored.json()["versions"] == [writer, reviewer]
 
 
+def test_collaboration_models_must_match_requested_profile(tmp_path: Path) -> None:
+    query = _collaborative_query()
+    query["modelCollaboration"]["reviewer"]["model"] = "unexpected-reviewer"
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+
+    assert session["currentVersion"] is None
+    turns = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"]
+    assert turns[0]["status"] == "failed"
+    assert turns[0]["failure"]["code"] == "hub_invalid_response"
+
+
 def test_literal_predicate_is_valid_for_workbench_and_governed_preview(
     tmp_path: Path,
 ) -> None:
@@ -1040,6 +1083,51 @@ def test_rejected_candidate_is_retained_and_executes_unchanged(
     assert replay.status_code == 200
     assert replay.json()["executionId"] == execution["executionId"]
     assert replay.json()["replayed"] is True
+    assert len(analytics.manual_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_key_workbench_requests_execute_once(
+    tmp_path: Path,
+) -> None:
+    analytics = BlockingFakeAnalytics()
+    client, _ = _client(tmp_path, _ready_query(), analytics=analytics)
+    service = client.app.state.catalyst
+    created = await service.create_workbench_session(
+        {
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": QUESTION,
+            "profileId": PROFILE_ID,
+        }
+    )
+    assert created.status_code == 201
+    version = created.body["currentVersion"]
+    request = {
+        "contractVersion": "catalyst.workbench.execute.request.v1",
+        "versionId": version["versionId"],
+        "queryDigest": version["queryDigest"],
+        "idempotencyKey": "concurrent-run",
+    }
+
+    first = asyncio.create_task(
+        service.execute_workbench_version(version["versionId"], request)
+    )
+    await asyncio.wait_for(analytics.started.wait(), timeout=1)
+    duplicate = await service.execute_workbench_version(version["versionId"], request)
+
+    assert duplicate.status_code == 409
+    assert duplicate.body["error"]["code"] == "execution_in_progress"
+    assert len(analytics.manual_calls) == 1
+
+    analytics.release.set()
+    completed = await asyncio.wait_for(first, timeout=1)
+    assert completed.status_code == 200
+
+    replay = await service.execute_workbench_version(version["versionId"], request)
+    assert replay.status_code == 200
+    assert replay.body["executionId"] == completed.body["executionId"]
+    assert replay.body["replayed"] is True
     assert len(analytics.manual_calls) == 1
 
 
@@ -1313,6 +1401,30 @@ def test_question_policy_is_recomputed_for_later_human_versions(
         finding["ruleCode"] == "gateway_question_policy.destructive_intent"
         for finding in findings
     )
+
+
+def test_changed_manual_sql_drops_stale_model_expected_columns(
+    tmp_path: Path,
+) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    parent = session["currentVersion"]
+    assert parent["expectedColumns"]
+
+    edited = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": parent["versionId"],
+            "parentQueryDigest": parent["queryDigest"],
+            "sql": "SELECT COUNT(*) AS count FROM analytics.lab_results",
+            "parameters": [],
+            "expectedColumns": parent["expectedColumns"],
+        },
+    )
+
+    assert edited.status_code == 201, edited.text
+    assert edited.json()["currentVersion"]["expectedColumns"] == []
 
 
 def test_human_invalid_edit_runs_and_preserves_database_diagnostic(

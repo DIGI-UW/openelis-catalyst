@@ -13,7 +13,7 @@ MODELS = tuple(
     model.strip()
     for model in os.getenv(
         "MODEL_ROUTER_MODEL_IDS",
-        "gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
+        "gemma-4-12b,gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
     ).split(",")
     if model.strip()
 )

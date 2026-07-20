@@ -61,7 +61,7 @@ cp env.recommended .env
 The recommended live run uses the configured external Gemma router. The React
 sidecar is at `http://localhost:3000`.
 
-Use `MVP_MODEL_BACKEND=fake ./scripts/mvp-up.sh` and the same explicit mode for
+Export `MVP_MODEL_BACKEND=fake` before running `mvp-up.sh`, `mvp-seed.sh`, and
 `mvp-health.sh` for deterministic CI-style assembly without the GGUF.
 
 #### Full stack
@@ -136,10 +136,11 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 #### MVP path
 
 med-agent-hub and its local model router own providers, models, prompts, stage
-ordering, review, grounding, and context budgets. The v1 query profile is fixed
-as `catalyst-query-checked`; Catalyst configures only the hub base URL. The
-standalone bootstrap checks out the pinned Hub commit without local patches;
-the harness owns and pins the same Hub repository as a sibling submodule.
+ordering, review, grounding, and context budgets. Catalyst discovers available
+query profiles and records the selected profile per turn; it does not override
+the profile's model roles or configuration. The standalone bootstrap checks out
+the pinned Hub commit without local patches; the harness owns and pins the same
+Hub repository as a sibling submodule.
 
 #### Current prototype
 
@@ -223,5 +224,6 @@ npx playwright test --project=demo-video e2e/query-to-table.spec.ts
 ### Evaluation boundary
 
 Local golden queries and seeded E2E runs are engineering evidence, not clinical
-validation. R1–R3 exit criteria now pass. Clinical AI Validation Harness work
-remains intentionally deferred to a separate planning cycle.
+validation. Automated component and mocked-browser gates pass, while live G2.8c
+multi-model acceptance remains pending. Clinical AI Validation Harness
+integration is active and owns cross-model experiments and reviewable evidence.

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -313,6 +314,71 @@ def test_opening_existing_preview_database_adds_workbench_schema(
         "catalyst_workbench_validations",
         "catalyst_workbench_findings",
         "catalyst_workbench_executions",
+        "catalyst_workbench_execution_claims",
         "catalyst_workbench_events",
     }.issubset(tables)
     connection.close()
+
+
+def test_execution_claim_is_atomic_across_store_instances(tmp_path: Path) -> None:
+    path = tmp_path / "claims.sqlite3"
+    first_store = WorkbenchStore(path)
+    session = _session(first_store)
+    version = first_store.append_version(
+        session["sessionId"],
+        sql="SELECT 1",
+        parameters=[],
+        expected_columns=[],
+        author_type="human",
+    )
+    second_store = WorkbenchStore(path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        decisions = list(
+            executor.map(
+                lambda store: store.begin_execution(version["versionId"], "shared-key"),
+                (first_store, second_store),
+            )
+        )
+
+    assert sorted(decision.action for decision in decisions) == [
+        "execute",
+        "in_progress",
+    ]
+    first_store.close()
+    second_store.close()
+
+
+def test_execution_claim_can_be_recovered_after_configured_lease(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "recoverable-claims.sqlite3"
+    clock = Clock()
+    first_store = WorkbenchStore(path, now=clock, execution_lease_seconds=5)
+    session = _session(first_store)
+    version = first_store.append_version(
+        session["sessionId"],
+        sql="SELECT 1",
+        parameters=[],
+        expected_columns=[],
+        author_type="human",
+    )
+    first = first_store.begin_execution(version["versionId"], "recoverable-key")
+    assert first.action == "execute"
+
+    restored_store = WorkbenchStore(path, now=clock, execution_lease_seconds=5)
+    clock.value += timedelta(seconds=4)
+    assert (
+        restored_store.begin_execution(version["versionId"], "recoverable-key").action
+        == "in_progress"
+    )
+
+    clock.value += timedelta(seconds=1)
+    reclaimed = restored_store.begin_execution(version["versionId"], "recoverable-key")
+    assert reclaimed.action == "execute"
+    assert (
+        first_store.begin_execution(version["versionId"], "recoverable-key").action
+        == "in_progress"
+    )
+    first_store.close()
+    restored_store.close()

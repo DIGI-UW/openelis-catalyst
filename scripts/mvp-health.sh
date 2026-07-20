@@ -5,15 +5,34 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+PINNED_OPENELIS_DOCKER_COMMIT="f118d0ae778a30028c16be2af549843ec166f655"
+# shellcheck disable=SC1091
+. "${ROOT_DIR}/scripts/mvp-model-config.sh"
 model_backend_override="${MVP_MODEL_BACKEND:-}"
 external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
 local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
 fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
 external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
+external_role_models_override="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
+bundled_model_override="${MVP_BUNDLED_MODEL_ID:-}"
+bundled_profile_override="${MVP_BUNDLED_PROFILE_ID:-}"
+bundled_role_models_override="${MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON:-}"
+fake_model_override="${MVP_FAKE_MODEL_ID:-}"
+fake_profile_override="${MVP_FAKE_PROFILE_ID:-}"
+fake_role_models_override="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
+expected_model_override="${MVP_EXPECTED_MODEL_ID:-}"
+profile_override="${MVP_PROFILE_ID:-}"
 expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
 hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+gateway_port_override="${GATEWAY_PORT:-}"
+ui_port_override="${CATALYST_UI_PORT:-}"
+analytics_port_override="${ANALYTICS_DB_PORT:-}"
+data_pipes_port_override="${DATA_PIPES_PORT:-}"
+hub_port_override="${MED_AGENT_HUB_PORT:-}"
+openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
+hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -22,6 +41,7 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
+unset MVP_EXPECTED_ROLE_MODELS_JSON
 if [ -n "${model_backend_override}" ]; then
   export MVP_MODEL_BACKEND="${model_backend_override}"
 fi
@@ -40,6 +60,33 @@ fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
+if [ -n "${external_role_models_override}" ]; then
+  export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON="${external_role_models_override}"
+fi
+if [ -n "${bundled_model_override}" ]; then
+  export MVP_BUNDLED_MODEL_ID="${bundled_model_override}"
+fi
+if [ -n "${bundled_profile_override}" ]; then
+  export MVP_BUNDLED_PROFILE_ID="${bundled_profile_override}"
+fi
+if [ -n "${bundled_role_models_override}" ]; then
+  export MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON="${bundled_role_models_override}"
+fi
+if [ -n "${fake_model_override}" ]; then
+  export MVP_FAKE_MODEL_ID="${fake_model_override}"
+fi
+if [ -n "${fake_profile_override}" ]; then
+  export MVP_FAKE_PROFILE_ID="${fake_profile_override}"
+fi
+if [ -n "${fake_role_models_override}" ]; then
+  export MVP_FAKE_EXPECTED_ROLE_MODELS_JSON="${fake_role_models_override}"
+fi
+if [ -n "${expected_model_override}" ]; then
+  export MVP_EXPECTED_MODEL_ID="${expected_model_override}"
+fi
+if [ -n "${profile_override}" ]; then
+  export MVP_PROFILE_ID="${profile_override}"
+fi
 if [ -n "${expected_role_models_override}" ]; then
   export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
 fi
@@ -48,6 +95,27 @@ if [ -n "${hub_context_override}" ]; then
 fi
 if [ -n "${compose_override_override}" ]; then
   export MVP_COMPOSE_OVERRIDE_FILE="${compose_override_override}"
+fi
+if [ -n "${gateway_port_override}" ]; then
+  export GATEWAY_PORT="${gateway_port_override}"
+fi
+if [ -n "${ui_port_override}" ]; then
+  export CATALYST_UI_PORT="${ui_port_override}"
+fi
+if [ -n "${analytics_port_override}" ]; then
+  export ANALYTICS_DB_PORT="${analytics_port_override}"
+fi
+if [ -n "${data_pipes_port_override}" ]; then
+  export DATA_PIPES_PORT="${data_pipes_port_override}"
+fi
+if [ -n "${hub_port_override}" ]; then
+  export MED_AGENT_HUB_PORT="${hub_port_override}"
+fi
+if [ -n "${openelis_https_port_override}" ]; then
+  export OPENELIS_HTTPS_PORT="${openelis_https_port_override}"
+fi
+if [ -n "${hapi_https_port_override}" ]; then
+  export HAPI_HTTPS_PORT="${hapi_https_port_override}"
 fi
 
 compose=(
@@ -64,6 +132,51 @@ if [ -n "${compose_override_file}" ]; then
   compose+=(-f "${compose_override_file}")
 fi
 compose+=(--profile fake)
+
+mvp_resolve_model_config
+model_backend="${MVP_RESOLVED_MODEL_BACKEND}"
+router_mode="${model_backend}"
+router_url="${MVP_RESOLVED_ROUTER_URL}"
+model_id="${MVP_RESOLVED_MODEL_ID}"
+profile_id="${MVP_RESOLVED_PROFILE_ID}"
+role_models_json="${MVP_RESOLVED_ROLE_MODELS_JSON}"
+role_models_json="$(
+  EXPECTED_ROLE_MODELS_JSON="${role_models_json}" python3 - <<'PY'
+import json
+import os
+
+role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
+expected_roles = {"query_generate", "query_review"}
+if not isinstance(role_models, dict) or set(role_models) != expected_roles:
+    raise SystemExit(
+        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and query_review"
+    )
+if any(not isinstance(model, str) or not model.strip() for model in role_models.values()):
+    raise SystemExit("MVP_EXPECTED_ROLE_MODELS_JSON model IDs must be non-empty strings")
+print(json.dumps(role_models, sort_keys=True, separators=(",", ":")))
+PY
+)"
+
+if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
+  MODEL_BACKEND="${model_backend}" \
+  ROUTER_URL="${router_url}" \
+  MODEL_ID="${model_id}" \
+  PROFILE_ID="${profile_id}" \
+  ROLE_MODELS_JSON="${role_models_json}" \
+  python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "backend": os.environ["MODEL_BACKEND"],
+    "routerUrl": os.environ["ROUTER_URL"],
+    "modelId": os.environ["MODEL_ID"],
+    "profileId": os.environ["PROFILE_ID"],
+    "roleModels": json.loads(os.environ["ROLE_MODELS_JSON"]),
+}, sort_keys=True))
+PY
+  exit 0
+fi
 
 wait_for() {
   local name="$1"
@@ -103,6 +216,11 @@ chmod 600 "${hapi_client_p12}" "${hapi_client_pem}"
 check_openelis_db() {
   "${compose[@]}" exec -T db.openelis.org \
     pg_isready -q -d clinlims -U clinlims
+}
+
+check_openelis_deployment_pin() {
+  test "$(git -C "${ROOT_DIR}/.openelis-docker" rev-parse HEAD)" = \
+    "${OPENELIS_DOCKER_REF:-${PINNED_OPENELIS_DOCKER_COMMIT}}"
 }
 
 check_openelis_app() {
@@ -169,65 +287,6 @@ check_mart() {
       "
     )" -ge 1
 }
-
-model_backend="${MVP_MODEL_BACKEND:-external}"
-external_router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
-local_router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"
-fake_router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"
-
-case "${model_backend}" in
-  fake)
-    router_mode="fake"
-    router_url="${fake_router_url}"
-    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_FAKE_MODEL_ID:-gemma-e4b}}"
-    profile_id="${MVP_PROFILE_ID:-${MVP_FAKE_PROFILE_ID:-catalyst-query-gemma-e4b}}"
-    ;;
-  local)
-    router_mode="local"
-    router_url="${local_router_url}"
-    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_BUNDLED_MODEL_ID:-qwen2.5-coder-1.5b-instruct-q4_k_m}}"
-    profile_id="${MVP_PROFILE_ID:-${MVP_BUNDLED_PROFILE_ID:-catalyst-query-qwen-coder-1.5b}}"
-    ;;
-  external)
-    router_mode="external"
-    router_url="${external_router_url}"
-    model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_EXTERNAL_MODEL_ID:-gemma-e4b}}"
-    profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-e4b}}"
-    ;;
-  *)
-    echo "ERROR: MVP_MODEL_BACKEND must be local, external, or fake." >&2
-    exit 2
-    ;;
-esac
-
-role_models_json="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
-if [ -z "${role_models_json}" ]; then
-  role_models_json="$(
-    MODEL_ID="${model_id}" python3 - <<'PY'
-import json
-import os
-
-model_id = os.environ["MODEL_ID"]
-print(json.dumps({"query_generate": model_id, "query_review": model_id}))
-PY
-  )"
-fi
-role_models_json="$(
-  EXPECTED_ROLE_MODELS_JSON="${role_models_json}" python3 - <<'PY'
-import json
-import os
-
-role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-expected_roles = {"query_generate", "query_review"}
-if not isinstance(role_models, dict) or set(role_models) != expected_roles:
-    raise SystemExit(
-        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and query_review"
-    )
-if any(not isinstance(model, str) or not model.strip() for model in role_models.values()):
-    raise SystemExit("MVP_EXPECTED_ROLE_MODELS_JSON model IDs must be non-empty strings")
-print(json.dumps(role_models, sort_keys=True, separators=(",", ":")))
-PY
-)"
 
 check_router() {
   "${compose[@]}" exec -T \
@@ -359,6 +418,7 @@ check_ui() {
   curl -fsS "http://localhost:${CATALYST_UI_PORT:-3000}/health" >/dev/null
 }
 
+wait_for "OpenELIS deployment pin" check_openelis_deployment_pin
 wait_for "OpenELIS database" check_openelis_db
 wait_for "OpenELIS application" check_openelis_app
 wait_for "HAPI seed resources" check_hapi_seed
@@ -406,6 +466,7 @@ mkdir -p "${ROOT_DIR}/logs"
 PIPELINE_JSON="${pipeline_json}" \
 PROVENANCE_PATH="${ROOT_DIR}/logs/mvp-provenance.json" \
 OPENELIS_VERSION="${OPENELIS_VERSION:-unknown}" \
+OPENELIS_DOCKER_COMMIT="${OPENELIS_DOCKER_REF:-${PINNED_OPENELIS_DOCKER_COMMIT}}" \
 DATA_PIPES_COMMIT="${PINNED_COMMIT}" \
 HUB_COMMIT="${hub_commit}" \
 HUB_SOURCE="${hub_source}" \
@@ -447,6 +508,15 @@ payload = {
     .isoformat()
     .replace("+00:00", "Z"),
     "openelisVersion": os.environ["OPENELIS_VERSION"],
+    "openelisDocker": {
+        "commit": os.environ["OPENELIS_DOCKER_COMMIT"],
+        "images": {
+            "certs": "itechuw/certgen@sha256:e27a8194300ba73309e835a4070e9ce531687eb3ee604895de781f3061791635",
+            "database": "itechuw/openelis-global-2-database@sha256:e801c93a8bedc41c2e502722e38585979fbbaf0e92ee4c248cdde72d9c33ec1e",
+            "application": "itechuw/openelis-global-2@sha256:2217d76104051589d99eb808cef22ae692f6ad2d12a0fadc70ecc549162df36f",
+            "fhir": "itechuw/openelis-global-2-fhir@sha256:667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3",
+        },
+    },
     "fhirDataPipes": {"commit": os.environ["DATA_PIPES_COMMIT"], "spark": False},
     "medAgentHub": {
         "commit": os.environ["HUB_COMMIT"],

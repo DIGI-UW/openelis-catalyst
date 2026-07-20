@@ -215,6 +215,7 @@ export interface QueryProfile {
   roleModels: Record<string, string>;
   stages: string[];
   unavailableReasons: string[];
+  provenance?: Record<string, unknown>;
 }
 
 export interface QueryOptions {

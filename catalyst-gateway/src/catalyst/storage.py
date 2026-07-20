@@ -34,6 +34,15 @@ class ExecutionDecision:
     catalyst_trace_id: str | None = None
 
 
+@dataclass(frozen=True)
+class WorkbenchExecutionDecision:
+    """Atomic disposition for a manual workbench execution request."""
+
+    action: str
+    execution: dict[str, Any] | None = None
+    claimed_version_id: str | None = None
+
+
 class WorkbenchStorageError(RuntimeError):
     """Base class for persistent workbench state errors."""
 
@@ -561,10 +570,12 @@ class WorkbenchStore:
         *,
         now: Callable[[], datetime] | None = None,
         owner_instance_id: str | None = None,
+        execution_lease_seconds: int = 60,
     ) -> None:
         self.path = str(path)
         self._now = now or _utc_now
         self.owner_instance_id = owner_instance_id or str(uuid.uuid4())
+        self.execution_lease_seconds = execution_lease_seconds
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(
             self.path,
@@ -658,6 +669,18 @@ class WorkbenchStore:
                     execution_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     UNIQUE (session_id, ordinal),
+                    FOREIGN KEY (session_id)
+                        REFERENCES catalyst_workbench_sessions(session_id),
+                    FOREIGN KEY (version_id)
+                        REFERENCES catalyst_workbench_query_versions(version_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS catalyst_workbench_execution_claims (
+                    session_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    PRIMARY KEY (session_id, idempotency_key),
                     FOREIGN KEY (session_id)
                         REFERENCES catalyst_workbench_sessions(session_id),
                     FOREIGN KEY (version_id)
@@ -799,6 +822,14 @@ class WorkbenchStore:
                 INSERT OR IGNORE INTO catalyst_workbench_schema_migrations (
                     migration_version, applied_at
                 ) VALUES (2, ?)
+                """,
+                (_timestamp(self._now()),),
+            )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO catalyst_workbench_schema_migrations (
+                    migration_version, applied_at
+                ) VALUES (3, ?)
                 """,
                 (_timestamp(self._now()),),
             )
@@ -1814,6 +1845,103 @@ class WorkbenchStore:
         )
         return stored
 
+    def begin_execution(
+        self,
+        version_id: str,
+        idempotency_key: str,
+    ) -> WorkbenchExecutionDecision:
+        """Claim one session-scoped idempotency key before touching the database.
+
+        The claim is written in the same immediate transaction that checks prior
+        executions. Two gateway requests, including requests handled by separate
+        store instances, therefore cannot both receive permission to execute.
+        """
+        if not idempotency_key:
+            raise ValueError("idempotency_key must not be empty.")
+        with self._transaction() as connection:
+            version = self._require_version(connection, version_id)
+            session_id = str(version["session_id"])
+
+            for row in connection.execute(
+                """
+                SELECT version_id, execution_json
+                FROM catalyst_workbench_executions
+                WHERE session_id = ? ORDER BY ordinal
+                """,
+                (session_id,),
+            ).fetchall():
+                execution = json.loads(row["execution_json"])
+                if execution.get("idempotencyKey") != idempotency_key:
+                    continue
+                if row["version_id"] != version_id:
+                    return WorkbenchExecutionDecision(
+                        action="conflict",
+                        claimed_version_id=str(row["version_id"]),
+                    )
+                return WorkbenchExecutionDecision(
+                    action="replay",
+                    execution={**execution, "replayed": True},
+                    claimed_version_id=version_id,
+                )
+
+            claim = connection.execute(
+                """
+                SELECT version_id, started_at
+                FROM catalyst_workbench_execution_claims
+                WHERE session_id = ? AND idempotency_key = ?
+                """,
+                (session_id, idempotency_key),
+            ).fetchone()
+            if claim is not None:
+                claimed_version_id = str(claim["version_id"])
+                if claimed_version_id != version_id:
+                    return WorkbenchExecutionDecision(
+                        action="conflict",
+                        claimed_version_id=claimed_version_id,
+                    )
+                started_at = datetime.fromisoformat(
+                    str(claim["started_at"]).replace("Z", "+00:00")
+                )
+                lease_expired = (
+                    self._now() - started_at
+                ).total_seconds() >= self.execution_lease_seconds
+                if lease_expired:
+                    connection.execute(
+                        """
+                        UPDATE catalyst_workbench_execution_claims
+                        SET started_at = ?
+                        WHERE session_id = ? AND idempotency_key = ?
+                            AND version_id = ?
+                        """,
+                        (
+                            _timestamp(self._now()),
+                            session_id,
+                            idempotency_key,
+                            version_id,
+                        ),
+                    )
+                    return WorkbenchExecutionDecision(
+                        action="execute",
+                        claimed_version_id=version_id,
+                    )
+                return WorkbenchExecutionDecision(
+                    action="in_progress",
+                    claimed_version_id=claimed_version_id,
+                )
+
+            connection.execute(
+                """
+                INSERT INTO catalyst_workbench_execution_claims (
+                    session_id, idempotency_key, version_id, started_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (session_id, idempotency_key, version_id, _timestamp(self._now())),
+            )
+            return WorkbenchExecutionDecision(
+                action="execute",
+                claimed_version_id=version_id,
+            )
+
     def append_execution(
         self,
         version_id: str,
@@ -1873,6 +2001,15 @@ class WorkbenchStore:
                 """,
                 (timestamp, version["session_id"]),
             )
+            idempotency_key = stored.get("idempotencyKey")
+            if isinstance(idempotency_key, str) and idempotency_key:
+                connection.execute(
+                    """
+                    DELETE FROM catalyst_workbench_execution_claims
+                    WHERE session_id = ? AND idempotency_key = ? AND version_id = ?
+                    """,
+                    (version["session_id"], idempotency_key, version_id),
+                )
             self._append_event(
                 connection,
                 session_id=version["session_id"],
@@ -2299,10 +2436,16 @@ class WorkbenchStore:
             else None
         )
         if isinstance(profile_evidence, dict):
-            evidence["profile"] = self._hub_profile_descriptor(
+            response_profile = self._hub_profile_descriptor(
                 profile_evidence,
                 compact_digest=turn["profileSnapshot"]["profileDigest"],
             )
+            if response_profile != evidence.get("profile"):
+                raise WorkbenchStorageError(
+                    "Hub response profile evidence does not match the profile "
+                    "recorded when the turn was requested."
+                )
+            evidence["profile"] = response_profile
         if isinstance(evidence.get("correlation"), dict):
             correlation = dict(evidence["correlation"])
             correlation["hubTraceId"] = turn.get("hubTraceId")

@@ -106,7 +106,8 @@ class HubClient:
         except ContractError as error:
             raise HubError("profile_incompatible", str(error)) from error
 
-        await self.discover_query_profile(str(request["model"]))
+        requested_profile_id = str(request["model"])
+        selected_profile = await self.discover_query_profile(requested_profile_id)
         response = await self._request(
             "POST",
             "/v1/chat/completions",
@@ -133,11 +134,39 @@ class HubClient:
                 "catalyst-query-completion-v1.schema.json",
                 contract_completion,
             )
+            if completion["model"] != requested_profile_id:
+                raise ValueError(
+                    "completion model does not match the requested profile"
+                )
             content = completion["choices"][0]["message"]["content"]
             query = json.loads(content)
             if not isinstance(query, dict):
                 raise ValueError("completion content is not a JSON object")
             self.contracts.validate("catalyst-query-v1.schema.json", query)
+            if query.get("provenance", {}).get("profileId") != requested_profile_id:
+                raise ValueError(
+                    "query provenance profileId does not match the requested profile"
+                )
+            expected_profile_evidence = selected_profile.get("profileEvidence")
+            for source, response_profile_evidence in (
+                ("completion", completion.get("profileEvidence")),
+                ("query", query.get("profileEvidence")),
+            ):
+                if response_profile_evidence is None:
+                    continue
+                if not isinstance(response_profile_evidence, dict):
+                    raise ValueError(f"{source} profileEvidence must be an object")
+                if response_profile_evidence.get("profileId") != requested_profile_id:
+                    raise ValueError(
+                        f"{source} profileEvidence does not match the requested profile"
+                    )
+                if (
+                    isinstance(expected_profile_evidence, dict)
+                    and response_profile_evidence != expected_profile_evidence
+                ):
+                    raise ValueError(
+                        f"{source} profileEvidence does not match profile discovery"
+                    )
         except (
             ContractError,
             json.JSONDecodeError,

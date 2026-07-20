@@ -708,6 +708,75 @@ async def test_hub_discovery_and_completion_are_strict():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("completion_model", "query_profile"),
+    [
+        ("catalyst-query-other", "catalyst-query-gemma-4-12b"),
+        ("catalyst-query-gemma-4-12b", "catalyst-query-other"),
+    ],
+)
+async def test_hub_completion_and_query_are_bound_to_requested_profile(
+    completion_model: str,
+    query_profile: str,
+) -> None:
+    query = ready_query()
+    query["provenance"]["profileId"] = query_profile
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "catalyst-query-gemma-4-12b",
+                            "available": True,
+                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "completion-profile-mismatch",
+                "object": "chat.completion",
+                "model": completion_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(query),
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    client = HubClient(
+        "http://hub",
+        ContractRegistry.load(CONTRACTS),
+        transport=httpx.MockTransport(handler),
+    )
+    request = build_query_request(
+        "Count tests since July 1",
+        catalog(),
+        max_rows=2,
+        statement_timeout_ms=500,
+        request_id="request-profile-binding",
+        trace_id="trace-profile-binding",
+    )
+
+    with pytest.raises(HubError) as error:
+        await client.generate_query(request)
+
+    assert error.value.code == "hub_invalid_response"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_hub_readiness_requires_the_default_gemma_profile():
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/health":

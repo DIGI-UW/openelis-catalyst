@@ -7,7 +7,31 @@ ENV_FILE="${ROOT_DIR}/.env"
 COMPOSE_FILE="${OPENELIS_COMPOSE_FILE:-${ROOT_DIR}/docker-compose.mvp.yml}"
 DB_SERVICE="${OPENELIS_DB_SERVICE:-db.openelis.org}"
 PINNED_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+model_backend_override="${MVP_MODEL_BACKEND:-}"
+external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
+local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
+fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
+external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
+external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
+external_role_models_override="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
+bundled_model_override="${MVP_BUNDLED_MODEL_ID:-}"
+bundled_profile_override="${MVP_BUNDLED_PROFILE_ID:-}"
+bundled_role_models_override="${MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON:-}"
+fake_model_override="${MVP_FAKE_MODEL_ID:-}"
+fake_profile_override="${MVP_FAKE_PROFILE_ID:-}"
+fake_role_models_override="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
+expected_model_override="${MVP_EXPECTED_MODEL_ID:-}"
+profile_override="${MVP_PROFILE_ID:-}"
+expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
+hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+gateway_port_override="${GATEWAY_PORT:-}"
+ui_port_override="${CATALYST_UI_PORT:-}"
+analytics_port_override="${ANALYTICS_DB_PORT:-}"
+data_pipes_port_override="${DATA_PIPES_PORT:-}"
+hub_port_override="${MED_AGENT_HUB_PORT:-}"
+openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
+hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -16,8 +40,85 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
+unset MVP_EXPECTED_ROLE_MODELS_JSON
+if [ -n "${model_backend_override}" ]; then
+  export MVP_MODEL_BACKEND="${model_backend_override}"
+fi
+if [ -n "${external_router_url_override}" ]; then
+  export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
+fi
+if [ -n "${local_router_url_override}" ]; then
+  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
+fi
+if [ -n "${fake_router_url_override}" ]; then
+  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
+fi
+if [ -n "${external_model_override}" ]; then
+  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
+fi
+if [ -n "${external_profile_override}" ]; then
+  export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
+fi
+if [ -n "${external_role_models_override}" ]; then
+  export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON="${external_role_models_override}"
+fi
+if [ -n "${bundled_model_override}" ]; then
+  export MVP_BUNDLED_MODEL_ID="${bundled_model_override}"
+fi
+if [ -n "${bundled_profile_override}" ]; then
+  export MVP_BUNDLED_PROFILE_ID="${bundled_profile_override}"
+fi
+if [ -n "${bundled_role_models_override}" ]; then
+  export MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON="${bundled_role_models_override}"
+fi
+if [ -n "${fake_model_override}" ]; then
+  export MVP_FAKE_MODEL_ID="${fake_model_override}"
+fi
+if [ -n "${fake_profile_override}" ]; then
+  export MVP_FAKE_PROFILE_ID="${fake_profile_override}"
+fi
+if [ -n "${fake_role_models_override}" ]; then
+  export MVP_FAKE_EXPECTED_ROLE_MODELS_JSON="${fake_role_models_override}"
+fi
+if [ -n "${expected_model_override}" ]; then
+  export MVP_EXPECTED_MODEL_ID="${expected_model_override}"
+fi
+if [ -n "${profile_override}" ]; then
+  export MVP_PROFILE_ID="${profile_override}"
+fi
+if [ -n "${expected_role_models_override}" ]; then
+  export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
+fi
+if [ -n "${hub_context_override}" ]; then
+  export MED_AGENT_HUB_CONTEXT="${hub_context_override}"
+fi
 if [ -n "${compose_override_override}" ]; then
   export MVP_COMPOSE_OVERRIDE_FILE="${compose_override_override}"
+fi
+if [ -n "${gateway_port_override}" ]; then
+  export GATEWAY_PORT="${gateway_port_override}"
+fi
+if [ -n "${ui_port_override}" ]; then
+  export CATALYST_UI_PORT="${ui_port_override}"
+fi
+if [ -n "${analytics_port_override}" ]; then
+  export ANALYTICS_DB_PORT="${analytics_port_override}"
+fi
+if [ -n "${data_pipes_port_override}" ]; then
+  export DATA_PIPES_PORT="${data_pipes_port_override}"
+fi
+if [ -n "${hub_port_override}" ]; then
+  export MED_AGENT_HUB_PORT="${hub_port_override}"
+fi
+if [ -n "${openelis_https_port_override}" ]; then
+  export OPENELIS_HTTPS_PORT="${openelis_https_port_override}"
+fi
+if [ -n "${hapi_https_port_override}" ]; then
+  export HAPI_HTTPS_PORT="${hapi_https_port_override}"
+fi
+
+if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
+  exec "${ROOT_DIR}/scripts/mvp-health.sh"
 fi
 
 OPENELIS_VERSION="${OPENELIS_VERSION:-}"

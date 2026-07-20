@@ -187,6 +187,7 @@ class CatalystService:
                         "roleModels": profile.get("role_models", {}),
                         "stages": profile.get("stages", []),
                         "unavailableReasons": profile.get("unavailable_reasons", []),
+                        "provenance": self._profile_snapshot(profile),
                     }
                     for profile in profiles
                 ],
@@ -618,6 +619,17 @@ class CatalystService:
             query = deepcopy(returned)
             hub_evidence = query.pop("_hubEvidence", None)
             self.contracts.validate("catalyst-query-v1.schema.json", query)
+            self._require_hub_profile_binding(
+                query,
+                hub_evidence,
+                profile_id=profile_id,
+                profile_evidence=profile_evidence,
+            )
+            self._require_hub_invocation_binding(
+                query,
+                hub_evidence,
+                profile_snapshot=initial_profile_snapshot,
+            )
             invariant_violations: tuple[Violation, ...] = ()
             try:
                 validate_query_invariants(query, initial_request)
@@ -683,6 +695,7 @@ class CatalystService:
                     ),
                 },
                 question=question,
+                catalog=runtime_catalog,
                 source_findings=list(writer_failure.get("lintFindings") or []),
             )
             evidence = dict(hub_generation.hub_evidence or {}) if hub_generation else {}
@@ -803,6 +816,7 @@ class CatalystService:
                         ),
                     },
                     question=question,
+                    catalog=runtime_catalog,
                     source_findings=findings,
                 )
                 for output, findings in zip(outputs, validation_sources)
@@ -993,6 +1007,11 @@ class CatalystService:
             profile_evidence = self._require_profile_evidence(selected_profile)
             profile_snapshot = self._turn_profile_snapshot(selected_profile)
             runtime_catalog = await self._runtime_catalog()
+            catalog_conflict = self._workbench_catalog_conflict(
+                session, runtime_catalog
+            )
+            if catalog_conflict is not None:
+                return catalog_conflict
         except WorkbenchNotFoundError as error:
             return self._workbench_error(404, "workbench_session_not_found", str(error))
         except HubError as error:
@@ -1081,6 +1100,17 @@ class CatalystService:
             hub_evidence = query.pop("_hubEvidence", None)
             hub_evidence = hub_evidence if isinstance(hub_evidence, dict) else {}
             self.contracts.validate("catalyst-query-v1.schema.json", query)
+            self._require_hub_profile_binding(
+                query,
+                hub_evidence,
+                profile_id=profile_id,
+                profile_evidence=profile_evidence,
+            )
+            self._require_hub_invocation_binding(
+                query,
+                hub_evidence,
+                profile_snapshot=profile_snapshot,
+            )
             raw_output = self._workbench_raw_output(query)
             if query.get("status") != "ready":
                 collaboration_failure = query.get("modelCollaboration")
@@ -1118,6 +1148,7 @@ class CatalystService:
                             ),
                         },
                         question=instruction,
+                        catalog=runtime_catalog,
                         source_findings=list(writer_data.get("lintFindings") or []),
                     )
                 stage, failure_code = self._model_failure_stage(
@@ -1237,6 +1268,7 @@ class CatalystService:
                         ),
                     },
                     question=instruction,
+                    catalog=runtime_catalog,
                     source_findings=findings,
                 )
                 for output, findings in zip(outputs, validation_sources)
@@ -1299,7 +1331,7 @@ class CatalystService:
                 store, session_id, failed["turnId"]
             )
 
-    def create_workbench_version(
+    async def create_workbench_version(
         self,
         session_id: str,
         payload: dict[str, Any],
@@ -1319,6 +1351,12 @@ class CatalystService:
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
+            runtime_catalog = await self._runtime_catalog()
+            catalog_conflict = self._workbench_catalog_conflict(
+                session, runtime_catalog
+            )
+            if catalog_conflict is not None:
+                return catalog_conflict
             parent_version_id = payload.get("parentVersionId")
             parent_query_digest = payload.get("parentQueryDigest")
             parent = (
@@ -1330,16 +1368,23 @@ class CatalystService:
                 parent is None or parent["sessionId"] != session_id
             ):
                 raise WorkbenchNotFoundError("Parent query version was not found.")
+            sql = str(payload["sql"])
+            expected_columns = list(
+                payload.get(
+                    "expectedColumns",
+                    parent["expectedColumns"] if parent is not None else [],
+                )
+            )
+            if parent is not None and sql != parent["sql"]:
+                # Expected columns describe model output, not an independently
+                # editable contract. Once a human changes SQL, retaining the old
+                # projection would present stale schema as if it were verified.
+                expected_columns = []
             version = store.append_version(
                 session_id,
-                sql=str(payload["sql"]),
+                sql=sql,
                 parameters=list(payload["parameters"]),
-                expected_columns=list(
-                    payload.get(
-                        "expectedColumns",
-                        parent["expectedColumns"] if parent is not None else [],
-                    )
-                ),
+                expected_columns=expected_columns,
                 author_type="human",
                 parent_version_id=(
                     str(parent_version_id) if parent_version_id is not None else None
@@ -1379,12 +1424,18 @@ class CatalystService:
             )
         except WorkbenchNotFoundError as error:
             return self._workbench_error(404, "query_version_not_found", str(error))
+        except AnalyticsError as error:
+            return self._workbench_error(502, "catalog_unavailable", str(error))
         except (ContractError, KeyError, TypeError, ValueError) as error:
             return self._workbench_error(400, "invalid_request", str(error))
 
         session = store.get_session(session_id)
         assert session is not None
-        self._append_workbench_validation(version, question=session["question"])
+        self._append_workbench_validation(
+            version,
+            question=self._active_workbench_instruction(store, session_id),
+            catalog=runtime_catalog,
+        )
         restored = store.get_session(session_id)
         assert restored is not None
         return ServiceResponse(201, self._present_workbench_session(restored))
@@ -1397,10 +1448,6 @@ class CatalystService:
                 "workbench_unavailable",
                 "The manual query workbench is not configured.",
             )
-        try:
-            await self._runtime_catalog()
-        except AnalyticsError as error:
-            return self._workbench_error(502, "catalog_unavailable", str(error))
         version = store.get_version(version_id)
         if version is None:
             return self._workbench_error(
@@ -1410,9 +1457,17 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
+        try:
+            runtime_catalog = await self._runtime_catalog()
+        except AnalyticsError as error:
+            return self._workbench_error(502, "catalog_unavailable", str(error))
+        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        if catalog_conflict is not None:
+            return catalog_conflict
         validation = self._append_workbench_validation(
             version,
-            question=session["question"],
+            question=self._active_workbench_instruction(store, version["sessionId"]),
+            catalog=runtime_catalog,
         )
         return ServiceResponse(201, validation)
 
@@ -1453,17 +1508,32 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
+        try:
+            runtime_catalog = await self._runtime_catalog()
+        except AnalyticsError as error:
+            return self._workbench_error(502, "catalog_unavailable", str(error))
+        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        if catalog_conflict is not None:
+            return catalog_conflict
         idempotency_key = str(payload["idempotencyKey"])
-        for existing in session["executions"]:
-            if existing.get("idempotencyKey") != idempotency_key:
-                continue
-            if existing["versionId"] != version_id:
-                return self._workbench_error(
-                    409,
-                    "idempotency_conflict",
-                    "The idempotency key belongs to a different query version.",
-                )
-            return ServiceResponse(200, {**existing, "replayed": True})
+        decision = store.begin_execution(version_id, idempotency_key)
+        if decision.action == "replay":
+            assert decision.execution is not None
+            return ServiceResponse(200, decision.execution)
+        if decision.action == "conflict":
+            return self._workbench_error(
+                409,
+                "idempotency_conflict",
+                "The idempotency key belongs to a different query version.",
+            )
+        if decision.action == "in_progress":
+            return self._workbench_error(
+                409,
+                "execution_in_progress",
+                "An execution with this idempotency key is already in progress.",
+            )
+        if decision.action != "execute":  # pragma: no cover - storage invariant
+            raise RuntimeError(f"Unsupported execution decision: {decision.action}")
 
         validation = next(
             (
@@ -1501,6 +1571,25 @@ class CatalystService:
                     "result": result.as_dict(),
                 }
             )
+        except asyncio.CancelledError:
+            execution.update(
+                {
+                    "status": "failed",
+                    "databaseDiagnostic": {
+                        "sqlstate": None,
+                        "severity": "ERROR",
+                        "message": "Manual execution was cancelled before completion.",
+                        "detail": None,
+                        "hint": None,
+                        "position": None,
+                    },
+                }
+            )
+            execution["durationMs"] = max(
+                0, int((time.perf_counter() - started) * 1000)
+            )
+            store.append_execution(version_id, execution)
+            raise
         except ManualAnalyticsError as error:
             execution.update(
                 {
@@ -1649,6 +1738,16 @@ class CatalystService:
         query = deepcopy(returned)
         hub_evidence = query.pop("_hubEvidence", None)
         self.contracts.validate("catalyst-query-v1.schema.json", query)
+        self._require_hub_profile_binding(
+            query,
+            hub_evidence,
+            profile_id=profile_id,
+            profile_evidence=(
+                selected_profile.get("profileEvidence")
+                if isinstance(selected_profile.get("profileEvidence"), dict)
+                else None
+            ),
+        )
 
         invariant_violations: tuple[Violation, ...] = ()
         try:
@@ -1669,16 +1768,215 @@ class CatalystService:
         )
 
     @staticmethod
+    def _require_hub_profile_binding(
+        query: dict[str, Any],
+        hub_evidence: Any,
+        *,
+        profile_id: str,
+        profile_evidence: dict[str, Any] | None = None,
+    ) -> None:
+        if query.get("provenance", {}).get("profileId") != profile_id:
+            raise HubError(
+                "hub_invalid_response",
+                "Hub query provenance profileId does not match the requested profile.",
+            )
+        response_profile = (
+            hub_evidence.get("profileEvidence")
+            if isinstance(hub_evidence, dict)
+            else None
+        )
+        if response_profile is None:
+            return
+        if not isinstance(response_profile, dict):
+            raise HubError(
+                "hub_invalid_response",
+                "Hub response profileEvidence must be an object.",
+            )
+        if response_profile.get("profileId") != profile_id:
+            raise HubError(
+                "hub_invalid_response",
+                "Hub response profileEvidence does not match the requested profile.",
+            )
+        if profile_evidence is not None and response_profile != profile_evidence:
+            raise HubError(
+                "hub_invalid_response",
+                "Hub response profileEvidence does not match profile discovery.",
+            )
+
+    def _require_hub_invocation_binding(
+        self,
+        query: dict[str, Any],
+        hub_evidence: Any,
+        *,
+        profile_snapshot: dict[str, Any],
+    ) -> None:
+        """Validate Hub-owned model evidence before committing generated versions."""
+
+        invocations = (
+            hub_evidence.get("modelInvocations")
+            if isinstance(hub_evidence, dict)
+            else None
+        )
+        ready = query.get("status") == "ready"
+        if invocations is None:
+            if ready:
+                raise HubError(
+                    "hub_invalid_response",
+                    "A ready Hub query must include writer and reviewer invocation "
+                    "evidence.",
+                )
+            return
+        if not isinstance(invocations, list):
+            raise HubError(
+                "hub_invalid_response",
+                "Hub modelInvocations must be an array.",
+            )
+
+        evidenced_query = deepcopy(query)
+        evidenced_query["modelInvocations"] = deepcopy(invocations)
+        if isinstance(hub_evidence, dict) and isinstance(
+            hub_evidence.get("totalModelInvocationDurationMs"), int
+        ):
+            evidenced_query["totalModelInvocationDurationMs"] = hub_evidence[
+                "totalModelInvocationDurationMs"
+            ]
+        try:
+            self.contracts.validate(
+                "catalyst-query-v1.schema.json",
+                evidenced_query,
+            )
+        except ContractError as error:
+            raise HubError(
+                "hub_invalid_response",
+                f"Hub model invocation evidence is invalid: {error}",
+            ) from error
+
+        succeeded_roles: set[str] = set()
+        for invocation in invocations:
+            role = str(invocation["role"])
+            expected = profile_snapshot.get(role)
+            if not isinstance(expected, dict):
+                raise HubError(
+                    "hub_invalid_response",
+                    f"Hub invocation role {role!r} is not part of the requested profile.",
+                )
+            if invocation.get("providerId") != expected.get(
+                "providerId"
+            ) or invocation.get("modelId") != expected.get("modelId"):
+                raise HubError(
+                    "hub_invalid_response",
+                    f"Hub {role} invocation does not match the requested profile.",
+                )
+            if invocation.get("outcome") == "succeeded":
+                succeeded_roles.add(role)
+
+        collaboration = query.get("modelCollaboration")
+        if isinstance(collaboration, dict):
+            for role in ("writer", "reviewer"):
+                role_evidence = collaboration.get(role)
+                expected = profile_snapshot.get(role)
+                if (
+                    not isinstance(role_evidence, dict)
+                    or not isinstance(expected, dict)
+                    or role_evidence.get("model") != expected.get("modelId")
+                ):
+                    raise HubError(
+                        "hub_invalid_response",
+                        f"Hub {role} collaboration evidence does not match the "
+                        "requested profile.",
+                    )
+
+        if ready and succeeded_roles != {"writer", "reviewer"}:
+            missing = ", ".join(sorted({"writer", "reviewer"} - succeeded_roles))
+            raise HubError(
+                "hub_invalid_response",
+                "A ready Hub query requires successful invocation evidence for "
+                f"both configured roles; missing: {missing}.",
+            )
+
+    @staticmethod
+    def _active_workbench_instruction(
+        store: WorkbenchStore,
+        session_id: str,
+    ) -> str:
+        turns = store.list_turns(session_id)["turns"]
+        for turn in reversed(turns):
+            instruction = turn.get("instruction")
+            if isinstance(instruction, str) and instruction.strip():
+                return instruction
+        session = store.get_session(session_id)
+        assert session is not None
+        return str(session["question"])
+
+    def _workbench_catalog_conflict(
+        self,
+        session: dict[str, Any],
+        runtime_catalog: Catalog,
+    ) -> ServiceResponse | None:
+        session_catalog_version = str(session["catalogVersion"])
+        if runtime_catalog.catalog_version == session_catalog_version:
+            return None
+        return self._workbench_error(
+            409,
+            "stale_catalog_version",
+            "The readable PostgreSQL catalog changed after this workbench session "
+            "was created. Start a new session before saving, validating, running, "
+            "or refining this query.",
+            details={
+                "sessionCatalogVersion": session_catalog_version,
+                "runtimeCatalogVersion": runtime_catalog.catalog_version,
+            },
+        )
+
+    @staticmethod
     def _profile_snapshot(profile: dict[str, Any]) -> dict[str, Any]:
+        evidence = (
+            profile.get("profileEvidence")
+            if isinstance(profile.get("profileEvidence"), dict)
+            else {}
+        )
+        writer = (
+            evidence.get("writer") if isinstance(evidence.get("writer"), dict) else {}
+        )
+        reviewer = (
+            evidence.get("reviewer")
+            if isinstance(evidence.get("reviewer"), dict)
+            else {}
+        )
+        writer_prompt = (
+            writer.get("systemPrompt")
+            if isinstance(writer.get("systemPrompt"), dict)
+            else {}
+        )
+        reviewer_prompt = (
+            reviewer.get("systemPrompt")
+            if isinstance(reviewer.get("systemPrompt"), dict)
+            else {}
+        )
         return {
             "profileId": profile.get("id"),
             "profileLabel": profile.get("label") or profile.get("id"),
             "profileAvailable": profile.get("available") is True,
             "requiredModels": list(profile.get("required_models") or []),
             "roleModels": dict(profile.get("role_models") or {}),
-            "roleKnobs": deepcopy(profile.get("role_knobs") or {}),
-            "profileConfigurationDigest": profile.get("profile_configuration_digest"),
-            "rolePromptDigests": deepcopy(profile.get("role_prompt_digests") or {}),
+            "roleKnobs": deepcopy(
+                profile.get("role_knobs")
+                or {
+                    "query_generate": writer.get("config"),
+                    "query_review": reviewer.get("config"),
+                }
+            ),
+            "profileConfigurationDigest": (
+                profile.get("profile_configuration_digest")
+                or evidence.get("profileDigest")
+            ),
+            "rolePromptDigests": deepcopy(
+                profile.get("role_prompt_digests")
+                or {
+                    "query_generate": writer_prompt.get("promptDigest"),
+                    "query_review": reviewer_prompt.get("promptDigest"),
+                }
+            ),
             "backend": deepcopy(profile.get("backend") or {}),
             "backendModelMetadata": deepcopy(
                 profile.get("backend_model_metadata") or {}
@@ -2129,6 +2427,7 @@ class CatalystService:
         version: dict[str, Any],
         *,
         question: str,
+        catalog: Catalog,
         source_findings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         store = self.workbench_store
@@ -2136,6 +2435,7 @@ class CatalystService:
         validation = self._build_workbench_validation(
             version,
             question=question,
+            catalog=catalog,
             source_findings=source_findings,
         )
         return store.append_validation(version["versionId"], validation)
@@ -2145,10 +2445,10 @@ class CatalystService:
         version: dict[str, Any],
         *,
         question: str,
+        catalog: Catalog,
         source_findings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        catalog = self._runtime_catalog_snapshot
         raw_findings = list(source_findings or [])
         raw_findings.extend(
             {

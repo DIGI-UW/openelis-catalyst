@@ -13,9 +13,15 @@ import { QUESTION } from "../src/features/query/test/fixtures";
 const query = process.env.PLAYWRIGHT_QUERY ?? QUESTION;
 const sessionId = "2bed91de-fa7d-4ffa-b4ae-0a454a883930";
 const versionId = "d801dc1d-fc94-435b-bee6-2b45c3173af1";
+const manualVersionId = "d801dc1d-fc94-435b-bee6-2b45c3173af2";
+const successorVersionId = "d801dc1d-fc94-435b-bee6-2b45c3173af3";
 const turnId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const followupTurnId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
 const queryDigest = "a".repeat(64);
+const manualQueryDigest = "1".repeat(64);
+const successorQueryDigest = "2".repeat(64);
 const profileId = "catalyst-query-gemma-4-12b";
+const revisionProfileId = "catalyst-query-gemma-qwen-split";
 const sql = [
   "SELECT patient_id, result_value, observed_at",
   "FROM analytics.lab_result_fact_v1",
@@ -31,6 +37,11 @@ const parameters: BoundParameter[] = [
     value: "Viral Load",
   },
 ];
+const manualSql = sql.replace("LIMIT 2", "LIMIT 1");
+const successorSql = manualSql.replace(
+  "SELECT patient_id, result_value, observed_at",
+  "SELECT patient_id, result_value, result_unit, observed_at",
+);
 
 const version: WorkbenchQueryVersion = {
   contractVersion: "catalyst.workbench.query-version.v1",
@@ -58,6 +69,47 @@ const version: WorkbenchQueryVersion = {
   createdAt: "2026-07-18T00:00:01Z",
 };
 
+const manualVersion: WorkbenchQueryVersion = {
+  ...version,
+  versionId: manualVersionId,
+  parentVersionId: versionId,
+  ordinal: 2,
+  authorType: "human",
+  sql: manualSql,
+  expectedColumns: [],
+  queryDigest: manualQueryDigest,
+  provenance: { editedFromVersionId: versionId },
+  createdAt: "2026-07-18T00:00:03Z",
+};
+
+const successorVersion: WorkbenchQueryVersion = {
+  ...version,
+  versionId: successorVersionId,
+  parentVersionId: manualVersionId,
+  ordinal: 3,
+  authorType: "model_repair",
+  sql: successorSql,
+  expectedColumns: [
+    { name: "patient_id", logicalType: "string", nullable: false },
+    { name: "result_value", logicalType: "decimal", nullable: true },
+    { name: "result_unit", logicalType: "string", nullable: true },
+    { name: "observed_at", logicalType: "date-time", nullable: false },
+  ],
+  queryDigest: successorQueryDigest,
+  provenance: {
+    profileId: revisionProfileId,
+    profileLabel: "Gemma E4B writer + Qwen reviewer",
+    roleModels: {
+      query_generate: "gemma-4-e4b",
+      query_review: "qwen2.5-coder-14b",
+    },
+    model: "qwen2.5-coder-14b",
+    collaborationRole: "reviewer",
+    turnId: followupTurnId,
+  },
+  createdAt: "2026-07-18T00:00:05Z",
+};
+
 const validation: WorkbenchValidation = {
   contractVersion: "catalyst.workbench.validation.v1",
   queryDigest,
@@ -80,6 +132,18 @@ const validation: WorkbenchValidation = {
   ordinal: 1,
   createdAt: "2026-07-18T00:00:02Z",
 };
+
+const validationFor = (
+  target: WorkbenchQueryVersion,
+  ordinal: number,
+): WorkbenchValidation => ({
+  ...validation,
+  validationId: `77777777-7777-4777-8777-${String(ordinal).padStart(12, "0")}`,
+  queryDigest: target.queryDigest,
+  versionId: target.versionId,
+  ordinal,
+  createdAt: `2026-07-18T00:00:0${ordinal + 2}Z`,
+});
 
 const session = (
   validated: boolean,
@@ -180,10 +244,61 @@ const timeline: WorkbenchTurnTimeline = {
   turns: [initialTurn],
 };
 
+const followupTurn: WorkbenchTurn = {
+  ...initialTurn,
+  turnId: followupTurnId,
+  ordinal: 2,
+  kind: "followup",
+  instruction: "Include the result unit in the current query",
+  instructionDigest: "3".repeat(64),
+  profileSnapshot: {
+    profileId: revisionProfileId,
+    profileName: "Gemma E4B writer + Qwen reviewer",
+    profileDigest: "4".repeat(64),
+    writer: { role: "writer", modelId: "gemma-4-e4b" },
+    reviewer: { role: "reviewer", modelId: "qwen2.5-coder-14b" },
+    omissions: [],
+  },
+  observedBase: {
+    versionId: manualVersionId,
+    queryDigest: manualQueryDigest,
+  },
+  editorSnapshot: {
+    contractVersion: "catalyst.workbench.editor-snapshot-record.v1",
+    editorDigest: manualQueryDigest,
+  },
+  snapshotClassification: "reused",
+  effectiveBaseVersion: {
+    versionId: manualVersionId,
+    queryDigest: manualQueryDigest,
+  },
+  hubRequestDigest: "5".repeat(64),
+  outputVersions: [
+    {
+      versionId: successorVersionId,
+      queryDigest: successorQueryDigest,
+      parentVersionId: manualVersionId,
+      role: "reviewer",
+      authorType: "model_repair",
+      contractValid: true,
+      validationId: validationFor(successorVersion, 2).validationId,
+      selected: true,
+    },
+  ],
+  selectedVersionId: successorVersionId,
+  resultingCurrentVersion: {
+    versionId: successorVersionId,
+    queryDigest: successorQueryDigest,
+  },
+  createdAt: "2026-07-18T00:00:04Z",
+  updatedAt: "2026-07-18T00:00:05Z",
+};
+
 interface DeterministicApiCalls {
   sessionRequests: unknown[];
   versionRequests: unknown[];
   executionRequests: unknown[];
+  turnRequests: unknown[];
 }
 
 const installDeterministicApi = async (
@@ -193,7 +308,11 @@ const installDeterministicApi = async (
     sessionRequests: [],
     versionRequests: [],
     executionRequests: [],
+    turnRequests: [],
   };
+  let currentSession = session(false);
+  let currentTimeline = timeline;
+  let executionOrdinal = 0;
 
   await page.route("**/v1/catalyst/**", async (route) => {
     const request = route.request();
@@ -216,6 +335,19 @@ const installDeterministicApi = async (
               roleModels: {
                 query_generate: "gemma-4-12b",
                 query_review: "qwen2.5-14b",
+              },
+              stages: ["query_generate", "query_lint", "query_review"],
+              unavailableReasons: [],
+            },
+            {
+              id: revisionProfileId,
+              label: "Gemma E4B writer + Qwen reviewer",
+              available: true,
+              revisionCapable: true,
+              requiredModels: ["gemma-4-e4b", "qwen2.5-coder-14b"],
+              roleModels: {
+                query_generate: "gemma-4-e4b",
+                query_review: "qwen2.5-coder-14b",
               },
               stages: ["query_generate", "query_lint", "query_review"],
               unavailableReasons: [],
@@ -331,7 +463,18 @@ const installDeterministicApi = async (
 
     if (method === "POST" && path === "/v1/catalyst/workbench/sessions") {
       calls.sessionRequests.push(request.postDataJSON());
-      await route.fulfill({ status: 201, json: session(false) });
+      currentSession = session(false);
+      currentTimeline = timeline;
+      executionOrdinal = 0;
+      await route.fulfill({ status: 201, json: currentSession });
+      return;
+    }
+
+    if (
+      method === "GET" &&
+      path === `/v1/catalyst/workbench/sessions/${sessionId}`
+    ) {
+      await route.fulfill({ status: 200, json: currentSession });
       return;
     }
 
@@ -339,7 +482,7 @@ const installDeterministicApi = async (
       method === "GET" &&
       path === `/v1/catalyst/workbench/sessions/${sessionId}/turns`
     ) {
-      await route.fulfill({ status: 200, json: timeline });
+      await route.fulfill({ status: 200, json: currentTimeline });
       return;
     }
 
@@ -347,23 +490,81 @@ const installDeterministicApi = async (
       method === "POST" &&
       path === `/v1/catalyst/workbench/sessions/${sessionId}/versions`
     ) {
-      calls.versionRequests.push(request.postDataJSON());
-      await route.fulfill({ status: 201, json: session(true) });
+      const body = request.postDataJSON() as Record<string, unknown>;
+      calls.versionRequests.push(body);
+      if (body.sql === manualSql && currentSession.currentVersionId === versionId) {
+        const manualValidation = validationFor(manualVersion, 1);
+        currentSession = {
+          ...currentSession,
+          currentVersionId: manualVersionId,
+          currentVersion: manualVersion,
+          versions: [version, manualVersion],
+          validations: [manualValidation],
+          latestValidation: manualValidation,
+          updatedAt: manualValidation.createdAt,
+        };
+        currentTimeline = {
+          ...currentTimeline,
+          currentVersion: {
+            versionId: manualVersionId,
+            queryDigest: manualQueryDigest,
+          },
+        };
+      }
+      await route.fulfill({ status: 201, json: currentSession });
       return;
     }
 
     if (
       method === "POST" &&
-      path === `/v1/catalyst/workbench/versions/${versionId}/execute`
+      path === `/v1/catalyst/workbench/sessions/${sessionId}/turns`
+    ) {
+      calls.turnRequests.push(request.postDataJSON());
+      const successorValidation = validationFor(successorVersion, 2);
+      currentSession = {
+        ...currentSession,
+        currentVersionId: successorVersionId,
+        currentVersion: successorVersion,
+        versions: [version, manualVersion, successorVersion],
+        validations: [...currentSession.validations, successorValidation],
+        latestValidation: successorValidation,
+        updatedAt: successorVersion.createdAt,
+      };
+      currentTimeline = {
+        ...timeline,
+        currentTurnId: followupTurnId,
+        currentVersion: {
+          versionId: successorVersionId,
+          queryDigest: successorQueryDigest,
+        },
+        turns: [initialTurn, followupTurn],
+      };
+      await route.fulfill({ status: 201, json: followupTurn });
+      return;
+    }
+
+    if (
+      method === "POST" &&
+      path.startsWith("/v1/catalyst/workbench/versions/") &&
+      path.endsWith("/execute")
     ) {
       const body = request.postDataJSON() as Record<string, unknown>;
       calls.executionRequests.push(body);
+      executionOrdinal += 1;
+      const executedVersion = currentSession.versions.find(
+        (candidate) => candidate.versionId === body.versionId,
+      );
+      if (!executedVersion) {
+        await route.fulfill({ status: 404, json: { detail: "Unknown version" } });
+        return;
+      }
+      const includesUnit = executedVersion.versionId === successorVersionId;
       const execution: WorkbenchExecution = {
         contractVersion: "catalyst.workbench.execution.v1",
-        queryDigest,
+        queryDigest: executedVersion.queryDigest,
         idempotencyKey: String(body.idempotencyKey),
         validationStatus: "valid",
-        query: { sql, parameters },
+        query: { sql: executedVersion.sql, parameters: executedVersion.parameters },
         statementTimeoutMs: 5000,
         maxRows: 100,
         replayed: false,
@@ -384,8 +585,17 @@ const installDeterministicApi = async (
               typeOid: 1700,
               logicalType: "decimal",
             },
+            ...(includesUnit
+              ? [{
+                  ordinal: 3,
+                  name: "result_unit",
+                  databaseType: "text",
+                  typeOid: 25,
+                  logicalType: "string",
+                }]
+              : []),
             {
-              ordinal: 3,
+              ordinal: includesUnit ? 4 : 3,
               name: "observed_at",
               databaseType: "timestamptz",
               typeOid: 1184,
@@ -396,26 +606,36 @@ const installDeterministicApi = async (
             [
               { type: "string", value: "patient-001" },
               { type: "decimal", value: "1200.0" },
+              ...(includesUnit
+                ? [{ type: "string" as const, value: "copies/ml" }]
+                : []),
               { type: "date-time", value: "2026-07-02T00:00:00Z" },
             ],
-            [
-              { type: "string", value: "patient-002" },
-              { type: "decimal", value: "450.0" },
-              { type: "date-time", value: "2026-07-01T00:00:00Z" },
-            ],
+            ...(includesUnit
+              ? [[
+                  { type: "string" as const, value: "patient-002" },
+                  { type: "decimal" as const, value: "450.0" },
+                  { type: "string" as const, value: "copies/ml" },
+                  { type: "date-time" as const, value: "2026-07-01T00:00:00Z" },
+                ]]
+              : []),
           ],
           rowCount: {
-            returned: 2,
+            returned: includesUnit ? 2 : 1,
             truncated: false,
             truncationReason: null,
           },
         },
         durationMs: 17,
-        executionId: "88888888-8888-4888-8888-888888888888",
+        executionId: `88888888-8888-4888-8888-${String(executionOrdinal).padStart(12, "0")}`,
         sessionId,
-        versionId,
-        ordinal: 1,
-        completedAt: "2026-07-18T00:00:03Z",
+        versionId: executedVersion.versionId,
+        ordinal: executionOrdinal,
+        completedAt: `2026-07-18T00:00:0${executionOrdinal + 5}Z`,
+      };
+      currentSession = {
+        ...currentSession,
+        executions: [...currentSession.executions, execution],
       };
       await route.fulfill({ status: 200, json: execution });
       return;
@@ -495,6 +715,7 @@ test("question to iterative notebook to validated typed results", async ({
     await expect(page.getByLabel("Parameter 1 name")).toHaveValue("test_name");
     await expect(page.getByLabel("Parameter 1 type")).toHaveValue("string");
     await expect(page.getByLabel("Parameter 1 value")).toHaveValue("Viral Load");
+    await page.getByRole("textbox", { name: "SQL query" }).fill(manualSql);
   }
 
   await page.getByRole("button", { name: "Validate query" }).click();
@@ -505,9 +726,9 @@ test("question to iterative notebook to validated typed results", async ({
       contractVersion: "catalyst.workbench.version.request.v1",
       parentVersionId: versionId,
       parentQueryDigest: queryDigest,
-      sql,
+      sql: manualSql,
       parameters,
-      expectedColumns: version.expectedColumns,
+      expectedColumns: [],
     });
   } else {
     await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible();
@@ -519,14 +740,12 @@ test("question to iterative notebook to validated typed results", async ({
 
   if (useMockApi) {
     await expect(
-      execution.getByRole("heading", { name: "Results from Query v1" }),
+      execution.getByRole("heading", { name: "Results from Query v2" }),
     ).toBeVisible();
     await expect(execution.getByText("patient-001", { exact: true })).toBeVisible();
     await expect(execution.getByText("1200.0", { exact: true })).toBeVisible();
-    await expect(execution.getByText("patient-002", { exact: true })).toBeVisible();
-    await expect(execution.getByText("450.0", { exact: true })).toBeVisible();
     await expect(
-      page.getByText(/Execution summary: Query v1 · Run 1 · 2 rows/i),
+      page.getByText(/Execution summary: Query v2 · Run 1 · 1 row/i),
     ).toBeVisible();
     await expect(
       page.getByText(/Result row values are not included in model context/i),
@@ -535,8 +754,8 @@ test("question to iterative notebook to validated typed results", async ({
     await expect.poll(() => calls?.executionRequests.length).toBe(1);
     expect(calls?.executionRequests[0]).toMatchObject({
       contractVersion: "catalyst.workbench.execute.request.v1",
-      versionId,
-      queryDigest,
+      versionId: manualVersionId,
+      queryDigest: manualQueryDigest,
       idempotencyKey: expect.any(String),
     });
 
@@ -552,6 +771,84 @@ test("question to iterative notebook to validated typed results", async ({
       () => page.evaluate(() =>
         localStorage.getItem("catalyst.workbench.activeSessionId")),
     ).toBe(sessionId);
+
+    await page.getByRole("combobox", { name: "Model profile" }).selectOption(
+      revisionProfileId,
+    );
+    await page.getByRole("textbox", { name: "Follow-up instruction" }).fill(
+      "Include the result unit in the current query",
+    );
+    await page.getByRole("button", { name: "Generate next query" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Refine Query v3" }),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "SQL query" }))
+      .toContainText("result_unit");
+    await expect.poll(() => calls?.turnRequests.length).toBe(1);
+    expect(calls?.turnRequests[0]).toMatchObject({
+      contractVersion: "catalyst.workbench.turn.request.v1",
+      instruction: "Include the result unit in the current query",
+      profileId: revisionProfileId,
+      observedBase: {
+        versionId: manualVersionId,
+        queryDigest: manualQueryDigest,
+      },
+      editorSnapshot: {
+        sql: manualSql,
+        parameters,
+        expectedColumns: [],
+        editorDigest: manualQueryDigest,
+      },
+    });
+    await expect(
+      execution.getByRole("heading", { name: "Results from Query v2" }),
+    ).toBeVisible();
+    await expect(execution.getByText("Stale — editor has changes", { exact: true }))
+      .toBeVisible();
+
+    const switchedProvenance = page.getByRole("region", {
+      name: "Run provenance",
+    });
+    await expect(
+      switchedProvenance.getByText("Gemma E4B writer + Qwen reviewer", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(switchedProvenance.getByText("gemma-4-e4b", { exact: true }))
+      .toBeVisible();
+    await expect(
+      switchedProvenance.getByText("qwen2.5-coder-14b", { exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Run query" }).click();
+    await expect(
+      execution.getByRole("heading", { name: "Results from Query v3" }),
+    ).toBeVisible();
+    await expect(execution.getByText("patient-002", { exact: true })).toBeVisible();
+    await expect(execution.getByText("copies/ml", { exact: true }).first())
+      .toBeVisible();
+    await expect.poll(() => calls?.executionRequests.length).toBe(2);
+    expect(calls?.executionRequests[1]).toMatchObject({
+      versionId: successorVersionId,
+      queryDigest: successorQueryDigest,
+    });
+
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Refine Query v3" }),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "SQL query" }))
+      .toContainText("result_unit");
+    await expect(
+      page.getByRole("button", { name: /Query turn 2/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Latest execution" })
+        .getByRole("heading", { name: "Results from Query v3" }),
+    ).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Model profile" }))
+      .toHaveValue(revisionProfileId);
   } else {
     await expect(
       execution.getByRole("heading", {

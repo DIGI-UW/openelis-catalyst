@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -16,6 +17,7 @@ class MvpComposeContractTests(unittest.TestCase):
         cls.env = (ROOT / "env.recommended").read_text()
         cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
+        cls.model_config_script = (ROOT / "scripts/mvp-model-config.sh").read_text()
         cls.hub_bootstrap = (ROOT / "scripts/bootstrap-med-agent-hub.sh").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
@@ -33,6 +35,19 @@ class MvpComposeContractTests(unittest.TestCase):
             self.assertRegex(self.compose, rf"(?m)^  {re.escape(service)}:")
         self.assertNotRegex(self.compose, r"(?m)^  spark:")
 
+    def test_openelis_checkout_and_runtime_images_are_immutable(self):
+        self.assertIn(
+            "OPENELIS_DOCKER_REF=f118d0ae778a30028c16be2af549843ec166f655",
+            self.env,
+        )
+        for digest in (
+            "e27a8194300ba73309e835a4070e9ce531687eb3ee604895de781f3061791635",
+            "e801c93a8bedc41c2e502722e38585979fbbaf0e92ee4c248cdde72d9c33ec1e",
+            "2217d76104051589d99eb808cef22ae692f6ad2d12a0fadc70ecc549162df36f",
+            "667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3",
+        ):
+            self.assertIn(f"@sha256:{digest}", self.compose)
+
     def test_hub_source_is_injectable_and_standalone_fallback_is_unmodified(self):
         expected_context = 'build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"'
         self.assertIn(expected_context, self.compose)
@@ -45,7 +60,7 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertNotIn('"patch"', self.health_script)
         self.assertNotIn("git apply", self.hub_bootstrap)
         self.assertIn(
-            "74972a0235c9345bceca2a306c0917cd53b83953",
+            "099d23395c785de34ed89cf192d196def713b216",
             self.hub_bootstrap,
         )
         self.assertFalse(
@@ -75,6 +90,42 @@ class MvpComposeContractTests(unittest.TestCase):
                     "compose override file does not exist",
                     script,
                 )
+
+    def test_invocation_port_overrides_survive_env_file_loading(self):
+        expected = {
+            "mvp-up.sh": (
+                "GATEWAY_PORT",
+                "CATALYST_UI_PORT",
+                "ANALYTICS_DB_PORT",
+                "DATA_PIPES_PORT",
+                "MED_AGENT_HUB_PORT",
+                "OPENELIS_HTTPS_PORT",
+                "HAPI_HTTPS_PORT",
+            ),
+            "mvp-seed.sh": (
+                "GATEWAY_PORT",
+                "CATALYST_UI_PORT",
+                "ANALYTICS_DB_PORT",
+                "DATA_PIPES_PORT",
+                "MED_AGENT_HUB_PORT",
+                "OPENELIS_HTTPS_PORT",
+                "HAPI_HTTPS_PORT",
+            ),
+            "mvp-health.sh": (
+                "GATEWAY_PORT",
+                "CATALYST_UI_PORT",
+                "ANALYTICS_DB_PORT",
+                "DATA_PIPES_PORT",
+                "MED_AGENT_HUB_PORT",
+                "OPENELIS_HTTPS_PORT",
+                "HAPI_HTTPS_PORT",
+            ),
+        }
+        for script_name, variables in expected.items():
+            script = (ROOT / "scripts" / script_name).read_text()
+            for variable in variables:
+                with self.subTest(script=script_name, variable=variable):
+                    self.assertIn(f"export {variable}=", script)
 
     def test_data_pipes_is_built_from_the_pinned_checkout_without_spark(self):
         self.assertIn("context: ./.fhir-data-pipes", self.compose)
@@ -134,8 +185,14 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn(
             "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
         )
-        self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-e4b", self.env)
-        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-e4b", self.env)
+        self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-4-12b", self.env)
+        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b", self.env)
+        self.assertIn(
+            "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='"
+            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
+            "'",
+            self.env,
+        )
         self.assertIn(
             'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"',
             self.compose,
@@ -143,26 +200,26 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("HUB_LLM_PROVIDER=llama.cpp", self.env)
         self.assertIn('LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"', self.compose)
         self.assertIn("host.docker.internal:host-gateway", self.compose)
-        self.assertIn('model_backend="${MVP_MODEL_BACKEND:-external}"', self.up_script)
+        self.assertIn("mvp_resolve_model_config", self.up_script)
         self.assertIn(
-            "gemma-e4b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
+            "gemma-e4b,gemma-4-12b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
             self.compose,
         )
 
     def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
-        for script in (self.up_script, self.health_script):
-            self.assertIn(
-                'external_router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
-                script,
-            )
-            self.assertIn(
-                'local_router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"',
-                script,
-            )
-            self.assertIn(
-                'fake_router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"',
-                script,
-            )
+        self.assertIn(
+            'router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
+            self.model_config_script,
+        )
+        self.assertIn(
+            'router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"',
+            self.model_config_script,
+        )
+        self.assertIn(
+            'router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"',
+            self.model_config_script,
+        )
+        for script in (self.up_script, self.health_script, self.model_config_script):
             self.assertNotIn("MVP_HUB_LLM_BASE_URL", script)
         self.assertNotIn("MVP_HUB_LLM_BASE_URL", self.env)
         self.assertNotIn("MVP_HUB_LLM_BASE_URL", self.compose)
@@ -182,12 +239,21 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn('-e "EXPECTED_ROUTER_URL=${router_url}"', self.health_script)
 
     def test_health_and_provenance_use_the_selected_router_identity(self):
-        self.assertIn("MVP_EXTERNAL_MODEL_ID", self.health_script)
-        self.assertIn("MVP_BUNDLED_MODEL_ID", self.health_script)
+        self.assertIn("MVP_EXTERNAL_MODEL_ID", self.model_config_script)
+        self.assertIn("MVP_BUNDLED_MODEL_ID", self.model_config_script)
         self.assertIn('model_router["modelId"] = model_ids[0]', self.health_script)
         self.assertIn('"baseUrl": os.environ["ROUTER_URL"]', self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.up_script)
+
+    def test_health_gates_and_records_the_openelis_deployment_pin(self):
+        self.assertIn("check_openelis_deployment_pin", self.health_script)
+        self.assertIn('"openelisDocker": {', self.health_script)
+        self.assertIn(
+            '"commit": os.environ["OPENELIS_DOCKER_COMMIT"]',
+            self.health_script,
+        )
+        self.assertIn("itechuw/openelis-global-2@sha256:", self.health_script)
 
     def test_health_validates_and_records_the_exact_profile_role_model_map(self):
         self.assertIn("MVP_EXPECTED_ROLE_MODELS_JSON", self.health_script)
@@ -220,7 +286,7 @@ class MvpComposeContractTests(unittest.TestCase):
         )
         self.assertIn(
             '{"query_generate": model_id, "query_review": model_id}',
-            self.health_script,
+            self.model_config_script,
         )
         self.assertIn("if len(model_ids) == 1:", self.health_script)
         self.assertIn('"roleModels": role_models', self.health_script)
@@ -246,6 +312,46 @@ class MvpComposeContractTests(unittest.TestCase):
 
 
 class MvpScriptContractTests(unittest.TestCase):
+    _MODEL_OVERRIDE_KEYS = (
+        "MVP_MODEL_BACKEND",
+        "MVP_EXTERNAL_ROUTER_URL",
+        "MVP_LOCAL_ROUTER_URL",
+        "MVP_FAKE_ROUTER_URL",
+        "MVP_EXTERNAL_MODEL_ID",
+        "MVP_EXTERNAL_PROFILE_ID",
+        "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON",
+        "MVP_BUNDLED_MODEL_ID",
+        "MVP_BUNDLED_PROFILE_ID",
+        "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON",
+        "MVP_FAKE_MODEL_ID",
+        "MVP_FAKE_PROFILE_ID",
+        "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON",
+        "MVP_EXPECTED_MODEL_ID",
+        "MVP_PROFILE_ID",
+        "MVP_EXPECTED_ROLE_MODELS_JSON",
+    )
+
+    def _resolved_model_config(self, script_name, backend, **overrides):
+        environment = os.environ.copy()
+        for name in self._MODEL_OVERRIDE_KEYS:
+            environment.pop(name, None)
+        environment.update(
+            {
+                "MVP_MODEL_BACKEND": backend,
+                "MVP_RESOLVE_MODEL_CONFIG_ONLY": "true",
+                **overrides,
+            }
+        )
+        completed = subprocess.run(
+            [ROOT / "scripts" / script_name],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(completed.stdout.strip().splitlines()[-1])
+
     def test_mvp_lifecycle_scripts_parse_and_are_executable(self):
         for name in (
             "mvp-reset.sh",
@@ -260,6 +366,72 @@ class MvpScriptContractTests(unittest.TestCase):
                 script = ROOT / "scripts" / name
                 self.assertTrue(os.access(script, os.X_OK))
                 subprocess.run(["bash", "-n", script], check=True)
+        subprocess.run(["bash", "-n", ROOT / "scripts/mvp-model-config.sh"], check=True)
+
+    def test_backend_resolution_executes_consistently_through_every_lifecycle_script(
+        self,
+    ):
+        expected = {
+            "external": {
+                "modelId": "gemma-4-12b",
+                "profileId": "catalyst-query-gemma-4-12b",
+                "routerUrl": "http://host.docker.internal:8077",
+                "roleModels": {
+                    "query_generate": "gemma-4-12b",
+                    "query_review": "qwen2.5-14b",
+                },
+            },
+            "fake": {
+                "modelId": "gemma-4-12b",
+                "profileId": "catalyst-query-gemma-4-12b",
+                "routerUrl": "http://model-router-fake:8077",
+                "roleModels": {
+                    "query_generate": "gemma-4-12b",
+                    "query_review": "qwen2.5-14b",
+                },
+            },
+            "local": {
+                "modelId": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                "profileId": "catalyst-query-qwen-coder-1.5b",
+                "routerUrl": "http://model-router:8077",
+                "roleModels": {
+                    "query_generate": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                },
+            },
+        }
+        for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
+            for backend, backend_expected in expected.items():
+                with self.subTest(script=script_name, backend=backend):
+                    resolved = self._resolved_model_config(script_name, backend)
+                    self.assertEqual(resolved["backend"], backend)
+                    for key, value in backend_expected.items():
+                        self.assertEqual(resolved[key], value)
+
+    def test_explicit_model_invocation_overrides_survive_every_env_file_load(self):
+        role_models = {
+            "query_generate": "custom-writer",
+            "query_review": "custom-reviewer",
+        }
+        overrides = {
+            "MVP_LOCAL_ROUTER_URL": "http://custom-local-router:9000",
+            "MVP_EXPECTED_MODEL_ID": "custom-writer",
+            "MVP_PROFILE_ID": "custom-local-profile",
+            "MVP_EXPECTED_ROLE_MODELS_JSON": json.dumps(role_models),
+        }
+        for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
+            with self.subTest(script=script_name):
+                resolved = self._resolved_model_config(
+                    script_name,
+                    "local",
+                    **overrides,
+                )
+                self.assertEqual(
+                    resolved["routerUrl"], overrides["MVP_LOCAL_ROUTER_URL"]
+                )
+                self.assertEqual(resolved["modelId"], "custom-writer")
+                self.assertEqual(resolved["profileId"], "custom-local-profile")
+                self.assertEqual(resolved["roleModels"], role_models)
 
     def test_up_omits_openelis_frontend_and_proxy(self):
         script = (ROOT / "scripts/mvp-up.sh").read_text()

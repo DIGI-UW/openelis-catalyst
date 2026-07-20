@@ -136,10 +136,13 @@ API before Data Pipes runs.
 The transform is deterministic and idempotent; it is not used for non-fixture
 records.
 
-`catalog/analytics-catalog-v1.json` is the profile-facing allowlist. It records
-the stable view/version, one-Observation grain, typed columns and units,
-allowed filters/groupings, terminology caveats, mandatory date/result limits,
-freshness behavior, examples, and demo-only classification.
+`catalog/analytics-catalog-v1.json` records semantic metadata for the stable
+result view: version, one-Observation grain, typed columns and units, supported
+filters/groupings, terminology caveats, mandatory date/result limits, freshness
+behavior, examples, and demo-only classification. At runtime, PostgreSQL grants
+define the query boundary: Catalyst discovers every relation and column the
+configured read-only role can select and uses that same catalog for model
+grounding, editor completion, and validation.
 
 `contracts/pipeline-run-v1.schema.json` and
 `analytics.pipeline_run_v1` define the run metadata contract. The controller
