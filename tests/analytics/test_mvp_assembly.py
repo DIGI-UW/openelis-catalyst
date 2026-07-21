@@ -60,7 +60,7 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertNotIn('"patch"', self.health_script)
         self.assertNotIn("git apply", self.hub_bootstrap)
         self.assertIn(
-            "d4c09eeb80323e16a2d310f7a002eb5da0cffc68",
+            "f00f82d796ba3e3ea5a049b55e4be32867b0dbb8",
             self.hub_bootstrap,
         )
         self.assertFalse(
