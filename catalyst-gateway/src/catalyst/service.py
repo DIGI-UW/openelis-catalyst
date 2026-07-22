@@ -175,9 +175,7 @@ class CatalystService:
             self._bundles: dict[str, DataSourceBundle] = {}
             for bundle in data_sources:
                 if bundle.source_id in self._bundles:
-                    raise ValueError(
-                        f"duplicate data source id {bundle.source_id!r}"
-                    )
+                    raise ValueError(f"duplicate data source id {bundle.source_id!r}")
                 self._bundles[bundle.source_id] = bundle
             self._default_data_source_id = (
                 default_data_source_id or data_sources[0].source_id
@@ -274,9 +272,7 @@ class CatalystService:
         )
         return self._require_bundle(source_id)
 
-    async def _runtime_catalog(
-        self, bundle: DataSourceBundle | None = None
-    ) -> Catalog:
+    async def _runtime_catalog(self, bundle: DataSourceBundle | None = None) -> Catalog:
         if bundle is None:
             bundle = self._bundles[self._default_data_source_id]
         assert bundle.catalog is not None  # _resolve_data_source guards this
@@ -2168,17 +2164,15 @@ class CatalystService:
         # has no baseline, so switching sources never trips a false conflict.
         baseline: str | None = None
         for turn in reversed(prior_turns):
-            if (
-                turn.get("dataSourceId") == data_source_id
-                and turn.get("catalogVersion")
+            if turn.get("dataSourceId") == data_source_id and turn.get(
+                "catalogVersion"
             ):
                 baseline = str(turn["catalogVersion"])
                 break
         if baseline is None:
-            initial_source = (
-                (session.get("provenance") or {}).get("dataSourceId")
-                or self._default_data_source_id
-            )
+            initial_source = (session.get("provenance") or {}).get(
+                "dataSourceId"
+            ) or self._default_data_source_id
             if data_source_id == initial_source:
                 baseline = str(session["catalogVersion"])
         if baseline is None or runtime_catalog.catalog_version == baseline:
