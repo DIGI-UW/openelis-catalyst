@@ -25,6 +25,7 @@ export interface NotebookTurn {
   ordinal: number;
   kind: "initial" | "followup";
   instruction: string;
+  dataSourceLabel?: string | null;
   status: "requested" | "completed" | "failed";
   selectedVersionId: string | null;
   outputVersions: NotebookOutputVersion[];
@@ -293,6 +294,11 @@ export const TurnNotebook = ({
                   <strong>Query turn {turn.ordinal}</strong>
                   <span>{turn.instruction}</span>
                 </span>
+                {turn.dataSourceLabel && (
+                  <span className="query-turn__source">
+                    {turn.dataSourceLabel}
+                  </span>
+                )}
                 <span>{turn.status}</span>
               </button>
               {expanded && (

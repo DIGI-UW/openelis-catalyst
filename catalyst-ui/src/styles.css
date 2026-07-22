@@ -133,6 +133,16 @@ input {
   white-space: nowrap;
 }
 
+.query-turn__source {
+  background: #e0e0e0;
+  color: #161616;
+  border-radius: 0.75rem;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  align-self: center;
+}
+
 .query-card {
   padding: clamp(1rem, 3vw, 2rem);
   border-top: 4px solid #0f62fe;

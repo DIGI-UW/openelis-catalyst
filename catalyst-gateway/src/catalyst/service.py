@@ -239,6 +239,37 @@ class CatalystService:
             return None
         return bundle
 
+    def _require_bundle(
+        self,
+        source_id: str | None,
+        *,
+        workbench: bool = True,
+    ) -> DataSourceBundle | ServiceResponse:
+        """Resolve a targetable bundle or the 400 the caller should return."""
+        bundle = self._resolve_data_source(source_id)
+        if bundle is not None:
+            return bundle
+        error = self._workbench_error if workbench else self._error
+        return error(
+            400,
+            "unknown_data_source",
+            f"Data source {source_id!r} is not registered.",
+        )
+
+    def _version_bundle(
+        self,
+        version: dict[str, Any],
+        session: dict[str, Any],
+        prior_turns: list[dict[str, Any]],
+    ) -> DataSourceBundle | ServiceResponse:
+        """The bundle a stored version targets: its recorded source, else the
+        session's current source."""
+        source_id = str(
+            (version.get("provenance") or {}).get("dataSourceId")
+            or self._session_data_source_id(session, prior_turns)
+        )
+        return self._require_bundle(source_id)
+
     async def _runtime_catalog(
         self, bundle: DataSourceBundle | None = None
     ) -> Catalog:
@@ -288,13 +319,9 @@ class CatalystService:
     async def workbench_editor_catalog(
         self, data_source_id: str | None = None
     ) -> ServiceResponse:
-        bundle = self._resolve_data_source(data_source_id)
-        if bundle is None:
-            return self._error(
-                400,
-                "unknown_data_source",
-                f"Data source {data_source_id!r} is not registered.",
-            )
+        bundle = self._require_bundle(data_source_id)
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         try:
             catalog = await self._runtime_catalog(bundle)
             schemas_by_name: dict[str, list[dict[str, Any]]] = {}
@@ -441,13 +468,9 @@ class CatalystService:
     async def dataset_overview(
         self, data_source_id: str | None = None
     ) -> ServiceResponse:
-        bundle = self._resolve_data_source(data_source_id)
-        if bundle is None:
-            return self._error(
-                400,
-                "unknown_data_source",
-                f"Data source {data_source_id!r} is not registered.",
-            )
+        bundle = self._require_bundle(data_source_id, workbench=False)
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         try:
             return ServiceResponse(200, await bundle.analytics.dataset_overview())
         except Exception as error:
@@ -462,13 +485,9 @@ class CatalystService:
         offset: int,
         data_source_id: str | None = None,
     ) -> ServiceResponse:
-        bundle = self._resolve_data_source(data_source_id)
-        if bundle is None:
-            return self._error(
-                400,
-                "unknown_data_source",
-                f"Data source {data_source_id!r} is not registered.",
-            )
+        bundle = self._require_bundle(data_source_id, workbench=False)
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         try:
             body = await bundle.analytics.dataset_rows(
                 test_name=test_name,
@@ -645,13 +664,9 @@ class CatalystService:
             return self._workbench_error(400, "invalid_request", str(error))
 
         profile_id = str(payload.get("profileId") or QUERY_PROFILE_ID)
-        bundle = self._resolve_data_source(payload.get("dataSourceId"))
-        if bundle is None:
-            return self._workbench_error(
-                400,
-                "unknown_data_source",
-                f"Data source {payload.get('dataSourceId')!r} is not registered.",
-            )
+        bundle = self._require_bundle(payload.get("dataSourceId"))
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         catalyst_trace_id = str(uuid.uuid4())
         try:
             profiles = await self.hub.list_query_profiles()
@@ -1117,13 +1132,9 @@ class CatalystService:
                 if requested_source
                 else self._session_data_source_id(session, prior_turns)
             )
-            bundle = self._resolve_data_source(resolved_source_id)
-            if bundle is None:
-                return self._workbench_error(
-                    400,
-                    "unknown_data_source",
-                    f"Data source {resolved_source_id!r} is not registered.",
-                )
+            bundle = self._require_bundle(resolved_source_id)
+            if isinstance(bundle, ServiceResponse):
+                return bundle
             profiles = await self.hub.list_query_profiles()
             profile_id = str(payload["profileId"])
             selected_profile = next(
@@ -1503,13 +1514,9 @@ class CatalystService:
                 if requested_source
                 else self._session_data_source_id(session, prior_turns)
             )
-            bundle = self._resolve_data_source(source_id)
-            if bundle is None:
-                return self._workbench_error(
-                    400,
-                    "unknown_data_source",
-                    f"Data source {source_id!r} is not registered.",
-                )
+            bundle = self._require_bundle(source_id)
+            if isinstance(bundle, ServiceResponse):
+                return bundle
             runtime_catalog = await self._runtime_catalog(bundle)
             catalog_conflict = self._workbench_catalog_conflict(
                 session,
@@ -1624,17 +1631,9 @@ class CatalystService:
         session = store.get_session(version["sessionId"])
         assert session is not None
         prior_turns = store.list_turns(version["sessionId"])["turns"]
-        source_id = str(
-            (version.get("provenance") or {}).get("dataSourceId")
-            or self._session_data_source_id(session, prior_turns)
-        )
-        bundle = self._resolve_data_source(source_id)
-        if bundle is None:
-            return self._workbench_error(
-                400,
-                "unknown_data_source",
-                f"Data source {source_id!r} is not registered.",
-            )
+        bundle = self._version_bundle(version, session, prior_turns)
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         try:
             runtime_catalog = await self._runtime_catalog(bundle)
         except AnalyticsError as error:
@@ -1692,17 +1691,9 @@ class CatalystService:
         session = store.get_session(version["sessionId"])
         assert session is not None
         prior_turns = store.list_turns(version["sessionId"])["turns"]
-        source_id = str(
-            (version.get("provenance") or {}).get("dataSourceId")
-            or self._session_data_source_id(session, prior_turns)
-        )
-        bundle = self._resolve_data_source(source_id)
-        if bundle is None:
-            return self._workbench_error(
-                400,
-                "unknown_data_source",
-                f"Data source {source_id!r} is not registered.",
-            )
+        bundle = self._version_bundle(version, session, prior_turns)
+        if isinstance(bundle, ServiceResponse):
+            return bundle
         try:
             runtime_catalog = await self._runtime_catalog(bundle)
         except AnalyticsError as error:

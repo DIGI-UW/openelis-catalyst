@@ -10,7 +10,7 @@
     "deploymentMode": {"const": "demo"},
     "question": {"type": "string", "minLength": 1},
     "profileId": {"type": "string", "pattern": "^catalyst-query-", "minLength": 1},
-    "dataSourceId": {"type": "string", "minLength": 1},
+    "dataSourceId": {"type": "string", "minLength": 1, "maxLength": 200},
     "browserState": {
       "type": "object",
       "additionalProperties": false,

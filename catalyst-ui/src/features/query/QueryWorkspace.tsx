@@ -128,12 +128,17 @@ const currentQueryProfileId = (session: WorkbenchSession) => {
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
+  sources?: DataSourcesResponse | null,
 ): NotebookTurn[] =>
   (timeline?.turns ?? []).map((turn) => ({
     turnId: turn.turnId,
     ordinal: turn.ordinal,
     kind: turn.kind,
     instruction: turn.instruction,
+    dataSourceLabel: turn.dataSourceId
+      ? (sources?.dataSources.find((s) => s.id === turn.dataSourceId)?.label ??
+        turn.dataSourceId)
+      : null,
     status: turn.status,
     selectedVersionId: turn.selectedVersionId,
     profileSnapshot: {
@@ -876,6 +881,7 @@ export const QueryWorkspace = ({
   const activeNotebookTurns = notebookTurns(
     workbenchTimeline,
     workbenchSession,
+    dataSources,
   );
 
   const activeGrounding = workbenchSession
