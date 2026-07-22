@@ -27,6 +27,7 @@ import {
   type CatalystPolicyOutcome,
   type CatalystPreview,
   type CatalystQueryOutcome,
+  type DataSourcesResponse,
   type CatalystTable,
   type QueryOptions,
   type WorkbenchEditorCatalog,
@@ -373,6 +374,10 @@ export const QueryWorkspace = ({
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
   const [profileId, setProfileId] = useState("");
+  const [dataSources, setDataSources] = useState<DataSourcesResponse | null>(
+    null,
+  );
+  const [dataSourceId, setDataSourceId] = useState("");
   const [workbenchSession, setWorkbenchSession] =
     useState<WorkbenchSession | null>(null);
   const [workbenchSql, setWorkbenchSql] = useState("");
@@ -440,9 +445,21 @@ export const QueryWorkspace = ({
   }, [api]);
 
   useEffect(() => {
+    if (!api.getDataSources) return;
+    const controller = new AbortController();
+    api.getDataSources(controller.signal)
+      .then((response) => {
+        setDataSources(response);
+        setDataSourceId((current) => current || response.defaultDataSourceId);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [api]);
+
+  useEffect(() => {
     if (!api.getWorkbenchCatalog) return;
     const controller = new AbortController();
-    api.getWorkbenchCatalog(controller.signal)
+    api.getWorkbenchCatalog(dataSourceId || undefined, controller.signal)
       .then((catalog) => {
         setWorkbenchCatalog(catalog);
         setWorkbenchCatalogFailed(false);
@@ -454,7 +471,7 @@ export const QueryWorkspace = ({
         }
       });
     return () => controller.abort();
-  }, [api]);
+  }, [api, dataSourceId]);
 
   useEffect(() => {
     if (!api.getWorkbenchSession) return;
@@ -528,9 +545,12 @@ export const QueryWorkspace = ({
     setWorkbenchError(null);
     try {
       if (usesWorkbench) {
-        const session = queryOptions && profileId
-          ? await api.createWorkbenchSession!(normalizedQuestion, profileId)
-          : await api.createWorkbenchSession!(normalizedQuestion);
+        const session = await api.createWorkbenchSession!(
+          normalizedQuestion,
+          (queryOptions && profileId) || undefined,
+          undefined,
+          dataSourceId || undefined,
+        );
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
         const draft = sessionEditorDraft(session);
@@ -735,6 +755,7 @@ export const QueryWorkspace = ({
       contractVersion: "catalyst.workbench.turn.request.v1",
       instruction: followupInstruction,
       profileId: selectedRevisionProfileId,
+      ...(dataSourceId ? { dataSourceId } : {}),
       observedBase: baseVersion
         ? {
             versionId: baseVersion.versionId,
@@ -866,14 +887,50 @@ export const QueryWorkspace = ({
       className={`app-shell${hasQueryDock ? " app-shell--with-query-dock" : ""}`}
     >
       <div className="app-shell__intro">
-        <p className="product-mark">Catalyst</p>
-        <p>Governed query review and typed table results</p>
+        <div>
+          <p className="product-mark">Catalyst</p>
+          <p>Governed query review and typed table results</p>
+        </div>
+        <div className="app-shell__session-controls">
+          {dataSources && dataSources.dataSources.length > 1 && (
+            <label className="profile-selector" htmlFor="catalyst-data-source">
+              <span>Data source</span>
+              <select
+                id="catalyst-data-source"
+                value={dataSourceId}
+                disabled={followupBusy || state.kind === "submitting"}
+                onChange={(event) => setDataSourceId(event.currentTarget.value)}
+              >
+                {dataSources.dataSources
+                  .filter((source) => source.available)
+                  .map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          {workbenchSession && (
+            <div className="session-strip">
+              <span className="session-strip__meta">
+                Session {workbenchSession.sessionId.slice(0, 8)}
+                {workbenchTimeline
+                  ? ` · ${workbenchTimeline.turns.length} turn${
+                      workbenchTimeline.turns.length === 1 ? "" : "s"
+                    }`
+                  : ""}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       <DatasetBrowser
         api={api}
         catalog={workbenchCatalog}
         catalogLoadingFailed={workbenchCatalogFailed}
+        dataSourceId={dataSourceId || undefined}
       />
 
       {!workbenchSession && (

@@ -114,6 +114,25 @@ input {
   font-weight: 600;
 }
 
+.app-shell__session-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.session-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.session-strip__meta {
+  color: #525252;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .query-card {
   padding: clamp(1rem, 3vw, 2rem);
   border-top: 4px solid #0f62fe;

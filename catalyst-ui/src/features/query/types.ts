@@ -224,6 +224,18 @@ export interface QueryOptions {
   profiles: QueryProfile[];
 }
 
+export interface DataSource {
+  id: string;
+  label: string;
+  available: boolean;
+}
+
+export interface DataSourcesResponse {
+  contractVersion: "catalyst.data-sources.v1";
+  defaultDataSourceId: string;
+  dataSources: DataSource[];
+}
+
 export interface DatasetTestSummary {
   testName: string;
   unit: string | null;
@@ -402,6 +414,7 @@ export interface WorkbenchSession {
   sessionId: string;
   question: string;
   profileId: string;
+  dataSourceId?: string | null;
   datasetId: string;
   datasetVersion: string;
   catalogVersion: string;
@@ -450,6 +463,7 @@ export interface WorkbenchTurnRequest {
   contractVersion: "catalyst.workbench.turn.request.v1";
   instruction: string;
   profileId: string;
+  dataSourceId?: string;
   observedBase: WorkbenchVersionRef | null;
   editorSnapshot: WorkbenchEditorSnapshot;
 }
@@ -513,6 +527,7 @@ export interface WorkbenchTurn {
   ordinal: number;
   kind: "initial" | "followup";
   origin: "recorded" | "synthesized_legacy";
+  dataSourceId?: string | null;
   instruction: string;
   instructionDigest: string;
   profileSnapshot: WorkbenchProfileSnapshot;

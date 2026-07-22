@@ -2,6 +2,7 @@ import type {
   CatalystExecutionResponse,
   CatalystPreview,
   CatalystSubmission,
+  DataSourcesResponse,
   DatasetOverview,
   DatasetRows,
   QueryOptions,
@@ -33,15 +34,26 @@ export interface CatalystApi {
     signal?: AbortSignal,
   ): Promise<CatalystExecutionResponse>;
   getQueryOptions?(signal?: AbortSignal): Promise<QueryOptions>;
-  getDatasetOverview?(signal?: AbortSignal): Promise<DatasetOverview>;
+  getDataSources?(signal?: AbortSignal): Promise<DataSourcesResponse>;
+  getDatasetOverview?(
+    dataSourceId?: string,
+    signal?: AbortSignal,
+  ): Promise<DatasetOverview>;
   getDatasetRows?(
-    filters?: { testName?: string; patientId?: string; limit?: number; offset?: number },
+    filters?: {
+      testName?: string;
+      patientId?: string;
+      limit?: number;
+      offset?: number;
+      dataSourceId?: string;
+    },
     signal?: AbortSignal,
   ): Promise<DatasetRows>;
   createWorkbenchSession?(
     question: string,
     profileId?: string,
     browserState?: Record<string, unknown>,
+    dataSourceId?: string,
     signal?: AbortSignal,
   ): Promise<WorkbenchSession>;
   getWorkbenchSession?(
@@ -62,7 +74,10 @@ export interface CatalystApi {
     turnId: string,
     signal?: AbortSignal,
   ): Promise<WorkbenchGenerationEvidence>;
-  getWorkbenchCatalog?(signal?: AbortSignal): Promise<WorkbenchEditorCatalog>;
+  getWorkbenchCatalog?(
+    dataSourceId?: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchEditorCatalog>;
   createWorkbenchVersion?(
     sessionId: string,
     draft: WorkbenchVersionDraft,
@@ -232,8 +247,23 @@ export const createCatalystApi = ({
       return body as unknown as QueryOptions;
     },
 
-    async getDatasetOverview(signal) {
-      const response = await fetcher(`${root}/dataset`, {
+    async getDataSources(signal) {
+      const response = await fetcher(`${root}/data-sources`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isRecord(body) || body.contractVersion !== "catalyst.data-sources.v1") {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as DataSourcesResponse;
+    },
+
+    async getDatasetOverview(dataSourceId, signal) {
+      const suffix = dataSourceId
+        ? `?dataSourceId=${encodeURIComponent(dataSourceId)}`
+        : "";
+      const response = await fetcher(`${root}/dataset${suffix}`, {
         headers: { Accept: "application/json" },
         signal,
       });
@@ -248,6 +278,7 @@ export const createCatalystApi = ({
       const parameters = new URLSearchParams();
       if (filters.testName) parameters.set("testName", filters.testName);
       if (filters.patientId) parameters.set("patientId", filters.patientId);
+      if (filters.dataSourceId) parameters.set("dataSourceId", filters.dataSourceId);
       parameters.set("limit", String(filters.limit ?? 25));
       parameters.set("offset", String(filters.offset ?? 0));
       const response = await fetcher(`${root}/dataset/rows?${parameters.toString()}`, {
@@ -261,7 +292,7 @@ export const createCatalystApi = ({
       return body as unknown as DatasetRows;
     },
 
-    async createWorkbenchSession(question, profileId, browserState, signal) {
+    async createWorkbenchSession(question, profileId, browserState, dataSourceId, signal) {
       const response = await fetcher(`${root}/workbench/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -270,6 +301,7 @@ export const createCatalystApi = ({
           deploymentMode: "demo",
           question,
           ...(profileId ? { profileId } : {}),
+          ...(dataSourceId ? { dataSourceId } : {}),
           ...(browserState ? { browserState } : {}),
         }),
         signal,
@@ -343,8 +375,11 @@ export const createCatalystApi = ({
       return body as unknown as WorkbenchGenerationEvidence;
     },
 
-    async getWorkbenchCatalog(signal) {
-      const response = await fetcher(`${root}/workbench/catalog`, {
+    async getWorkbenchCatalog(dataSourceId, signal) {
+      const suffix = dataSourceId
+        ? `?dataSourceId=${encodeURIComponent(dataSourceId)}`
+        : "";
+      const response = await fetcher(`${root}/workbench/catalog${suffix}`, {
         headers: { Accept: "application/json" },
         signal,
       });

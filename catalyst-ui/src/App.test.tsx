@@ -701,6 +701,8 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       QUESTION,
       "catalyst-query-gemma-e4b",
+      undefined,
+      undefined,
     );
     expect(api.submitQuestion).not.toHaveBeenCalled();
     expect(
@@ -1152,6 +1154,8 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       "Count creatinine results",
       "catalyst-query-gemma-4-12b",
+      undefined,
+      undefined,
     );
     expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
   });

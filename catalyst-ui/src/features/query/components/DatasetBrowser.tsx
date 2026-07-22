@@ -11,6 +11,7 @@ interface DatasetBrowserProps {
   api: CatalystApi;
   catalog?: WorkbenchEditorCatalog | null;
   catalogLoadingFailed?: boolean;
+  dataSourceId?: string;
 }
 
 const displayDate = (value: string | null) => {
@@ -41,6 +42,7 @@ export const DatasetBrowser = ({
   api,
   catalog = null,
   catalogLoadingFailed = false,
+  dataSourceId,
 }: DatasetBrowserProps) => {
   const [overview, setOverview] = useState<DatasetOverview | null>(null);
   const [rows, setRows] = useState<DatasetRows | null>(null);
@@ -68,6 +70,7 @@ export const DatasetBrowser = ({
           patientId: patientId.trim() || undefined,
           limit: 25,
           offset,
+          dataSourceId,
         }),
       );
       setMessage(null);
@@ -83,8 +86,8 @@ export const DatasetBrowser = ({
     if (!api.getDatasetOverview || !api.getDatasetRows) return;
     const controller = new AbortController();
     Promise.all([
-      api.getDatasetOverview(controller.signal),
-      api.getDatasetRows({ limit: 25, offset: 0 }, controller.signal),
+      api.getDatasetOverview(dataSourceId, controller.signal),
+      api.getDatasetRows({ limit: 25, offset: 0, dataSourceId }, controller.signal),
     ])
       .then(([nextOverview, nextRows]) => {
         setOverview(nextOverview);
@@ -100,7 +103,7 @@ export const DatasetBrowser = ({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [api]);
+  }, [api, dataSourceId]);
 
   if (!api.getDatasetOverview) return null;
 
