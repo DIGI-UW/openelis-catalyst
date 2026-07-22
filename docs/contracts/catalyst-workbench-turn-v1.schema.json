@@ -39,6 +39,12 @@
     "contractVersion": {
       "const": "catalyst.workbench.turn.v1"
     },
+    "dataSourceId": {
+      "type": ["string", "null"]
+    },
+    "catalogVersion": {
+      "type": ["string", "null"]
+    },
     "sessionId": {
       "type": "string",
       "format": "uuid"

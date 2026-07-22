@@ -25,6 +25,11 @@
       "minLength": 1,
       "maxLength": 500
     },
+    "dataSourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "observedBase": {
       "description": "The browser's compare-and-swap observation of the session current version, not necessarily the effective generation base.",
       "oneOf": [

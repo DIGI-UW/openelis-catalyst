@@ -29,6 +29,7 @@
     "sessionId": {"type": "string", "format": "uuid"},
     "question": {"type": "string", "minLength": 1},
     "profileId": {"type": "string", "minLength": 1},
+    "dataSourceId": {"type": ["string", "null"]},
     "datasetId": {"type": "string", "minLength": 1},
     "datasetVersion": {"type": "string", "minLength": 1},
     "catalogVersion": {"type": "string", "minLength": 1},

@@ -629,6 +629,13 @@ class CatalystService:
             return self._workbench_error(400, "invalid_request", str(error))
 
         profile_id = str(payload.get("profileId") or QUERY_PROFILE_ID)
+        bundle = self._resolve_data_source(payload.get("dataSourceId"))
+        if bundle is None:
+            return self._workbench_error(
+                400,
+                "unknown_data_source",
+                f"Data source {payload.get('dataSourceId')!r} is not registered.",
+            )
         catalyst_trace_id = str(uuid.uuid4())
         try:
             profiles = await self.hub.list_query_profiles()
@@ -647,7 +654,7 @@ class CatalystService:
                 )
             profile_evidence = self._require_profile_evidence(selected_profile)
             initial_profile_snapshot = self._turn_profile_snapshot(selected_profile)
-            runtime_catalog = await self._runtime_catalog()
+            runtime_catalog = await self._runtime_catalog(bundle)
         except HubError as error:
             return self._workbench_error(502, error.code, str(error))
         except AnalyticsError as error:
@@ -672,10 +679,11 @@ class CatalystService:
             "catalyst-query-request-v1.schema.json", initial_request
         )
         try:
-            overview = await self.analytics.dataset_overview()
+            overview = await bundle.analytics.dataset_overview()
         except Exception:
             overview = {}
         provenance = {
+            "dataSourceId": bundle.source_id,
             "catalogContextSourceId": runtime_catalog.context_source_id,
             "catalystTraceId": catalyst_trace_id,
             "profileSnapshot": self._profile_snapshot(selected_profile),
@@ -712,6 +720,8 @@ class CatalystService:
             catalyst_trace_id=catalyst_trace_id,
             hub_request=initial_request,
             profile_evidence=profile_evidence,
+            data_source_id=bundle.source_id,
+            catalog_version=runtime_catalog.catalog_version,
         )
 
         hub_generation: _HubGeneration | None = None
@@ -1084,6 +1094,20 @@ class CatalystService:
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
+            prior_turns = store.list_turns(session_id)["turns"]
+            requested_source = payload.get("dataSourceId")
+            resolved_source_id = (
+                str(requested_source)
+                if requested_source
+                else self._session_data_source_id(session, prior_turns)
+            )
+            bundle = self._resolve_data_source(resolved_source_id)
+            if bundle is None:
+                return self._workbench_error(
+                    400,
+                    "unknown_data_source",
+                    f"Data source {resolved_source_id!r} is not registered.",
+                )
             profiles = await self.hub.list_query_profiles()
             profile_id = str(payload["profileId"])
             selected_profile = next(
@@ -1107,9 +1131,12 @@ class CatalystService:
                 )
             profile_evidence = self._require_profile_evidence(selected_profile)
             profile_snapshot = self._turn_profile_snapshot(selected_profile)
-            runtime_catalog = await self._runtime_catalog()
+            runtime_catalog = await self._runtime_catalog(bundle)
             catalog_conflict = self._workbench_catalog_conflict(
-                session, runtime_catalog
+                session,
+                runtime_catalog,
+                data_source_id=bundle.source_id,
+                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1130,7 +1157,6 @@ class CatalystService:
 
         catalyst_trace_id = str(uuid.uuid4())
         observed_base = payload.get("observedBase")
-        prior_turns = store.list_turns(session_id)["turns"]
         prepared: dict[str, dict[str, Any]] = {}
 
         def prepare_request(
@@ -1175,6 +1201,8 @@ class CatalystService:
                 catalyst_trace_id=catalyst_trace_id,
                 request_factory=prepare_request,
                 profile_evidence=profile_evidence,
+                data_source_id=bundle.source_id,
+                catalog_version=runtime_catalog.catalog_version,
             )
         except ActiveTurnGenerationError as error:
             return self._workbench_error(409, "turn_generation_in_progress", str(error))
@@ -1452,9 +1480,21 @@ class CatalystService:
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
-            runtime_catalog = await self._runtime_catalog()
+            prior_turns = store.list_turns(session_id)["turns"]
+            source_id = self._session_data_source_id(session, prior_turns)
+            bundle = self._resolve_data_source(source_id)
+            if bundle is None:
+                return self._workbench_error(
+                    400,
+                    "unknown_data_source",
+                    f"Data source {source_id!r} is not registered.",
+                )
+            runtime_catalog = await self._runtime_catalog(bundle)
             catalog_conflict = self._workbench_catalog_conflict(
-                session, runtime_catalog
+                session,
+                runtime_catalog,
+                data_source_id=bundle.source_id,
+                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1496,10 +1536,14 @@ class CatalystService:
                     else None
                 ),
                 provenance=(
-                    {"editedFromVersionId": parent["versionId"]}
+                    {
+                        "editedFromVersionId": parent["versionId"],
+                        "dataSourceId": bundle.source_id,
+                    }
                     if parent is not None
                     else {
                         "parentlessInitialDraft": True,
+                        "dataSourceId": bundle.source_id,
                         "manualRecoveryFromRawGeneration": isinstance(
                             session.get("provenance", {}).get("generationRawOutput"),
                             str,
@@ -1558,11 +1602,28 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
+        prior_turns = store.list_turns(version["sessionId"])["turns"]
+        source_id = str(
+            (version.get("provenance") or {}).get("dataSourceId")
+            or self._session_data_source_id(session, prior_turns)
+        )
+        bundle = self._resolve_data_source(source_id)
+        if bundle is None:
+            return self._workbench_error(
+                400,
+                "unknown_data_source",
+                f"Data source {source_id!r} is not registered.",
+            )
         try:
-            runtime_catalog = await self._runtime_catalog()
+            runtime_catalog = await self._runtime_catalog(bundle)
         except AnalyticsError as error:
             return self._workbench_error(502, "catalog_unavailable", str(error))
-        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        catalog_conflict = self._workbench_catalog_conflict(
+            session,
+            runtime_catalog,
+            data_source_id=bundle.source_id,
+            prior_turns=prior_turns,
+        )
         if catalog_conflict is not None:
             return catalog_conflict
         validation = self._append_workbench_validation(
@@ -1609,11 +1670,28 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
+        prior_turns = store.list_turns(version["sessionId"])["turns"]
+        source_id = str(
+            (version.get("provenance") or {}).get("dataSourceId")
+            or self._session_data_source_id(session, prior_turns)
+        )
+        bundle = self._resolve_data_source(source_id)
+        if bundle is None:
+            return self._workbench_error(
+                400,
+                "unknown_data_source",
+                f"Data source {source_id!r} is not registered.",
+            )
         try:
-            runtime_catalog = await self._runtime_catalog()
+            runtime_catalog = await self._runtime_catalog(bundle)
         except AnalyticsError as error:
             return self._workbench_error(502, "catalog_unavailable", str(error))
-        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        catalog_conflict = self._workbench_catalog_conflict(
+            session,
+            runtime_catalog,
+            data_source_id=bundle.source_id,
+            prior_turns=prior_turns,
+        )
         if catalog_conflict is not None:
             return catalog_conflict
         idempotency_key = str(payload["idempotencyKey"])
@@ -1660,7 +1738,7 @@ class CatalystService:
             "replayed": False,
         }
         try:
-            result = await self.analytics.execute_manual(
+            result = await bundle.analytics.execute_manual(
                 sql=version["sql"],
                 parameters=version["parameters"],
                 max_rows=self.max_rows,
@@ -2050,13 +2128,49 @@ class CatalystService:
         assert session is not None
         return str(session["question"])
 
+    def _session_data_source_id(
+        self,
+        session: dict[str, Any],
+        prior_turns: list[dict[str, Any]],
+    ) -> str:
+        """The session's current source: last targeted, else initial, else default."""
+        for turn in reversed(prior_turns):
+            source_id = turn.get("dataSourceId")
+            if source_id:
+                return str(source_id)
+        source_id = (session.get("provenance") or {}).get("dataSourceId")
+        return str(source_id) if source_id else self._default_data_source_id
+
     def _workbench_catalog_conflict(
         self,
         session: dict[str, Any],
         runtime_catalog: Catalog,
+        *,
+        data_source_id: str | None = None,
+        prior_turns: list[dict[str, Any]] | None = None,
     ) -> ServiceResponse | None:
-        session_catalog_version = str(session["catalogVersion"])
-        if runtime_catalog.catalog_version == session_catalog_version:
+        # Staleness is judged per data source: the baseline is the catalog this
+        # session last saw ON THAT SOURCE. First use of a new source in a session
+        # has no baseline, so switching sources never trips a false conflict.
+        baseline: str | None = None
+        if data_source_id is not None:
+            for turn in reversed(prior_turns or []):
+                if (
+                    turn.get("dataSourceId") == data_source_id
+                    and turn.get("catalogVersion")
+                ):
+                    baseline = str(turn["catalogVersion"])
+                    break
+            if baseline is None:
+                initial_source = (
+                    (session.get("provenance") or {}).get("dataSourceId")
+                    or self._default_data_source_id
+                )
+                if data_source_id == initial_source:
+                    baseline = str(session["catalogVersion"])
+        else:
+            baseline = str(session["catalogVersion"])
+        if baseline is None or runtime_catalog.catalog_version == baseline:
             return None
         return self._workbench_error(
             409,
@@ -2065,7 +2179,7 @@ class CatalystService:
             "was created. Start a new session before saving, validating, running, "
             "or refining this query.",
             details={
-                "sessionCatalogVersion": session_catalog_version,
+                "sessionCatalogVersion": baseline,
                 "runtimeCatalogVersion": runtime_catalog.catalog_version,
             },
         )
@@ -2562,6 +2676,10 @@ class CatalystService:
 
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)
+        presented["dataSourceId"] = (
+            (presented.get("provenance") or {}).get("dataSourceId")
+            or self._default_data_source_id
+        )
         presented["draftSeed"] = None
         if presented.get("currentVersion") is not None:
             return presented

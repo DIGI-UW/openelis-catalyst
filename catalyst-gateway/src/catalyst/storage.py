@@ -911,6 +911,8 @@ class WorkbenchStore:
         catalyst_trace_id: str,
         hub_request: dict[str, Any] | None = None,
         profile_evidence: dict[str, Any] | None = None,
+        data_source_id: str | None = None,
+        catalog_version: str | None = None,
     ) -> dict[str, Any]:
         """Record the initial request before the first model call."""
 
@@ -929,6 +931,8 @@ class WorkbenchStore:
             catalyst_trace_id=catalyst_trace_id,
             hub_request=hub_request,
             profile_evidence=profile_evidence,
+            data_source_id=data_source_id,
+            catalog_version=catalog_version,
         )
 
     def claim_turn(
@@ -949,6 +953,8 @@ class WorkbenchStore:
         ]
         | None = None,
         profile_evidence: dict[str, Any] | None = None,
+        data_source_id: str | None = None,
+        catalog_version: str | None = None,
     ) -> dict[str, Any]:
         return self._claim_turn(
             session_id,
@@ -964,6 +970,8 @@ class WorkbenchStore:
             hub_request=hub_request,
             request_factory=request_factory,
             profile_evidence=profile_evidence,
+            data_source_id=data_source_id,
+            catalog_version=catalog_version,
         )
 
     def _claim_turn(
@@ -985,6 +993,8 @@ class WorkbenchStore:
         ]
         | None = None,
         profile_evidence: dict[str, Any] | None = None,
+        data_source_id: str | None = None,
+        catalog_version: str | None = None,
     ) -> dict[str, Any]:
         turn_id = str(uuid.uuid4())
         generation_run_id = str(uuid.uuid4())
@@ -1064,6 +1074,7 @@ class WorkbenchStore:
                             "turnId": turn_id,
                             "editorSnapshotDigest": computed_digest,
                             "profileId": profile_snapshot.get("profileId"),
+                            "dataSourceId": data_source_id,
                         },
                         timestamp=timestamp,
                     )
@@ -1148,6 +1159,8 @@ class WorkbenchStore:
                 "ordinal": ordinal,
                 "kind": kind,
                 "origin": "recorded",
+                "dataSourceId": data_source_id,
+                "catalogVersion": catalog_version,
                 "instruction": instruction,
                 "instructionDigest": instruction_digest,
                 "profileSnapshot": profile_snapshot,
@@ -1470,6 +1483,7 @@ class WorkbenchStore:
                 provenance = {
                     **dict(output.get("provenance") or {}),
                     "turnId": turn_id,
+                    "dataSourceId": turn.get("dataSourceId"),
                     "observedBase": turn.get("observedBase"),
                     "effectiveBaseVersion": turn.get("effectiveBaseVersion"),
                     "manualVersion": turn.get("manualVersion"),
@@ -1701,6 +1715,7 @@ class WorkbenchStore:
                     provenance={
                         **dict(retained_writer.get("provenance") or {}),
                         "turnId": turn_id,
+                        "dataSourceId": turn.get("dataSourceId"),
                         "selected": False,
                         "generationEvidenceRef": turn["generationEvidenceRef"],
                         "observedBase": turn.get("observedBase"),
