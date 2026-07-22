@@ -36,7 +36,15 @@ def _default_catalyst_service() -> CatalystService:
             )
             continue
         if not Path(source.catalog_path).is_file():
-            # Registered but not provisioned yet: skip rather than fail boot.
+            # Registered but not provisioned yet: list as unavailable rather
+            # than fail boot; it cannot be targeted until its catalog exists.
+            bundles.append(
+                DataSourceBundle(
+                    source_id=source.source_id,
+                    label=source.label,
+                    available=False,
+                )
+            )
             continue
         source_catalog = Catalog.load(source.catalog_path)
         bundles.append(
@@ -52,13 +60,11 @@ def _default_catalyst_service() -> CatalystService:
         )
     return CatalystService(
         contracts=contracts,
-        catalog=catalog,
         hub=HubClient(
             config.hub_base_url,
             contracts,
             timeout_seconds=config.hub_timeout_seconds,
         ),
-        analytics=analytics,
         store=PreviewStore(
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,

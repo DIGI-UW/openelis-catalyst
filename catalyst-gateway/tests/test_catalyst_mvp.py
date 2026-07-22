@@ -443,8 +443,9 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
 
 def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 23
+    assert len(registry.schemas) == 24
     assert set(registry.schemas) == {
+        "catalyst-data-sources-v1.schema.json",
         "catalyst-execute-request-v1.schema.json",
         "catalyst-execution-outcome-v1.schema.json",
         "catalyst-policy-outcome-v1.schema.json",

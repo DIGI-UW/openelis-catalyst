@@ -20,6 +20,7 @@ NORMATIVE_SCHEMAS = (
     "catalyst-query-revision-context-v1.schema.json",
     "catalyst-query-v1.schema.json",
     "catalyst-question-request-v1.schema.json",
+    "catalyst-data-sources-v1.schema.json",
     "catalyst-table-v1.schema.json",
     "catalyst-workbench-editor-catalog-v1.schema.json",
     "catalyst-workbench-editor-snapshot-v1.schema.json",

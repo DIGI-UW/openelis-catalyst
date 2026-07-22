@@ -409,6 +409,7 @@ export const createCatalystApi = ({
             ...(draft.expectedColumns
               ? { expectedColumns: draft.expectedColumns }
               : {}),
+            ...(draft.dataSourceId ? { dataSourceId: draft.dataSourceId } : {}),
           }),
           signal,
         },

@@ -123,12 +123,14 @@ class DataSourceBundle:
 
     Turns target a bundle per generation; the runtime-discovered catalog is
     cached per bundle so switching sources mid-session never mixes schemas.
+    A registered-but-unprovisioned source (catalog not yet on disk) is listed
+    with available=False, carries no catalog/adapter, and cannot be targeted.
     """
 
     source_id: str
     label: str
-    catalog: Catalog
-    analytics: AnalyticsProtocol
+    catalog: Catalog | None = None
+    analytics: AnalyticsProtocol | None = None
     available: bool = True
     runtime_snapshot: Catalog | None = None
 
@@ -149,9 +151,9 @@ class CatalystService:
         self,
         *,
         contracts: ContractRegistry,
-        catalog: Catalog,
+        catalog: Catalog | None = None,
         hub: HubProtocol,
-        analytics: AnalyticsProtocol,
+        analytics: AnalyticsProtocol | None = None,
         store: PreviewStore,
         sql_policy: SqlPolicy,
         max_rows: int,
@@ -171,13 +173,22 @@ class CatalystService:
         # that build a single-source service), derive one bundle wrapping the
         # ctor catalog/analytics so every path routes through the registry.
         if data_sources:
-            self._bundles: dict[str, DataSourceBundle] = {
-                bundle.source_id: bundle for bundle in data_sources
-            }
+            self._bundles: dict[str, DataSourceBundle] = {}
+            for bundle in data_sources:
+                if bundle.source_id in self._bundles:
+                    raise ValueError(
+                        f"duplicate data source id {bundle.source_id!r}"
+                    )
+                self._bundles[bundle.source_id] = bundle
             self._default_data_source_id = (
                 default_data_source_id or data_sources[0].source_id
             )
         else:
+            if catalog is None or analytics is None:
+                raise ValueError(
+                    "catalog and analytics are required when no data_sources "
+                    "bundles are supplied"
+                )
             derived_id = default_data_source_id or catalog.data_source
             self._bundles = {
                 derived_id: DataSourceBundle(
@@ -189,16 +200,18 @@ class CatalystService:
             }
             self._default_data_source_id = derived_id
         default_bundle = self._bundles.get(self._default_data_source_id)
-        if default_bundle is None:
+        if (
+            default_bundle is None
+            or not default_bundle.available
+            or default_bundle.catalog is None
+            or default_bundle.analytics is None
+        ):
             raise ValueError(
                 "default data source "
-                f"{self._default_data_source_id!r} is not registered"
+                f"{self._default_data_source_id!r} is not registered and available"
             )
-        # The default bundle IS the legacy single-source view of the service;
-        # existing code paths keep reading these until per-turn routing lands.
-        self.catalog = default_bundle.catalog
+        # Legacy single-source alias, still read by submit_question/readiness.
         self.analytics = default_bundle.analytics
-        self._runtime_catalog_snapshot = default_bundle.catalog
 
     def data_sources(self) -> ServiceResponse:
         """List the data sources the workbench can target (for the UI switcher)."""
@@ -219,14 +232,19 @@ class CatalystService:
         )
 
     def _resolve_data_source(self, source_id: str | None) -> DataSourceBundle | None:
-        """Bundle for source_id (default when omitted); None when unregistered."""
-        return self._bundles.get(source_id or self._default_data_source_id)
+        """Bundle for source_id (default when omitted); None when unregistered
+        or registered-but-unavailable."""
+        bundle = self._bundles.get(source_id or self._default_data_source_id)
+        if bundle is None or not bundle.available or bundle.catalog is None:
+            return None
+        return bundle
 
     async def _runtime_catalog(
         self, bundle: DataSourceBundle | None = None
     ) -> Catalog:
         if bundle is None:
             bundle = self._bundles[self._default_data_source_id]
+        assert bundle.catalog is not None  # _resolve_data_source guards this
         discover = getattr(bundle.analytics, "discover_relations", None)
         if discover is None:
             return bundle.runtime_snapshot or bundle.catalog
@@ -238,8 +256,6 @@ class CatalystService:
                 f"PostgreSQL schema discovery returned an unusable catalog: {error}"
             ) from error
         bundle.runtime_snapshot = catalog
-        if bundle.source_id == self._default_data_source_id:
-            self._runtime_catalog_snapshot = catalog
         return catalog
 
     async def query_options(self) -> ServiceResponse:
@@ -1481,7 +1497,12 @@ class CatalystService:
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
             prior_turns = store.list_turns(session_id)["turns"]
-            source_id = self._session_data_source_id(session, prior_turns)
+            requested_source = payload.get("dataSourceId")
+            source_id = (
+                str(requested_source)
+                if requested_source
+                else self._session_data_source_id(session, prior_turns)
+            )
             bundle = self._resolve_data_source(source_id)
             if bundle is None:
                 return self._workbench_error(
@@ -2146,30 +2167,27 @@ class CatalystService:
         session: dict[str, Any],
         runtime_catalog: Catalog,
         *,
-        data_source_id: str | None = None,
-        prior_turns: list[dict[str, Any]] | None = None,
+        data_source_id: str,
+        prior_turns: list[dict[str, Any]],
     ) -> ServiceResponse | None:
         # Staleness is judged per data source: the baseline is the catalog this
         # session last saw ON THAT SOURCE. First use of a new source in a session
         # has no baseline, so switching sources never trips a false conflict.
         baseline: str | None = None
-        if data_source_id is not None:
-            for turn in reversed(prior_turns or []):
-                if (
-                    turn.get("dataSourceId") == data_source_id
-                    and turn.get("catalogVersion")
-                ):
-                    baseline = str(turn["catalogVersion"])
-                    break
-            if baseline is None:
-                initial_source = (
-                    (session.get("provenance") or {}).get("dataSourceId")
-                    or self._default_data_source_id
-                )
-                if data_source_id == initial_source:
-                    baseline = str(session["catalogVersion"])
-        else:
-            baseline = str(session["catalogVersion"])
+        for turn in reversed(prior_turns):
+            if (
+                turn.get("dataSourceId") == data_source_id
+                and turn.get("catalogVersion")
+            ):
+                baseline = str(turn["catalogVersion"])
+                break
+        if baseline is None:
+            initial_source = (
+                (session.get("provenance") or {}).get("dataSourceId")
+                or self._default_data_source_id
+            )
+            if data_source_id == initial_source:
+                baseline = str(session["catalogVersion"])
         if baseline is None or runtime_catalog.catalog_version == baseline:
             return None
         return self._workbench_error(

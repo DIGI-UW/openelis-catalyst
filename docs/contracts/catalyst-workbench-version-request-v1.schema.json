@@ -25,6 +25,12 @@
       "pattern": "^[a-f0-9]{64}$",
       "description": "Required with parentVersionId; omitted only for a parentless first human draft."
     },
+    "dataSourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Data source this version targets; omitted, it inherits the session's last-targeted source."
+    },
     "sql": {"type": "string", "minLength": 1},
     "parameters": {
       "type": "array",

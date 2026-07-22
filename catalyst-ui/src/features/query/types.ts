@@ -444,6 +444,7 @@ export interface WorkbenchVersionDraft {
   sql: string;
   parameters: BoundParameter[];
   expectedColumns?: Column[];
+  dataSourceId?: string;
 }
 
 export interface WorkbenchVersionRef {

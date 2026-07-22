@@ -483,6 +483,9 @@ export const QueryWorkspace = ({
         setWorkbenchSession(session);
         setQuestion(session.question);
         setProfileId(currentQueryProfileId(session));
+        if (session.dataSourceId) {
+          setDataSourceId(session.dataSourceId);
+        }
         const draft = sessionEditorDraft(session);
         setWorkbenchSql(draft?.sql ?? "");
         setWorkbenchParameters(
@@ -668,6 +671,7 @@ export const QueryWorkspace = ({
       sql: workbenchSql,
       parameters: workbenchParameters,
       expectedColumns: editorExpectedColumns(parent, workbenchSql),
+      ...(dataSourceId ? { dataSourceId } : {}),
     });
     if (!session.currentVersion) {
       throw new Error("Catalyst did not return the saved query version.");

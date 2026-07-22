@@ -382,7 +382,8 @@ class CatalogSwappingHub(LineageHub):
     async def generate_query(self, request: dict) -> dict:
         query = await super().generate_query(request)
         assert self.service is not None
-        self.service._runtime_catalog_snapshot = Catalog(
+        default_bundle = self.service._bundles[self.service._default_data_source_id]
+        default_bundle.runtime_snapshot = Catalog(
             data_source="openelis-demo",
             catalog_version="unrelated-catalog",
             schema_version="analytics-v1",
