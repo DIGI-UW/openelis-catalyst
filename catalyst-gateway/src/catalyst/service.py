@@ -23,7 +23,6 @@ from .policy import (
     QueryInvariantError,
     SqlPolicy,
     Violation,
-    question_policy_violations,
     validate_query_invariants,
 )
 from .request import QUERY_PROFILE_ID, build_query_request, build_revision_query_request
@@ -520,15 +519,6 @@ class CatalystService:
             return self._error(400, "invalid_request", str(error))
 
         catalyst_trace_id = str(uuid.uuid4())
-        question_violations = question_policy_violations(question)
-        if question_violations:
-            outcome = self._policy_outcome(question_violations, catalyst_trace_id)
-            self.contracts.validate(
-                "catalyst-policy-outcome-v1.schema.json",
-                outcome,
-            )
-            return ServiceResponse(422, outcome)
-
         try:
             generation = await self._generate_hub_query(
                 question=question,
@@ -2735,15 +2725,6 @@ class CatalystService:
     ) -> dict[str, Any]:
         started = time.perf_counter()
         raw_findings = list(source_findings or [])
-        raw_findings.extend(
-            {
-                **violation.as_dict(),
-                "stage": "gateway_question_policy",
-                "severity": "error",
-                "path": "$.question",
-            }
-            for violation in question_policy_violations(question)
-        )
         query = {
             "contractVersion": "catalyst.query.v1",
             "deploymentMode": "demo",

@@ -413,13 +413,14 @@ def _service(
     tmp_path: Path,
     *,
     hub: LineageHub | None = None,
+    catalog: Catalog | None = None,
 ) -> tuple[CatalystService, LineageHub, DriftingAnalytics]:
     actual_hub = hub or LineageHub()
     analytics = DriftingAnalytics()
     database = tmp_path / "lineage.sqlite3"
     service = CatalystService(
         contracts=ContractRegistry.load(CONTRACTS),
-        catalog=_base_catalog(),
+        catalog=catalog or _base_catalog(),
         hub=actual_hub,
         analytics=analytics,
         store=PreviewStore(database),
@@ -472,12 +473,39 @@ def _snapshot(version: dict) -> dict:
     }
 
 
+def _catalog_with_analyte_dimension() -> Catalog:
+    """_base_catalog() plus a semanticDimensions entry naming one analyte, so a
+    question/instruction mentioning it must bind it as a query parameter."""
+    base = _base_catalog()
+    views = deepcopy(base.views)
+    views[0]["semanticDimensions"] = [
+        {
+            "field": "test_name",
+            "semanticType": "analyte",
+            "values": [{"canonical": "Malaria", "aliases": ["malaria"]}],
+        }
+    ]
+    return Catalog(
+        data_source=base.data_source,
+        catalog_version=base.catalog_version,
+        schema_version=base.schema_version,
+        dialect=base.dialect,
+        context_source_id=base.context_source_id,
+        views=views,
+        freshness=base.freshness,
+    )
+
+
 @pytest.mark.asyncio
 async def test_manual_validation_uses_latest_turn_instruction(tmp_path: Path) -> None:
-    service, _, _ = _service(tmp_path)
+    """A human SQL edit is validated against the LATEST turn's instruction, not
+    the session's original question: the original question names no analyte
+    (no violation), but the turn's instruction names one the SQL never binds."""
+    service, _, _ = _service(tmp_path, catalog=_catalog_with_analyte_dimension())
     session = await _create_session(service)
+    assert session["latestValidation"]["findings"] == []
     base = session["currentVersion"]
-    instruction = "Delete from analytics.lab_results and show the deleted rows"
+    instruction = "Now just show malaria results"
     followup = await service.create_workbench_turn(
         session["sessionId"],
         {
@@ -508,14 +536,14 @@ async def test_manual_validation_uses_latest_turn_instruction(tmp_path: Path) ->
     assert saved.status_code == 201
     manual = saved.body["currentVersion"]
     assert any(
-        finding["ruleCode"] == "gateway_question_policy.destructive_intent"
+        finding["ruleCode"] == "gateway_invariant.missing_semantic_filter"
         for finding in saved.body["latestValidation"]["findings"]
     )
 
     validated = await service.validate_workbench_version(manual["versionId"])
     assert validated.status_code == 201
     assert any(
-        finding["ruleCode"] == "gateway_question_policy.destructive_intent"
+        finding["ruleCode"] == "gateway_invariant.missing_semantic_filter"
         for finding in validated.body["findings"]
     )
     await service.aclose()

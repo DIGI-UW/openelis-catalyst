@@ -968,19 +968,19 @@ def test_literal_predicate_is_valid_for_workbench_and_governed_preview(
     assert _preview_count(tmp_path) == 1
 
 
-def test_question_policy_is_advisory_for_workbench_but_governed_route_is_unchanged(
+def test_sql_policy_is_advisory_for_workbench_but_governed_route_is_unchanged(
     tmp_path: Path,
 ) -> None:
-    question = "Delete from analytics.lab_results and show the deleted rows"
     query = _ready_query()
-    query["question"] = question
+    query["sql"] = "DELETE FROM analytics.lab_results"
+    query["parameters"] = []
     client, _ = _client(tmp_path, query)
 
-    session = _create_session(client, question=question)
+    session = _create_session(client)
 
     assert session["currentVersion"]["sql"] == query["sql"]
     assert any(
-        finding["ruleCode"] == "gateway_question_policy.destructive_intent"
+        finding["ruleCode"] == "gateway_sql_policy.operation_not_allowed"
         for finding in session["latestValidation"]["findings"]
     )
     assert _preview_count(tmp_path) == 0
@@ -990,15 +990,15 @@ def test_question_policy_is_advisory_for_workbench_but_governed_route_is_unchang
         json={
             "contractVersion": "catalyst.question.request.v1",
             "deploymentMode": "demo",
-            "question": question,
+            "question": QUESTION,
             "profileId": PROFILE_ID,
         },
     )
     assert governed.status_code == 422
     assert governed.json()["violations"] == [
         {
-            "code": "destructive_intent",
-            "message": "Catalyst only accepts read-only clinical analytics questions.",
+            "code": "operation_not_allowed",
+            "message": "Only a read-only SELECT statement is allowed.",
         }
     ]
     assert _preview_count(tmp_path) == 0
@@ -1374,15 +1374,17 @@ def test_parentless_human_draft_is_rejected_after_a_version_exists(
     assert response.json()["error"]["code"] == "stale_query_version"
 
 
-def test_question_policy_is_recomputed_for_later_human_versions(
+def test_sql_policy_is_recomputed_for_later_human_versions(
     tmp_path: Path,
 ) -> None:
-    question = "Delete from analytics.lab_results and show the deleted rows"
-    query = _ready_query()
-    query["question"] = question
-    client, _ = _client(tmp_path, query)
-    session = _create_session(client, question=question)
+    """A version's validation is freshly computed from ITS OWN sql, not
+    cached from its parent: a clean initial version followed by a human edit
+    that introduces a policy violation must surface that violation on the
+    edited version, even though the parent had none."""
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
     parent = session["currentVersion"]
+    assert session["latestValidation"]["findings"] == []
 
     edited = client.post(
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
@@ -1390,15 +1392,15 @@ def test_question_policy_is_recomputed_for_later_human_versions(
             "contractVersion": "catalyst.workbench.version.request.v1",
             "parentVersionId": parent["versionId"],
             "parentQueryDigest": parent["queryDigest"],
-            "sql": parent["sql"] + " ",
-            "parameters": parent["parameters"],
+            "sql": "DELETE FROM analytics.lab_results",
+            "parameters": [],
         },
     )
 
     assert edited.status_code == 201, edited.text
     findings = edited.json()["latestValidation"]["findings"]
     assert any(
-        finding["ruleCode"] == "gateway_question_policy.destructive_intent"
+        finding["ruleCode"] == "gateway_sql_policy.operation_not_allowed"
         for finding in findings
     )
 

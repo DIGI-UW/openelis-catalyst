@@ -29,28 +29,6 @@ def _phrase_in_question(question: str, phrase: str) -> bool:
     return re.search(pattern, question, flags=re.IGNORECASE) is not None
 
 
-_DESTRUCTIVE_QUESTION_PATTERNS = (
-    re.compile(r"\bdelete\s+(?:all\b|from\b)", re.IGNORECASE),
-    re.compile(r"\bdrop\s+(?:table|view|schema|database)\b", re.IGNORECASE),
-    re.compile(r"\btruncate(?:\s+table)?\s+[A-Za-z_]", re.IGNORECASE),
-    re.compile(r"\binsert\s+into\b", re.IGNORECASE),
-    re.compile(r"\bupdate\s+[A-Za-z_][A-Za-z0-9_.]*\s+set\b", re.IGNORECASE),
-    re.compile(r"\balter\s+(?:table|view|schema|database)\b", re.IGNORECASE),
-)
-
-
-def question_policy_violations(question: str) -> list[Violation]:
-    """Reject explicit write instructions before any model can reinterpret them."""
-    if any(pattern.search(question) for pattern in _DESTRUCTIVE_QUESTION_PATTERNS):
-        return [
-            Violation(
-                "destructive_intent",
-                "Catalyst only accepts read-only clinical analytics questions.",
-            )
-        ]
-    return []
-
-
 def _named_semantic_requirements(
     question: str, catalog: dict[str, Any]
 ) -> list[tuple[str, str]]:
