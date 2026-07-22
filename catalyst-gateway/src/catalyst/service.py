@@ -269,9 +269,18 @@ class CatalystService:
             },
         )
 
-    async def workbench_editor_catalog(self) -> ServiceResponse:
+    async def workbench_editor_catalog(
+        self, data_source_id: str | None = None
+    ) -> ServiceResponse:
+        bundle = self._resolve_data_source(data_source_id)
+        if bundle is None:
+            return self._error(
+                400,
+                "unknown_data_source",
+                f"Data source {data_source_id!r} is not registered.",
+            )
         try:
-            catalog = await self._runtime_catalog()
+            catalog = await self._runtime_catalog(bundle)
             schemas_by_name: dict[str, list[dict[str, Any]]] = {}
             seen_views: set[str] = set()
             for source_view in catalog.views:
@@ -413,9 +422,18 @@ class CatalystService:
             )
         return ServiceResponse(200, body)
 
-    async def dataset_overview(self) -> ServiceResponse:
+    async def dataset_overview(
+        self, data_source_id: str | None = None
+    ) -> ServiceResponse:
+        bundle = self._resolve_data_source(data_source_id)
+        if bundle is None:
+            return self._error(
+                400,
+                "unknown_data_source",
+                f"Data source {data_source_id!r} is not registered.",
+            )
         try:
-            return ServiceResponse(200, await self.analytics.dataset_overview())
+            return ServiceResponse(200, await bundle.analytics.dataset_overview())
         except Exception as error:
             return self._error(502, "dataset_unavailable", str(error))
 
@@ -426,9 +444,17 @@ class CatalystService:
         patient_id: str | None,
         limit: int,
         offset: int,
+        data_source_id: str | None = None,
     ) -> ServiceResponse:
+        bundle = self._resolve_data_source(data_source_id)
+        if bundle is None:
+            return self._error(
+                400,
+                "unknown_data_source",
+                f"Data source {data_source_id!r} is not registered.",
+            )
         try:
-            body = await self.analytics.dataset_rows(
+            body = await bundle.analytics.dataset_rows(
                 test_name=test_name,
                 patient_id=patient_id,
                 limit=limit,

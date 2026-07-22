@@ -50,8 +50,12 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         return _json_response(await service.query_options())
 
     @app.get("/v1/catalyst/dataset")
-    async def dataset_overview() -> JSONResponse:
-        return _json_response(await service.dataset_overview())
+    async def dataset_overview(
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
+    ) -> JSONResponse:
+        return _json_response(await service.dataset_overview(data_source_id))
 
     @app.get("/v1/catalyst/dataset/rows")
     async def dataset_rows(
@@ -59,6 +63,9 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         patient_id: str | None = Query(default=None, alias="patientId", min_length=1),
         limit: int = Query(default=25, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
     ) -> JSONResponse:
         return _json_response(
             await service.dataset_rows(
@@ -66,6 +73,7 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
                 patient_id=patient_id,
                 limit=limit,
                 offset=offset,
+                data_source_id=data_source_id,
             )
         )
 
@@ -84,8 +92,12 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         return _json_response(service.poll_execution(preview_id, idempotency_key))
 
     @app.get("/v1/catalyst/workbench/catalog")
-    async def get_workbench_editor_catalog() -> JSONResponse:
-        return _json_response(await service.workbench_editor_catalog())
+    async def get_workbench_editor_catalog(
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
+    ) -> JSONResponse:
+        return _json_response(await service.workbench_editor_catalog(data_source_id))
 
     @app.post("/v1/catalyst/workbench/sessions")
     async def create_workbench_session(request: Request) -> JSONResponse:
