@@ -12,23 +12,25 @@ def test_gateway_exposes_chat_completions_endpoint():
     assert "/health" in paths
 
 
-def test_config_builds_default_dataset_registry():
+def test_config_builds_default_data_source_registry():
     config = load_config()
-    ids = [dataset.dataset_id for dataset in config.datasets]
-    assert config.default_dataset_id in ids
-    default = next(d for d in config.datasets if d.dataset_id == config.default_dataset_id)
+    ids = [source.source_id for source in config.data_sources]
+    assert config.default_data_source_id in ids
+    default = next(
+        s for s in config.data_sources if s.source_id == config.default_data_source_id
+    )
     assert default.analytics_dsn == config.analytics_dsn
     assert default.catalog_path == config.catalog_path
 
 
-def test_datasets_endpoint_registered_and_lists_default():
+def test_data_sources_endpoint_registered_and_lists_default():
     app = gateway.create_app()
     paths = {route.path for route in app.router.routes}
-    assert "/v1/catalyst/datasets" in paths
+    assert "/v1/catalyst/data-sources" in paths
 
-    response = app.state.catalyst.datasets()
+    response = app.state.catalyst.data_sources()
     assert response.status_code == 200
     body = response.body
-    assert body["contractVersion"] == "catalyst.datasets.v1"
-    ids = [dataset["id"] for dataset in body["datasets"]]
-    assert body["defaultDatasetId"] in ids
+    assert body["contractVersion"] == "catalyst.data-sources.v1"
+    ids = [source["id"] for source in body["dataSources"]]
+    assert body["defaultDataSourceId"] in ids

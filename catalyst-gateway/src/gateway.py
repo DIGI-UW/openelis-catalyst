@@ -19,13 +19,13 @@ def _default_catalyst_service() -> CatalystService:
     config = load_config()
     contracts = ContractRegistry.default()
     catalog = Catalog.load(config.catalog_path)
-    datasets = tuple(
+    data_sources = tuple(
         {
-            "id": dataset.dataset_id,
-            "label": dataset.label,
-            "available": Path(dataset.catalog_path).is_file(),
+            "id": source.source_id,
+            "label": source.label,
+            "available": Path(source.catalog_path).is_file(),
         }
-        for dataset in config.datasets
+        for source in config.data_sources
     )
     return CatalystService(
         contracts=contracts,
@@ -50,8 +50,8 @@ def _default_catalyst_service() -> CatalystService:
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,
         ),
-        datasets=datasets,
-        default_dataset_id=config.default_dataset_id,
+        data_sources=data_sources,
+        default_data_source_id=config.default_data_source_id,
     )
 
 

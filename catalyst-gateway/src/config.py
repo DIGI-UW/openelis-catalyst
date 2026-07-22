@@ -13,10 +13,10 @@ DEFAULT_CATALOG_PATH = (
 
 
 @dataclass(frozen=True)
-class DatasetConfig:
-    """One queryable dataset: its own analytics DB (DSN) and catalog."""
+class DataSourceConfig:
+    """One queryable data source: its own analytics DB (DSN) and catalog."""
 
-    dataset_id: str
+    source_id: str
     label: str
     analytics_dsn: str
     catalog_path: str
@@ -33,25 +33,25 @@ class GatewayConfig:
     statement_timeout_ms: int
     execution_lease_seconds: int
     hub_timeout_seconds: float
-    datasets: tuple[DatasetConfig, ...]
-    default_dataset_id: str
+    data_sources: tuple[DataSourceConfig, ...]
+    default_data_source_id: str
 
 
-def _load_extra_datasets() -> tuple[DatasetConfig, ...]:
-    """Additional datasets registered via a JSON file at CATALYST_DATASETS_PATH.
+def _load_extra_data_sources() -> tuple[DataSourceConfig, ...]:
+    """Additional data sources registered via CATALYST_DATA_SOURCES_PATH (JSON).
 
-    Shape: {"datasets": [{"id", "label", "analyticsDsn", "catalogPath"}, ...]}.
-    Absent/empty file => no extra datasets (single-dataset back-compat).
+    Shape: {"dataSources": [{"id", "label", "analyticsDsn", "catalogPath"}, ...]}.
+    Absent/empty file => no extra sources (single-source back-compat).
     """
-    path = os.getenv("CATALYST_DATASETS_PATH")
+    path = os.getenv("CATALYST_DATA_SOURCES_PATH")
     if not path or not Path(path).is_file():
         return ()
     raw = json.loads(Path(path).read_text())
-    extras: list[DatasetConfig] = []
-    for entry in raw.get("datasets", []):
+    extras: list[DataSourceConfig] = []
+    for entry in raw.get("dataSources", []):
         extras.append(
-            DatasetConfig(
-                dataset_id=str(entry["id"]),
+            DataSourceConfig(
+                source_id=str(entry["id"]),
                 label=str(entry.get("label", entry["id"])),
                 analytics_dsn=str(entry["analyticsDsn"]),
                 catalog_path=str(entry["catalogPath"]),
@@ -67,14 +67,14 @@ def load_config() -> GatewayConfig:
         "@localhost:15433/catalyst_analytics",
     )
     catalog_path = os.getenv("CATALYST_CATALOG_PATH", str(DEFAULT_CATALOG_PATH))
-    default_dataset_id = os.getenv("CATALYST_DEFAULT_DATASET_ID", "openelis")
-    default_dataset = DatasetConfig(
-        dataset_id=default_dataset_id,
-        label=os.getenv("CATALYST_DEFAULT_DATASET_LABEL", "OpenELIS Laboratory"),
+    default_source_id = os.getenv("CATALYST_DEFAULT_DATA_SOURCE_ID", "openelis")
+    default_source = DataSourceConfig(
+        source_id=default_source_id,
+        label=os.getenv("CATALYST_DEFAULT_DATA_SOURCE_LABEL", "OpenELIS Laboratory"),
         analytics_dsn=analytics_dsn,
         catalog_path=catalog_path,
     )
-    datasets = (default_dataset, *_load_extra_datasets())
+    data_sources = (default_source, *_load_extra_data_sources())
     return GatewayConfig(
         router_url=os.getenv("CATALYST_ROUTER_URL", "http://localhost:9100"),
         hub_base_url=os.getenv("MED_AGENT_HUB_BASE_URL", "http://localhost:8082"),
@@ -90,6 +90,6 @@ def load_config() -> GatewayConfig:
             os.getenv("CATALYST_EXECUTION_LEASE_SECONDS", "60")
         ),
         hub_timeout_seconds=float(os.getenv("CATALYST_HUB_TIMEOUT_SECONDS", "360")),
-        datasets=datasets,
-        default_dataset_id=default_dataset_id,
+        data_sources=data_sources,
+        default_data_source_id=default_source_id,
     )

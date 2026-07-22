@@ -41,9 +41,9 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
             return payload
         return _json_response(await service.submit_question(payload))
 
-    @app.get("/v1/catalyst/datasets")
-    async def datasets() -> JSONResponse:
-        return _json_response(service.datasets())
+    @app.get("/v1/catalyst/data-sources")
+    async def data_sources() -> JSONResponse:
+        return _json_response(service.data_sources())
 
     @app.get("/v1/catalyst/query-options")
     async def query_options() -> JSONResponse:
