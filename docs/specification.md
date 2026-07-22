@@ -178,6 +178,25 @@ generation may be active per session. A failed generation records raw typed
 evidence and leaves the preceding query editable. `New session` is the boundary
 for unrelated work.
 
+### Data sources
+
+`GET /v1/catalyst/data-sources` lists every registered data source
+(`catalyst.data-sources.v1`: `defaultDataSourceId` plus each source's `id`,
+`label`, and `available`). Each source is its own analytics database and
+catalog; a source registered but not yet provisioned (its catalog file
+absent) lists `available: false` and cannot be targeted.
+
+Any workbench request that creates or targets state — session creation, a
+turn, or a `dataSourceId`-taking GET (`/v1/catalyst/dataset`,
+`/v1/catalyst/workbench/catalog`) — accepts an optional `dataSourceId`. A
+session is source-agnostic: the source targeted by its most recent turn
+(falling back to the session's initial source) is the source the next
+untargeted turn inherits, so "adapt this query to the other data source"
+works mid-session without starting over. Catalog staleness
+(`409 stale_catalog_version`) is judged per source, against the baseline that
+source was last seen at in this session — switching sources never trips a
+false conflict on first use.
+
 ## Primary workflow: query to table
 
 1. The demo UI creates a session from the user's question.
@@ -410,16 +429,16 @@ fact. Important reporting surfaces include:
 - turnaround time;
 - pending or validation work queues.
 
-Each governed semantic view requires:
-
-- a stable name and version;
-- documented grain;
-- typed columns and units;
-- allowed filters and groupings;
-- terminology and code-system notes;
-- freshness and update behavior;
-- example queries;
-- confirmation that the view contains demo data only.
+Each governed semantic view's catalog entry carries only what the gateway
+actually reads (`Catalog.load`): approval, a stable name and version,
+documented grain, typed columns with units, and semantic dimensions
+(canonical analyte names and aliases). The catalog is GENERATED — from
+`COMMENT ON VIEW`/`COMMENT ON COLUMN` on the curated SQL plus a small
+per-source `catalog-overlay.json` (identity, approved views, semantic
+canonical values validated against live data) — never hand-maintained. Older
+hand-written catalogs also carried allowed-filters, terminology-note,
+freshness, and example-query sections; those are inert (unread by the
+gateway) and are not part of the generated shape.
 
 FHIR Data Pipes produces per-resource analytics representations. Cross-resource
 facts such as turnaround time or order-to-result relationships require a

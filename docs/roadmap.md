@@ -35,6 +35,9 @@ The repository currently contains:
 - Hub-discovered selectable profiles with writer/reviewer model and prompt
   provenance;
 - a pinned OpenELIS → HAPI FHIR → FHIR Data Pipes → PostgreSQL demo assembly;
+- a second, independently switchable data source (OpenMRS HIV/ART, its own
+  analytics database and catalog) alongside OpenELIS, targetable per turn
+  within one source-agnostic session;
 - Gateway, analytics/assembly, UI and browser tests.
 
 It does not yet contain:
