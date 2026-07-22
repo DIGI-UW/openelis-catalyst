@@ -235,7 +235,12 @@ class CatalystService:
         """Bundle for source_id (default when omitted); None when unregistered
         or registered-but-unavailable."""
         bundle = self._bundles.get(source_id or self._default_data_source_id)
-        if bundle is None or not bundle.available or bundle.catalog is None:
+        if (
+            bundle is None
+            or not bundle.available
+            or bundle.catalog is None
+            or bundle.analytics is None
+        ):
             return None
         return bundle
 
@@ -471,6 +476,7 @@ class CatalystService:
         bundle = self._require_bundle(data_source_id, workbench=False)
         if isinstance(bundle, ServiceResponse):
             return bundle
+        assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             return ServiceResponse(200, await bundle.analytics.dataset_overview())
         except Exception as error:
@@ -488,6 +494,7 @@ class CatalystService:
         bundle = self._require_bundle(data_source_id, workbench=False)
         if isinstance(bundle, ServiceResponse):
             return bundle
+        assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             body = await bundle.analytics.dataset_rows(
                 test_name=test_name,
@@ -709,6 +716,7 @@ class CatalystService:
         self.contracts.validate(
             "catalyst-query-request-v1.schema.json", initial_request
         )
+        assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             overview = await bundle.analytics.dataset_overview()
         except Exception:
@@ -1749,6 +1757,7 @@ class CatalystService:
             "maxRows": self.max_rows,
             "replayed": False,
         }
+        assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             result = await bundle.analytics.execute_manual(
                 sql=version["sql"],
@@ -2685,10 +2694,12 @@ class CatalystService:
 
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)
-        presented["dataSourceId"] = (
-            (presented.get("provenance") or {}).get("dataSourceId")
-            or self._default_data_source_id
-        )
+        # Last-turn-wins, matching turn targeting: a reload must land on the
+        # session's CURRENT source, not the one it was created with.
+        turns: list[dict[str, Any]] = []
+        if self.workbench_store is not None:
+            turns = self.workbench_store.list_turns(session["sessionId"])["turns"]
+        presented["dataSourceId"] = self._session_data_source_id(session, turns)
         presented["draftSeed"] = None
         if presented.get("currentVersion") is not None:
             return presented

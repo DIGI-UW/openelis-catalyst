@@ -161,31 +161,47 @@ def test_unknown_source_is_rejected(tmp_path: Path) -> None:
     assert response.json()["error"]["code"] == "unknown_data_source"
 
 
+def _post_turn(
+    client: TestClient,
+    session_id: str,
+    base_version: dict,
+    instruction: str,
+    **extra,
+):
+    return client.post(
+        f"/v1/catalyst/workbench/sessions/{session_id}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": instruction,
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base_version["versionId"],
+                "queryDigest": base_version["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base_version["sql"],
+                "parameters": base_version["parameters"],
+                "expectedColumns": base_version["expectedColumns"],
+                "editorDigest": base_version["queryDigest"],
+            },
+            **extra,
+        },
+    )
+
+
 def test_followup_switches_source_mid_session(tmp_path: Path) -> None:
     """The 'adapt this query to the other data source' flow."""
     client, hub, _, _ = _two_source_client(tmp_path)
     session = _create_session(client)  # starts on openelis
     current = session["currentVersion"]
 
-    response = client.post(
-        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
-        json={
-            "contractVersion": "catalyst.workbench.turn.request.v1",
-            "instruction": "Adapt this query to the HIV data source",
-            "profileId": PROFILE_ID,
-            "dataSourceId": "openmrs-hiv",
-            "observedBase": {
-                "versionId": current["versionId"],
-                "queryDigest": current["queryDigest"],
-            },
-            "editorSnapshot": {
-                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
-                "sql": current["sql"],
-                "parameters": current["parameters"],
-                "expectedColumns": current["expectedColumns"],
-                "editorDigest": current["queryDigest"],
-            },
-        },
+    response = _post_turn(
+        client,
+        session["sessionId"],
+        current,
+        "Adapt this query to the HIV data source",
+        dataSourceId="openmrs-hiv",
     )
     assert response.status_code == 201, response.text
     turn = response.json()
@@ -204,6 +220,27 @@ def test_followup_switches_source_mid_session(tmp_path: Path) -> None:
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
     ).json()
     assert timeline["turns"][-1]["dataSourceId"] == "openmrs-hiv"
+
+
+def test_session_reload_reports_current_source_after_switch(tmp_path: Path) -> None:
+    """GET session reflects last-turn-wins, so a UI reload does not snap the
+    switcher back to the session's initial source (and then silently target
+    the wrong source on the next follow-up)."""
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _create_session(client)  # starts on openelis
+    response = _post_turn(
+        client,
+        session["sessionId"],
+        session["currentVersion"],
+        "Adapt this query to the HIV data source",
+        dataSourceId="openmrs-hiv",
+    )
+    assert response.status_code == 201, response.text
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert reloaded["dataSourceId"] == "openmrs-hiv"
 
 
 def test_execution_routes_to_version_source_adapter(tmp_path: Path) -> None:
