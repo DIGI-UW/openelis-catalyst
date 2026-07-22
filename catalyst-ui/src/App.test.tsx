@@ -1659,4 +1659,96 @@ describe("Catalyst query workflow", () => {
 
     await waitFor(() => expect(api.submitQuestion).toHaveBeenCalledWith(QUESTION));
   });
+
+  it("hides the data-source switcher when only one source is registered", async () => {
+    const api = makeNotebookApi();
+    api.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis",
+      dataSources: [
+        { id: "openelis", label: "OpenELIS Laboratory", available: true },
+      ],
+    });
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+  });
+
+  it("shows the switcher for multiple sources, defaults to it, and filters unavailable ones", async () => {
+    const api = makeNotebookApi();
+    api.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis",
+      dataSources: [
+        { id: "openelis", label: "OpenELIS Laboratory", available: true },
+        { id: "openmrs-hiv", label: "OpenMRS HIV/ART program", available: true },
+        { id: "not-yet-provisioned", label: "Not yet provisioned", available: false },
+      ],
+    });
+    render(<App api={api} />);
+
+    const switcher = await screen.findByLabelText("Data source");
+    expect(switcher).toHaveValue("openelis");
+    expect(
+      within(switcher).queryByRole("option", { name: "Not yet provisioned" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(switcher).getByRole("option", { name: "OpenMRS HIV/ART program" }),
+    ).toBeInTheDocument();
+  });
+
+  it("carries the switched source into the follow-up request and refetches its catalog", async () => {
+    const api = makeNotebookApi();
+    api.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis",
+      dataSources: [
+        { id: "openelis", label: "OpenELIS Laboratory", available: true },
+        { id: "openmrs-hiv", label: "OpenMRS HIV/ART program", available: true },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    const switcher = await screen.findByLabelText("Data source");
+    await user.selectOptions(switcher, "openmrs-hiv");
+
+    await waitFor(() =>
+      expect(api.getWorkbenchCatalog).toHaveBeenCalledWith(
+        "openmrs-hiv",
+        expect.anything(),
+      ),
+    );
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await waitFor(() => expect(api.createWorkbenchSession).toHaveBeenCalledOnce());
+    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
+      QUESTION,
+      "catalyst-query-gemma-4-12b",
+      undefined,
+      "openmrs-hiv",
+    );
+
+    await screen.findByRole("heading", { name: "Refine Query v1" });
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Only include released results",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate next query" }));
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const [, request] = vi.mocked(api.createWorkbenchTurn).mock.calls[0]!;
+    expect(request).toMatchObject({ dataSourceId: "openmrs-hiv" });
+  });
+
+  it("stays functional when the data-sources endpoint is unavailable", async () => {
+    const api = makeNotebookApi();
+    api.getDataSources = vi.fn().mockRejectedValue(new Error("not found"));
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Model profile")).toBeEnabled();
+    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+  });
 });

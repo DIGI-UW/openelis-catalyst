@@ -192,6 +192,28 @@ afterEach(() => {
 });
 
 describe("TurnNotebook", () => {
+  it("shows the data-source badge on a turn that has one and omits it otherwise", () => {
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        turns={[
+          { ...initialTurn, dataSourceLabel: "OpenMRS HIV/ART program" },
+          { ...followupTurn, dataSourceLabel: null },
+        ]}
+      />,
+    );
+
+    const withSource = screen.getByRole("button", { name: /query turn 1/i });
+    expect(
+      within(withSource).getByText("OpenMRS HIV/ART program"),
+    ).toBeVisible();
+
+    const withoutSource = screen.getByRole("button", { name: /query turn 2/i });
+    expect(
+      within(withoutSource).queryByText(/OpenMRS|OpenELIS/),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps every prior turn compact and read-only while one composer owns refinement", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
