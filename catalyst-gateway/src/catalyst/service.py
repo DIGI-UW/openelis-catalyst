@@ -117,6 +117,22 @@ class ServiceResponse:
     body: dict[str, Any]
 
 
+@dataclass
+class DataSourceBundle:
+    """One targetable data source: its catalog + analytics adapter.
+
+    Turns target a bundle per generation; the runtime-discovered catalog is
+    cached per bundle so switching sources mid-session never mixes schemas.
+    """
+
+    source_id: str
+    label: str
+    catalog: Catalog
+    analytics: AnalyticsProtocol
+    available: bool = True
+    runtime_snapshot: Catalog | None = None
+
+
 @dataclass(frozen=True)
 class _HubGeneration:
     query: dict[str, Any]
@@ -141,34 +157,48 @@ class CatalystService:
         max_rows: int,
         statement_timeout_ms: int,
         workbench_store: WorkbenchStore | None = None,
-        data_sources: tuple[dict[str, Any], ...] | None = None,
+        data_sources: tuple[DataSourceBundle, ...] | None = None,
         default_data_source_id: str | None = None,
     ) -> None:
         self.contracts = contracts
-        self.catalog = catalog
         self.hub = hub
-        self.analytics = analytics
         self.store = store
         self.sql_policy = sql_policy
         self.max_rows = max_rows
         self.statement_timeout_ms = statement_timeout_ms
         self.workbench_store = workbench_store
-        self._runtime_catalog_snapshot = catalog
-        # Data-source registry (discovery only at this layer; per-turn routing is
-        # threaded through the query methods in a later change). When not supplied
-        # (e.g. unit tests that build a single-source service), derive one entry
-        # from the loaded catalog so /data-sources always reports the active one.
+        # Data-source registry. When bundles are not supplied (e.g. unit tests
+        # that build a single-source service), derive one bundle wrapping the
+        # ctor catalog/analytics so every path routes through the registry.
         if data_sources:
-            self._data_sources = tuple(dict(entry) for entry in data_sources)
+            self._bundles: dict[str, DataSourceBundle] = {
+                bundle.source_id: bundle for bundle in data_sources
+            }
             self._default_data_source_id = (
-                default_data_source_id or self._data_sources[0]["id"]
+                default_data_source_id or data_sources[0].source_id
             )
         else:
             derived_id = default_data_source_id or catalog.data_source
-            self._data_sources = (
-                {"id": derived_id, "label": derived_id, "available": True},
-            )
+            self._bundles = {
+                derived_id: DataSourceBundle(
+                    source_id=derived_id,
+                    label=derived_id,
+                    catalog=catalog,
+                    analytics=analytics,
+                )
+            }
             self._default_data_source_id = derived_id
+        default_bundle = self._bundles.get(self._default_data_source_id)
+        if default_bundle is None:
+            raise ValueError(
+                "default data source "
+                f"{self._default_data_source_id!r} is not registered"
+            )
+        # The default bundle IS the legacy single-source view of the service;
+        # existing code paths keep reading these until per-turn routing lands.
+        self.catalog = default_bundle.catalog
+        self.analytics = default_bundle.analytics
+        self._runtime_catalog_snapshot = default_bundle.catalog
 
     def data_sources(self) -> ServiceResponse:
         """List the data sources the workbench can target (for the UI switcher)."""
@@ -177,22 +207,39 @@ class CatalystService:
             {
                 "contractVersion": "catalyst.data-sources.v1",
                 "defaultDataSourceId": self._default_data_source_id,
-                "dataSources": [dict(entry) for entry in self._data_sources],
+                "dataSources": [
+                    {
+                        "id": bundle.source_id,
+                        "label": bundle.label,
+                        "available": bundle.available,
+                    }
+                    for bundle in self._bundles.values()
+                ],
             },
         )
 
-    async def _runtime_catalog(self) -> Catalog:
-        discover = getattr(self.analytics, "discover_relations", None)
+    def _resolve_data_source(self, source_id: str | None) -> DataSourceBundle | None:
+        """Bundle for source_id (default when omitted); None when unregistered."""
+        return self._bundles.get(source_id or self._default_data_source_id)
+
+    async def _runtime_catalog(
+        self, bundle: DataSourceBundle | None = None
+    ) -> Catalog:
+        if bundle is None:
+            bundle = self._bundles[self._default_data_source_id]
+        discover = getattr(bundle.analytics, "discover_relations", None)
         if discover is None:
-            return self._runtime_catalog_snapshot
+            return bundle.runtime_snapshot or bundle.catalog
         relations = await discover()
         try:
-            catalog = self.catalog.with_discovered_relations(relations)
+            catalog = bundle.catalog.with_discovered_relations(relations)
         except (KeyError, TypeError, ValueError) as error:
             raise AnalyticsError(
                 f"PostgreSQL schema discovery returned an unusable catalog: {error}"
             ) from error
-        self._runtime_catalog_snapshot = catalog
+        bundle.runtime_snapshot = catalog
+        if bundle.source_id == self._default_data_source_id:
+            self._runtime_catalog_snapshot = catalog
         return catalog
 
     async def query_options(self) -> ServiceResponse:

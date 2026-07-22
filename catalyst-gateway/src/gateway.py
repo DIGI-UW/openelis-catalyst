@@ -10,7 +10,7 @@ from .catalyst.contracts import ContractRegistry
 from .catalyst.hub import HubClient
 from .catalyst.policy import SqlPolicy
 from .catalyst.routes import install_catalyst_routes
-from .catalyst.service import CatalystService
+from .catalyst.service import CatalystService, DataSourceBundle
 from .catalyst.storage import PreviewStore, WorkbenchStore
 from .config import load_config
 
@@ -19,14 +19,37 @@ def _default_catalyst_service() -> CatalystService:
     config = load_config()
     contracts = ContractRegistry.default()
     catalog = Catalog.load(config.catalog_path)
-    data_sources = tuple(
-        {
-            "id": source.source_id,
-            "label": source.label,
-            "available": Path(source.catalog_path).is_file(),
-        }
-        for source in config.data_sources
+    analytics = PostgresAnalyticsAdapter(
+        config.analytics_dsn,
+        data_source_id=catalog.data_source,
     )
+    bundles: list[DataSourceBundle] = []
+    for source in config.data_sources:
+        if source.source_id == config.default_data_source_id:
+            bundles.append(
+                DataSourceBundle(
+                    source_id=source.source_id,
+                    label=source.label,
+                    catalog=catalog,
+                    analytics=analytics,
+                )
+            )
+            continue
+        if not Path(source.catalog_path).is_file():
+            # Registered but not provisioned yet: skip rather than fail boot.
+            continue
+        source_catalog = Catalog.load(source.catalog_path)
+        bundles.append(
+            DataSourceBundle(
+                source_id=source.source_id,
+                label=source.label,
+                catalog=source_catalog,
+                analytics=PostgresAnalyticsAdapter(
+                    source.analytics_dsn,
+                    data_source_id=source_catalog.data_source,
+                ),
+            )
+        )
     return CatalystService(
         contracts=contracts,
         catalog=catalog,
@@ -35,10 +58,7 @@ def _default_catalyst_service() -> CatalystService:
             contracts,
             timeout_seconds=config.hub_timeout_seconds,
         ),
-        analytics=PostgresAnalyticsAdapter(
-            config.analytics_dsn,
-            data_source_id=catalog.data_source,
-        ),
+        analytics=analytics,
         store=PreviewStore(
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,
@@ -50,7 +70,7 @@ def _default_catalyst_service() -> CatalystService:
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,
         ),
-        data_sources=data_sources,
+        data_sources=tuple(bundles),
         default_data_source_id=config.default_data_source_id,
     )
 
