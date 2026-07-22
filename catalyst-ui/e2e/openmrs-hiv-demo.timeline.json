@@ -1,0 +1,73 @@
+{
+  "width": 1280,
+  "height": 720,
+  "fps": 25,
+  "segments": [
+    {
+      "type": "card",
+      "duration": 3.5,
+      "kicker": "CATALYST DEMO",
+      "heading": "OpenMRS HIV/ART program data",
+      "lines": [
+        "Turn 1: \"Show CD4 count results since 2026-01-01",
+        "with patient, value, and observed date.\""
+      ]
+    },
+    {
+      "type": "clip",
+      "start": 0.0,
+      "end": 1.09,
+      "speed": 1.0,
+      "caption": "OpenMRS HIV/ART selected as the active data source."
+    },
+    {
+      "type": "clip",
+      "start": 1.15,
+      "end": 48.88,
+      "speed": 7.0,
+      "caption": "A writer model drafts SQL; a reviewer model checks it against the approved data catalog."
+    },
+    {
+      "type": "clip",
+      "start": 48.88,
+      "end": 51.29,
+      "speed": 1.0,
+      "hold": 1.5,
+      "caption": "Validated, then executed against the analytics database."
+    },
+    {
+      "type": "card",
+      "duration": 3.0,
+      "kicker": "CATALYST DEMO",
+      "heading": "Turn 2 · refine the exact query",
+      "lines": [
+        "\"Also include the patient's gender and birth date.\""
+      ]
+    },
+    {
+      "type": "clip",
+      "start": 51.34,
+      "end": 108.56,
+      "speed": 8.0,
+      "caption": "The model extends the same query — no need to start over."
+    },
+    {
+      "type": "clip",
+      "start": 108.56,
+      "end": 110.05,
+      "speed": 1.0,
+      "hold": 1.5,
+      "caption": "Gender and birth date added to the same result set."
+    },
+    {
+      "type": "card",
+      "duration": 3.0,
+      "kicker": "CATALYST DEMO",
+      "heading": "Checked at every step",
+      "lines": [
+        "Every query is generated, reviewed, and validated before it runs —",
+        "see the full acceptance run in the published report."
+      ]
+    }
+  ]
+}
