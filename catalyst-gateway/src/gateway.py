@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -18,6 +19,14 @@ def _default_catalyst_service() -> CatalystService:
     config = load_config()
     contracts = ContractRegistry.default()
     catalog = Catalog.load(config.catalog_path)
+    datasets = tuple(
+        {
+            "id": dataset.dataset_id,
+            "label": dataset.label,
+            "available": Path(dataset.catalog_path).is_file(),
+        }
+        for dataset in config.datasets
+    )
     return CatalystService(
         contracts=contracts,
         catalog=catalog,
@@ -41,6 +50,8 @@ def _default_catalyst_service() -> CatalystService:
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,
         ),
+        datasets=datasets,
+        default_dataset_id=config.default_dataset_id,
     )
 
 

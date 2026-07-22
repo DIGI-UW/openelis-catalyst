@@ -141,6 +141,8 @@ class CatalystService:
         max_rows: int,
         statement_timeout_ms: int,
         workbench_store: WorkbenchStore | None = None,
+        datasets: tuple[dict[str, Any], ...] | None = None,
+        default_dataset_id: str | None = None,
     ) -> None:
         self.contracts = contracts
         self.catalog = catalog
@@ -152,6 +154,30 @@ class CatalystService:
         self.statement_timeout_ms = statement_timeout_ms
         self.workbench_store = workbench_store
         self._runtime_catalog_snapshot = catalog
+        # Dataset registry (discovery only at this layer; per-request routing is
+        # threaded through the query methods in a later change). When not supplied
+        # (e.g. unit tests that build a single-dataset service), derive one entry
+        # from the loaded catalog so /datasets always reports the active dataset.
+        if datasets:
+            self._datasets = tuple(dict(entry) for entry in datasets)
+            self._default_dataset_id = default_dataset_id or self._datasets[0]["id"]
+        else:
+            derived_id = default_dataset_id or catalog.data_source
+            self._datasets = (
+                {"id": derived_id, "label": derived_id, "available": True},
+            )
+            self._default_dataset_id = derived_id
+
+    def datasets(self) -> ServiceResponse:
+        """List the datasets the workbench can query (for the dataset switcher)."""
+        return ServiceResponse(
+            200,
+            {
+                "contractVersion": "catalyst.datasets.v1",
+                "defaultDatasetId": self._default_dataset_id,
+                "datasets": [dict(entry) for entry in self._datasets],
+            },
+        )
 
     async def _runtime_catalog(self) -> Catalog:
         discover = getattr(self.analytics, "discover_relations", None)
