@@ -922,16 +922,14 @@ export const QueryWorkspace = ({
             </label>
           )}
           {workbenchSession && (
-            <div className="session-strip">
-              <span className="session-strip__meta">
-                Session {workbenchSession.sessionId.slice(0, 8)}
-                {workbenchTimeline
-                  ? ` · ${workbenchTimeline.turns.length} turn${
-                      workbenchTimeline.turns.length === 1 ? "" : "s"
-                    }`
-                  : ""}
-              </span>
-            </div>
+            <span className="session-strip__meta">
+              Session {workbenchSession.sessionId.slice(0, 8)}
+              {workbenchTimeline
+                ? ` · ${workbenchTimeline.turns.length} turn${
+                    workbenchTimeline.turns.length === 1 ? "" : "s"
+                  }`
+                : ""}
+            </span>
           )}
         </div>
       </div>

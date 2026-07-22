@@ -133,9 +133,7 @@ def _two_source_client(
     )
     service = CatalystService(
         contracts=ContractRegistry.load(CONTRACTS),
-        catalog=catalog_a,
         hub=hub,
-        analytics=analytics_a,
         store=PreviewStore(database),
         workbench_store=WorkbenchStore(database),
         sql_policy=SqlPolicy(max_rows=2),

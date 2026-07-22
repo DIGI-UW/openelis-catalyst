@@ -73,10 +73,10 @@ def load_config() -> GatewayConfig:
         "@localhost:15433/catalyst_analytics",
     )
     catalog_path = os.getenv("CATALYST_CATALOG_PATH", str(DEFAULT_CATALOG_PATH))
-    default_source_id = os.getenv("CATALYST_DEFAULT_DATA_SOURCE_ID", "openelis")
+    default_source_id = "openelis"
     default_source = DataSourceConfig(
         source_id=default_source_id,
-        label=os.getenv("CATALYST_DEFAULT_DATA_SOURCE_LABEL", "OpenELIS Laboratory"),
+        label="OpenELIS Laboratory",
         analytics_dsn=analytics_dsn,
         catalog_path=catalog_path,
     )
