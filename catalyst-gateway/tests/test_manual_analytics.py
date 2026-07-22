@@ -129,7 +129,7 @@ async def test_relation_discovery_uses_role_privileges_and_all_relation_kinds():
                 ),
                 (
                     "public",
-                    "patient_flat_v1",
+                    "patient_flat",
                     "r",
                     True,
                     1,

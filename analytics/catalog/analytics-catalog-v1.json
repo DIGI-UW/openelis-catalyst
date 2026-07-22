@@ -5,26 +5,13 @@
   "dataSource": "openelis-fhir-postgresql",
   "dialect": "postgresql",
   "schemaVersion": "analytics-v1",
-  "description": "OpenELIS multi-analyte laboratory vocabulary over OHS FHIR Data Pipes projections.",
-  "freshness": {
-    "relation": "analytics.pipeline_run_v1",
-    "contract": "catalyst.analytics.pipeline-run.v1",
-    "sourceWatermarkColumn": "source_watermark",
-    "runIdColumn": "pipeline_run_id",
-    "completionStateColumn": "completion_state",
-    "observedAtColumn": "observed_at",
-    "updateBehavior": "An operator-triggered FULL FHIR_SEARCH run recreates the sink projections; only succeeded runs with a source watermark are current."
-  },
+  "description": "GENERATED FILE - do not edit. Derived from the analytics database (view/column comments) plus catalog-overlay.json by scripts/generate-catalyst-source-catalog.py.",
   "views": [
     {
       "name": "analytics.lab_result_fact_v1",
       "version": "1",
       "approved": true,
-      "grain": "Exactly one row per FHIR Observation, with at most one Specimen matched by resource key.",
-      "sourceRelations": [
-        "public.observation_flat_v1",
-        "public.specimen_flat_v1"
-      ],
+      "grain": "Exactly one row per FHIR Observation, with at most one Specimen matched by resource key. Built over the lossless default projections: the per-coding cross product is collapsed per observation and the LOINC coding pivoted into the test_* columns.",
       "columns": [
         {
           "name": "observation_id",
@@ -90,8 +77,8 @@
           "name": "result_value",
           "logicalType": "decimal",
           "nullable": true,
-          "unitColumn": "result_unit",
-          "description": "Numeric FHIR Quantity value; do not aggregate across unlike units."
+          "description": "Numeric FHIR Quantity value; do not aggregate across unlike units.",
+          "unitColumn": "result_unit"
         },
         {
           "name": "result_unit",
@@ -124,19 +111,6 @@
           "description": "Elapsed minutes from Specimen.receivedTime to Observation.issued."
         }
       ],
-      "allowedFilters": [
-        "patient_id",
-        "test_code",
-        "test_name",
-        "observed_at",
-        "result_unit"
-      ],
-      "allowedGroupings": [
-        "patient_id",
-        "test_code",
-        "test_name",
-        "result_unit"
-      ],
       "semanticDimensions": [
         {
           "field": "test_name",
@@ -144,71 +118,69 @@
           "values": [
             {
               "canonical": "Viral Load",
-              "aliases": ["viral load", "HIV viral load"]
+              "aliases": [
+                "viral load",
+                "HIV viral load"
+              ]
             },
             {
               "canonical": "CD4 absolute count",
-              "aliases": ["CD4 absolute count", "CD4 count"]
+              "aliases": [
+                "CD4 absolute count",
+                "CD4 count"
+              ]
             },
             {
               "canonical": "CD4 percent  (%)",
-              "aliases": ["CD4 percent", "CD4 percentage", "CD4%"]
+              "aliases": [
+                "CD4 percent",
+                "CD4 percentage",
+                "CD4%"
+              ]
             },
             {
               "canonical": "Hemoglobin",
-              "aliases": ["hemoglobin", "haemoglobin"]
+              "aliases": [
+                "hemoglobin",
+                "haemoglobin"
+              ]
             },
             {
               "canonical": "Platelets",
-              "aliases": ["platelets", "platelet count"]
+              "aliases": [
+                "platelets",
+                "platelet count"
+              ]
             },
             {
               "canonical": "White Blood Cells Count (WBC)",
-              "aliases": ["white blood cell count", "white blood cells count", "WBC"]
+              "aliases": [
+                "white blood cell count",
+                "white blood cells count",
+                "WBC"
+              ]
             },
             {
               "canonical": "Creatinine",
-              "aliases": ["creatinine"]
+              "aliases": [
+                "creatinine"
+              ]
             },
             {
               "canonical": "GPT/ALAT",
-              "aliases": ["GPT/ALAT", "ALT", "alanine aminotransferase"]
+              "aliases": [
+                "GPT/ALAT",
+                "ALT",
+                "alanine aminotransferase"
+              ]
             },
             {
               "canonical": "Glucose",
-              "aliases": ["glucose"]
+              "aliases": [
+                "glucose"
+              ]
             }
           ]
-        }
-      ],
-      "requiredConstraints": {
-        "dateColumn": "observed_at",
-        "maxDateRangeDays": 366,
-        "maxResultRows": 100
-      },
-      "terminology": [
-        "The current OpenELIS load contains Viral Load, CD4 absolute count, CD4 percent (%), Hemoglobin, Platelets, White Blood Cells Count (WBC), Creatinine, GPT/ALAT, and Glucose.",
-        "The current OpenELIS load resolves Viral Load by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and uses copies/ml.",
-        "When a question names a test, constrain test_name with a named parameter; never rely on the dataset containing only one test type."
-      ],
-      "freshness": {
-        "relation": "analytics.pipeline_run_v1",
-        "mode": "latest-succeeded-run",
-        "updateBehavior": "Operator-triggered FULL FHIR_SEARCH after explicit HAPI backfill; query provenance carries run ID, source watermark, completion state, and observed lag."
-      },
-      "examples": [
-        {
-          "question": "Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time.",
-          "sql": "SELECT patient_id, result_value, result_unit, issued_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE test_name = :test_name AND observed_at >= :start_at ORDER BY observed_at",
-          "parameters": {
-            "test_name": {
-              "logicalType": "string",
-              "value": "Viral Load"
-            },
-            "start_at": {
-              "logicalType": "date"
-            }
-          }
         }
       ]
     }

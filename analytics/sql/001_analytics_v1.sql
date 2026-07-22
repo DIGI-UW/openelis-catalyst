@@ -1,3 +1,14 @@
+-- OpenELIS analytics layer over the fhir-data-pipes DEFAULT flat tables.
+--
+-- Layering rule (deliberate): the ingestion layer uses the upstream default
+-- ViewDefinitions essentially verbatim (lossless, one row per resource per
+-- coding via forEachOrNull) plus documented additive extensions and gap-fill
+-- views for resources upstream ships none for (Specimen, ServiceRequest).
+-- ALL curation happens here in SQL, where a mistake costs a CREATE OR
+-- REPLACE VIEW instead of a full FHIR re-fetch. The catalog is GENERATED
+-- from this file's view/column comments plus analytics/catalog-overlay.json
+-- by the harness's scripts/generate-catalyst-source-catalog.py.
+
 BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS analytics;
@@ -54,33 +65,139 @@ FROM analytics.pipeline_run_v1;
 COMMENT ON VIEW analytics.pipeline_freshness_v1 IS
     'Structured source watermark, run state, and observed lag; never a single ambiguous timestamp.';
 
-CREATE OR REPLACE VIEW analytics.lab_result_fact_v1 AS
+-- Drop the previous generation (hand-written lossy ingestion projections and
+-- the views built on them); superseded by the default-table layering above.
+DROP VIEW IF EXISTS analytics.lab_result_fact_v1;
+-- service_request_flat_v1 was a sink TABLE pre-migration and is a curated
+-- VIEW after; DROP ... IF EXISTS still type-checks existing objects, so the
+-- first migration needs the table branch and re-runs need the view branch.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_tables
+        WHERE schemaname = 'public' AND tablename = 'service_request_flat_v1'
+    ) THEN
+        EXECUTE 'DROP TABLE public.service_request_flat_v1';
+    END IF;
+END $$;
+DROP VIEW IF EXISTS public.service_request_flat_v1;
+DROP TABLE IF EXISTS public.observation_flat_v1;
+DROP TABLE IF EXISTS public.patient_flat_v1;
+DROP TABLE IF EXISTS public.specimen_flat_v1;
+DROP TABLE IF EXISTS public.diagnostic_report_flat_v1;
+
+-- Compatibility projection preserving the pre-migration one-row-per-request
+-- shape (seed/health fixture contracts assert against it): collapses the
+-- lossless service_request_flat coding cross product, pivoting the LOINC
+-- coding into the test_* columns.
+CREATE VIEW public.service_request_flat_v1 AS
 SELECT
-    observation.id AS observation_id,
-    observation.patient_id,
-    observation.service_request_id,
-    observation.specimen_id,
-    observation.result_status,
-    observation.observed_at,
-    observation.issued_at,
-    observation.test_code_system,
-    observation.test_code,
-    observation.test_name,
-    observation.result_value,
-    observation.result_unit,
-    observation.result_unit_system,
-    observation.result_unit_code,
-    specimen.received_at AS specimen_received_at,
+    sr.id,
+    MAX(sr.patient_id) AS patient_id,
+    MAX(sr.specimen_id) AS specimen_id,
+    MAX(sr.request_status) AS request_status,
+    MAX(sr.request_intent) AS request_intent,
+    MAX(sr.authored_at) AS authored_at,
+    MAX(sr.code_sys) FILTER (WHERE sr.code_sys = 'http://loinc.org')
+        AS test_code_system,
+    MAX(sr.code_code) FILTER (WHERE sr.code_sys = 'http://loinc.org')
+        AS test_code,
+    COALESCE(
+        MAX(sr.code_display) FILTER (WHERE sr.code_sys = 'http://loinc.org'),
+        MAX(sr.code_display)
+    ) AS test_name
+FROM public.service_request_flat AS sr
+GROUP BY sr.id;
+
+COMMENT ON VIEW public.service_request_flat_v1 IS
+    'One row per FHIR ServiceRequest over the lossless service_request_flat base; LOINC coding pivoted into the test_* columns.';
+
+CREATE VIEW analytics.lab_result_fact_v1 AS
+WITH per_observation AS (
+    SELECT
+        o.id AS observation_id,
+        MAX(o.patient_id) AS patient_id,
+        MAX(o.service_request_id) AS service_request_id,
+        MAX(o.specimen_id) AS specimen_id,
+        MAX(o.status) AS result_status,
+        MAX(o.obs_date) AS observed_at,
+        MAX(o.issued) AS issued_at,
+        MAX(o.code_sys) FILTER (WHERE o.code_sys = 'http://loinc.org')
+            AS test_code_system,
+        MAX(o.code_code) FILTER (WHERE o.code_sys = 'http://loinc.org')
+            AS test_code,
+        COALESCE(
+            MAX(o.code_display) FILTER (WHERE o.code_sys = 'http://loinc.org'),
+            MAX(o.code_display)
+        ) AS test_name,
+        MAX(o.val_quantity) AS result_value,
+        MAX(o.val_quantity_unit) AS result_unit,
+        MAX(o.val_quantity_system) AS result_unit_system,
+        MAX(o.val_quantity_code) AS result_unit_code
+    FROM public.observation_flat AS o
+    GROUP BY o.id
+)
+SELECT
+    f.observation_id,
+    f.patient_id,
+    f.service_request_id,
+    f.specimen_id,
+    f.result_status,
+    f.observed_at,
+    f.issued_at,
+    f.test_code_system,
+    f.test_code,
+    f.test_name,
+    f.result_value,
+    f.result_unit,
+    f.result_unit_system,
+    f.result_unit_code,
+    s.received_at AS specimen_received_at,
     (
-        EXTRACT(EPOCH FROM (observation.issued_at - specimen.received_at))
+        EXTRACT(EPOCH FROM (f.issued_at - s.received_at))
         / 60.0
     )::numeric AS receipt_to_release_minutes
-FROM public.observation_flat_v1 AS observation
-LEFT JOIN public.specimen_flat_v1 AS specimen
-    ON specimen.id = observation.specimen_id;
+FROM per_observation AS f
+LEFT JOIN (
+    SELECT DISTINCT id, received_at FROM public.specimen_flat
+) AS s
+    ON s.id = f.specimen_id;
 
 COMMENT ON VIEW analytics.lab_result_fact_v1 IS
-    'Demo-only laboratory result fact at exactly one row per FHIR Observation; the Specimen join is one-to-one by resource key.';
+    'Exactly one row per FHIR Observation, with at most one Specimen matched by resource key. Built over the lossless default projections: the per-coding cross product is collapsed per observation and the LOINC coding pivoted into the test_* columns.';
+
+COMMENT ON COLUMN analytics.lab_result_fact_v1.observation_id IS
+    'FHIR Observation resource identifier and stable row identity for the laboratory result.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.patient_id IS
+    'FHIR Patient resource identifier referenced by the observation.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.service_request_id IS
+    'FHIR ServiceRequest resource identifier referenced by the observation.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.specimen_id IS
+    'FHIR Specimen resource identifier referenced by the observation.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.result_status IS
+    'FHIR Observation status for the laboratory result.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.observed_at IS
+    'FHIR Observation effective date and time used to place the result clinically.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.issued_at IS
+    'FHIR Observation issued instant.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.test_code_system IS
+    'Coding-system URI associated with the observation test code.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.test_code IS
+    'OpenELIS/FHIR test code for the observation.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.test_name IS
+    'OpenELIS test display name. A question naming an analyte must constrain this field rather than assume the view contains only that analyte.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.result_value IS
+    'Numeric FHIR Quantity value; do not aggregate across unlike units.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.result_unit IS
+    'FHIR Quantity display unit.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.result_unit_system IS
+    'Coding-system URI associated with the FHIR Quantity unit.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.result_unit_code IS
+    'Machine-readable FHIR Quantity unit code.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.specimen_received_at IS
+    'FHIR Specimen received date and time when a matching specimen is available.';
+COMMENT ON COLUMN analytics.lab_result_fact_v1.receipt_to_release_minutes IS
+    'Elapsed minutes from Specimen.receivedTime to Observation.issued.';
 
 GRANT USAGE ON SCHEMA analytics TO catalyst_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO catalyst_readonly;

@@ -1,6 +1,7 @@
 {
   "resourceType": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/ViewDefinition",
-  "name": "service_request_flat_v1",
+  "text": "Gap-fill for the upstream default set (which ships no ServiceRequest view); the curated public.service_request_flat_v1 compatibility view collapses this to one row per request.",
+  "name": "service_request_flat",
   "status": "active",
   "resource": "ServiceRequest",
   "fhirVersion": [
@@ -33,18 +34,23 @@
           "path": "authoredOn",
           "name": "authored_at",
           "type": "dateTime"
+        }
+      ]
+    },
+    {
+      "forEachOrNull": "code.coding",
+      "column": [
+        {
+          "path": "code",
+          "name": "code_code"
         },
         {
-          "path": "code.coding.first().system",
-          "name": "test_code_system"
+          "path": "system",
+          "name": "code_sys"
         },
         {
-          "path": "code.coding.first().code",
-          "name": "test_code"
-        },
-        {
-          "path": "code.coding.first().display",
-          "name": "test_name"
+          "path": "display",
+          "name": "code_display"
         }
       ]
     }
