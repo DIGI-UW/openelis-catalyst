@@ -6,7 +6,9 @@ import { expect, test } from "@playwright/test";
 // query to that source's schema — proving per-turn source targeting,
 // per-source catalogs, and execution routing against the real stack
 // (gateway, Med-Agent Hub, real writer/reviewer models, both analytics
-// databases). Run with:
+// databases). This is a manual/demo verification script, not CI coverage: it
+// skips unless PLAYWRIGHT_LIVE=true, requires the live stack up, and is not
+// run by the default test suite. Run with:
 //   PLAYWRIGHT_LIVE=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:13000 \
 //     npx playwright test e2e/two-source-demo.spec.ts --project=demo-video
 test.setTimeout(1_200_000);

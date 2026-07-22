@@ -1854,6 +1854,9 @@ class CatalystService:
         return self._execution_response(self.store.poll(preview_id, idempotency_key))
 
     async def readiness(self) -> dict[str, Any]:
+        # Scoped to the default data source only; per-source readiness across
+        # the full registry is future work (tracked in the 008 amendment),
+        # not a gap in this check.
         hub_result, analytics_result = await asyncio.gather(
             self.hub.readiness(),
             self.analytics.readiness(),

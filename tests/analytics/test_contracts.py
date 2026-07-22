@@ -246,6 +246,11 @@ class SeedContractTests(unittest.TestCase):
 
 
 class SemanticContractTests(unittest.TestCase):
+    """Text-shape assertions on the SQL/catalog files only (regex/string
+    checks, no execution). Real SQL semantics — GROUP BY collapse, FILTER
+    pivots, join cardinality — are guarded by
+    tests/analytics/test_fact_view_semantics.py against a live PostgreSQL."""
+
     @classmethod
     def setUpClass(cls):
         cls.sql = (ANALYTICS / "sql/001_analytics_v1.sql").read_text()
