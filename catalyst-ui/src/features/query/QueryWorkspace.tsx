@@ -866,7 +866,7 @@ export const QueryWorkspace = ({
       className={`app-shell${hasQueryDock ? " app-shell--with-query-dock" : ""}`}
     >
       <div className="app-shell__intro">
-        <p className="product-mark">OpenELIS Global / Catalyst</p>
+        <p className="product-mark">Catalyst</p>
         <p>Governed query review and typed table results</p>
       </div>
 
