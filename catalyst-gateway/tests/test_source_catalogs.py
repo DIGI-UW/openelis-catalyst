@@ -67,9 +67,7 @@ def test_overlay_and_generated_catalog_agree(catalog_path: Path, request) -> Non
     someone regenerated one side without the other."""
     import json
 
-    overlay = json.loads(
-        OVERLAY_FOR_CATALOG[request.node.callspec.id].read_text()
-    )
+    overlay = json.loads(OVERLAY_FOR_CATALOG[request.node.callspec.id].read_text())
     generated = json.loads(catalog_path.read_text())
     assert overlay["catalogVersion"] == generated["catalogVersion"]
     assert overlay["dataSource"] == generated["dataSource"]

@@ -310,15 +310,11 @@ def test_dataset_and_editor_catalog_http_params_route_to_bundle(
             body = await super().dataset_overview()
             return {**body, "dataSource": "openmrs-hiv-demo"}
 
-    client, _, _, _ = _two_source_client(
-        tmp_path, analytics_b=HivOverviewAnalytics()
-    )
+    client, _, _, _ = _two_source_client(tmp_path, analytics_b=HivOverviewAnalytics())
 
     assert client.get("/v1/catalyst/dataset").json()["dataSource"] == "openelis-demo"
     assert (
-        client.get("/v1/catalyst/dataset?dataSourceId=openmrs-hiv").json()[
-            "dataSource"
-        ]
+        client.get("/v1/catalyst/dataset?dataSourceId=openmrs-hiv").json()["dataSource"]
         == "openmrs-hiv-demo"
     )
 
