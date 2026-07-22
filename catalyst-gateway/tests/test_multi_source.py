@@ -1,4 +1,10 @@
-"""Two-source routing: turns target a data source; switching mid-session works."""
+"""Two-source routing: turns target a data source; switching mid-session works.
+
+These tests exercise the registry/routing layer with in-memory fakes: they
+prove requests reach the right bundle, not that either source's SQL or schema
+discovery is correct. SQL semantics are guarded by tests/analytics/ (real
+Postgres); the live two-source flow by catalyst-ui/e2e/two-source-demo.spec.ts.
+"""
 
 from __future__ import annotations
 
@@ -35,6 +41,43 @@ class CountingAnalytics(FakeAnalytics):
         return await super().execute_manual(**kwargs)
 
 
+class DriftingHivAnalytics(CountingAnalytics):
+    """HIV adapter whose discovered schema can drift between turns."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.drifted = False
+
+    async def discover_relations(self) -> list[dict]:
+        fields = [
+            {
+                "name": "cd4_count",
+                "type": "number",
+                "databaseType": "numeric",
+                "description": "CD4 cells/uL",
+                "nullable": True,
+            }
+        ]
+        if self.drifted:
+            fields.append(
+                {
+                    "name": "regimen_line",
+                    "type": "string",
+                    "databaseType": "text",
+                    "description": "A newly discovered column",
+                    "nullable": True,
+                }
+            )
+        return [
+            {
+                "name": "analytics.hiv_visit_fact",
+                "relationType": "view",
+                "grain": "one row per encounter",
+                "fields": fields,
+            }
+        ]
+
+
 def _hiv_catalog() -> Catalog:
     return Catalog(
         data_source="openmrs-hiv-demo",
@@ -50,7 +93,7 @@ def _hiv_catalog() -> Catalog:
                 "fields": [
                     {
                         "name": "cd4_count",
-                        "type": "number",
+                        "type": "decimal",
                         "description": "CD4 cells/uL",
                     },
                     {
@@ -67,10 +110,11 @@ def _hiv_catalog() -> Catalog:
 
 def _two_source_client(
     tmp_path: Path,
+    analytics_b: CountingAnalytics | None = None,
 ) -> tuple[TestClient, FakeHub, CountingAnalytics, CountingAnalytics]:
     database = tmp_path / "gateway.sqlite3"
     analytics_a = CountingAnalytics()
-    analytics_b = CountingAnalytics()
+    analytics_b = analytics_b or CountingAnalytics()
     catalog_a = _catalog()
     hub = FakeHub(_ready_query())
     bundles = (
@@ -215,11 +259,26 @@ def test_followup_switches_source_mid_session(tmp_path: Path) -> None:
     assert "analytics.hiv_visit_fact" in followup_request
     assert current["sql"] in followup_request
 
-    # A third turn with no dataSourceId inherits the switched source.
     timeline = client.get(
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
     ).json()
     assert timeline["turns"][-1]["dataSourceId"] == "openmrs-hiv"
+
+    # A REAL third turn with no dataSourceId inherits the switched source:
+    # its generation request goes to the HIV catalog, not the session default.
+    switched = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    response = _post_turn(
+        client,
+        session["sessionId"],
+        switched["currentVersion"],
+        "Now filter to the last 90 days",
+    )
+    assert response.status_code == 201, response.text
+    third_request = json.dumps(hub.requests[-1])
+    assert "openmrs-hiv-demo" in third_request
+    assert "openelis-demo" not in third_request
 
 
 def test_session_reload_reports_current_source_after_switch(tmp_path: Path) -> None:
@@ -241,6 +300,80 @@ def test_session_reload_reports_current_source_after_switch(tmp_path: Path) -> N
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
     ).json()
     assert reloaded["dataSourceId"] == "openmrs-hiv"
+
+
+def test_dataset_and_editor_catalog_http_params_route_to_bundle(
+    tmp_path: Path,
+) -> None:
+    """?dataSourceId= on the GET endpoints selects the bundle end to end."""
+
+    class HivOverviewAnalytics(CountingAnalytics):
+        async def dataset_overview(self) -> dict:
+            body = await super().dataset_overview()
+            return {**body, "dataSource": "openmrs-hiv-demo"}
+
+    client, _, _, _ = _two_source_client(
+        tmp_path, analytics_b=HivOverviewAnalytics()
+    )
+
+    assert client.get("/v1/catalyst/dataset").json()["dataSource"] == "openelis-demo"
+    assert (
+        client.get("/v1/catalyst/dataset?dataSourceId=openmrs-hiv").json()[
+            "dataSource"
+        ]
+        == "openmrs-hiv-demo"
+    )
+
+    default_catalog = client.get("/v1/catalyst/workbench/catalog").json()
+    hiv_catalog = client.get(
+        "/v1/catalyst/workbench/catalog?dataSourceId=openmrs-hiv"
+    ).json()
+    assert default_catalog["catalogVersion"] == "2026.07"
+    assert hiv_catalog["catalogVersion"] == "2026.07-hiv"
+
+    unknown = client.get("/v1/catalyst/dataset?dataSourceId=does-not-exist")
+    assert unknown.status_code == 400
+    assert unknown.json()["error"]["code"] == "unknown_data_source"
+
+
+def test_switched_source_staleness_judged_against_its_own_baseline(
+    tmp_path: Path,
+) -> None:
+    """Catalog drift on the SWITCHED source trips the conflict, and the 409
+    reports that source's baseline — not the initial source's."""
+    drifting = DriftingHivAnalytics()
+    client, _, _, _ = _two_source_client(tmp_path, analytics_b=drifting)
+    session = _create_session(client)  # starts on openelis
+
+    response = _post_turn(
+        client,
+        session["sessionId"],
+        session["currentVersion"],
+        "Adapt this query to the HIV data source",
+        dataSourceId="openmrs-hiv",
+    )
+    assert response.status_code == 201, response.text
+    turns = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"]
+    hiv_baseline = turns[-1]["catalogVersion"]
+    assert hiv_baseline != session["catalogVersion"]
+
+    drifting.drifted = True
+    switched = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    conflicted = _post_turn(
+        client,
+        session["sessionId"],
+        switched["currentVersion"],
+        "Now filter to the last 90 days",
+    )
+    assert conflicted.status_code == 409, conflicted.text
+    error = conflicted.json()["error"]
+    assert error["code"] == "stale_catalog_version"
+    assert error["details"]["sessionCatalogVersion"] == hiv_baseline
+    assert error["details"]["runtimeCatalogVersion"] != hiv_baseline
 
 
 def test_execution_routes_to_version_source_adapter(tmp_path: Path) -> None:
