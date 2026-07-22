@@ -1,0 +1,52 @@
+"""Gateway boot config: the data-source registry env contract."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from src.config import load_config
+
+
+def test_registry_file_registers_extra_sources(monkeypatch, tmp_path: Path) -> None:
+    registry = tmp_path / "data-sources.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "dataSources": [
+                    {
+                        "id": "openmrs-hiv",
+                        "label": "OpenMRS HIV/ART program",
+                        "analyticsDsn": "postgresql://u:p@localhost:5/hiv",
+                        "catalogPath": str(tmp_path / "openmrs-hiv-catalog.json"),
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setenv("CATALYST_DATA_SOURCES_PATH", str(registry))
+    config = load_config()
+    assert [s.source_id for s in config.data_sources] == ["openelis", "openmrs-hiv"]
+    extra = config.data_sources[1]
+    assert extra.label == "OpenMRS HIV/ART program"
+    assert extra.analytics_dsn == "postgresql://u:p@localhost:5/hiv"
+    assert extra.catalog_path.endswith("openmrs-hiv-catalog.json")
+
+
+def test_unset_registry_path_yields_default_source_only(monkeypatch) -> None:
+    monkeypatch.delenv("CATALYST_DATA_SOURCES_PATH", raising=False)
+    config = load_config()
+    assert [s.source_id for s in config.data_sources] == ["openelis"]
+    assert config.default_data_source_id == "openelis"
+
+
+def test_set_but_missing_registry_path_fails_boot(monkeypatch, tmp_path: Path) -> None:
+    """A configured-but-absent registry is an operator error, not a silent
+    fallback to single-source mode (which would hide a broken deployment)."""
+    monkeypatch.setenv(
+        "CATALYST_DATA_SOURCES_PATH", str(tmp_path / "does-not-exist.json")
+    )
+    with pytest.raises(FileNotFoundError, match="CATALYST_DATA_SOURCES_PATH"):
+        load_config()

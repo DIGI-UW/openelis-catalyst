@@ -41,11 +41,17 @@ def _load_extra_data_sources() -> tuple[DataSourceConfig, ...]:
     """Additional data sources registered via CATALYST_DATA_SOURCES_PATH (JSON).
 
     Shape: {"dataSources": [{"id", "label", "analyticsDsn", "catalogPath"}, ...]}.
-    Absent/empty file => no extra sources (single-source back-compat).
+    Unset env => no extra sources (single-source back-compat). A path that is
+    set but points at nothing is an operator error and fails boot loudly.
     """
     path = os.getenv("CATALYST_DATA_SOURCES_PATH")
-    if not path or not Path(path).is_file():
+    if not path:
         return ()
+    if not Path(path).is_file():
+        raise FileNotFoundError(
+            f"CATALYST_DATA_SOURCES_PATH is set to {path!r} but no such file "
+            "exists; fix the path or unset the variable."
+        )
     raw = json.loads(Path(path).read_text())
     extras: list[DataSourceConfig] = []
     for entry in raw.get("dataSources", []):
