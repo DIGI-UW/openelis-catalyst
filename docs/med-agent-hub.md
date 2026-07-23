@@ -48,7 +48,7 @@ product dependencies.
 
 | Configuration | Default | Availability |
 | --- | --- | --- |
-| Default query/revision profile | `catalyst-query-gemma-4-12b` | Gemma 4 12B writer + Qwen 2.5 14B reviewer; shipped in the pinned Hub commit |
+| Default query/revision profile | `catalyst-query-gemma-4-12b-coder` | Gemma 4 12B writer + Qwen 2.5 Coder 1.5B reviewer; shipped in the pinned Hub commit |
 | Fast initial-query baseline | `catalyst-query-gemma-e4b` | Shipped in the pinned Hub commit; not revision capable |
 | Fast report profile | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 |
 | Deep report profile | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 |

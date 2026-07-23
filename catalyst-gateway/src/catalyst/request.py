@@ -5,7 +5,7 @@ from typing import Any
 from .catalog import Catalog
 
 
-QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b"
+QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b-coder"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 

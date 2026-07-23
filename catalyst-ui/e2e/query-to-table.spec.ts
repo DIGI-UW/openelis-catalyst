@@ -20,7 +20,7 @@ const followupTurnId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
 const queryDigest = "a".repeat(64);
 const manualQueryDigest = "1".repeat(64);
 const successorQueryDigest = "2".repeat(64);
-const profileId = "catalyst-query-gemma-4-12b";
+const profileId = "catalyst-query-gemma-4-12b-coder";
 const revisionProfileId = "catalyst-query-gemma-qwen-split";
 const sql = [
   "SELECT patient_id, result_value, observed_at",

@@ -102,8 +102,8 @@ cp env.recommended .env
 
 The recommended configuration connects the containerized Hub to the existing
 host llama.cpp router at `http://host.docker.internal:8077` and selects the
-revision-capable `catalyst-query-gemma-4-12b` profile: Gemma 4 12B writes and
-Qwen 2.5 14B reviews. Both exact model IDs must be served.
+revision-capable `catalyst-query-gemma-4-12b-coder` profile: Gemma 4 12B writes
+and Qwen 2.5 Coder 1.5B reviews. Both exact model IDs must be served.
 Open the sidecar at `http://localhost:3000`.
 
 To use a different OpenAI-compatible server, set its root without a trailing

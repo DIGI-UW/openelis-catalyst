@@ -189,10 +189,10 @@ class MvpComposeContractTests(unittest.TestCase):
             "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
         )
         self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-4-12b", self.env)
-        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b", self.env)
+        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b-coder", self.env)
         self.assertIn(
             "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='"
-            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
+            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-coder-1.5b-instruct-q4_k_m"}'
             "'",
             self.env,
         )
@@ -377,20 +377,20 @@ class MvpScriptContractTests(unittest.TestCase):
         expected = {
             "external": {
                 "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b",
+                "profileId": "catalyst-query-gemma-4-12b-coder",
                 "routerUrl": "http://host.docker.internal:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-14b",
+                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
                 },
             },
             "fake": {
                 "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b",
+                "profileId": "catalyst-query-gemma-4-12b-coder",
                 "routerUrl": "http://model-router-fake:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-14b",
+                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
                 },
             },
             "local": {

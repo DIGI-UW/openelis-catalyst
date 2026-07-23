@@ -193,7 +193,7 @@ const unresolvedRawOutput = JSON.stringify({
 const unresolvedRawSession = {
   ...workbenchSession,
   sessionId: "902bd844-e8f1-403d-90ee-8fccd9417f99",
-  profileId: "catalyst-query-gemma-4-12b",
+  profileId: "catalyst-query-gemma-4-12b-coder",
   currentVersionId: null,
   provenance: {
     ...workbenchSession.provenance,
@@ -227,10 +227,10 @@ const unresolvedRawSession = {
 
 const notebookQueryOptions = {
   ...queryOptions,
-  defaultProfileId: "catalyst-query-gemma-4-12b",
+  defaultProfileId: "catalyst-query-gemma-4-12b-coder",
   profiles: [
     {
-      id: "catalyst-query-gemma-4-12b",
+      id: "catalyst-query-gemma-4-12b-coder",
       label: "Gemma writer + Qwen reviewer",
       available: true,
       revisionCapable: true,
@@ -251,11 +251,11 @@ const notebookQueryOptions = {
 
 const notebookSession = {
   ...workbenchSession,
-  profileId: "catalyst-query-gemma-4-12b",
+  profileId: "catalyst-query-gemma-4-12b-coder",
   provenance: {
     ...workbenchSession.provenance,
     profileSnapshot: {
-      profileId: "catalyst-query-gemma-4-12b",
+      profileId: "catalyst-query-gemma-4-12b-coder",
       roleModels: {
         query_generate: "gemma-4-12b",
         query_review: "qwen2.5-14b",
@@ -265,7 +265,7 @@ const notebookSession = {
 } satisfies WorkbenchSession;
 
 const notebookProfileSnapshot = {
-  profileId: "catalyst-query-gemma-4-12b",
+  profileId: "catalyst-query-gemma-4-12b-coder",
   profileName: "Gemma writer + Qwen reviewer",
   profileDigest: "d".repeat(64),
   writer: { modelId: "gemma-4-12b" },
@@ -801,7 +801,7 @@ describe("Catalyst query workflow", () => {
     expect(request).toEqual({
       contractVersion: "catalyst.workbench.turn.request.v1",
       instruction: "Only include released results",
-      profileId: "catalyst-query-gemma-4-12b",
+      profileId: "catalyst-query-gemma-4-12b-coder",
       observedBase: {
         versionId: workbenchVersion.versionId,
         queryDigest: workbenchVersion.queryDigest,
@@ -1023,7 +1023,7 @@ describe("Catalyst query workflow", () => {
   it("sends a nonempty unresolved buffer for correction without first saving it as a version", async () => {
     const unresolvedNotebookSession = {
       ...unresolvedRawSession,
-      profileId: "catalyst-query-gemma-4-12b",
+      profileId: "catalyst-query-gemma-4-12b-coder",
     } satisfies WorkbenchSession;
     const unresolvedTimeline = {
       ...notebookTimeline,
@@ -1153,7 +1153,7 @@ describe("Catalyst query workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate query" }));
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       "Count creatinine results",
-      "catalyst-query-gemma-4-12b",
+      "catalyst-query-gemma-4-12b-coder",
       undefined,
       undefined,
     );
@@ -1196,7 +1196,7 @@ describe("Catalyst query workflow", () => {
       name: "Model profile",
     });
     await waitFor(() =>
-      expect(profileSelector).toHaveValue("catalyst-query-gemma-4-12b"),
+      expect(profileSelector).toHaveValue("catalyst-query-gemma-4-12b-coder"),
     );
     expect(
       within(profileSelector).queryByRole("option", {
@@ -1214,7 +1214,7 @@ describe("Catalyst query workflow", () => {
 
     await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
     expect(vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1].profileId).toBe(
-      "catalyst-query-gemma-4-12b",
+      "catalyst-query-gemma-4-12b-coder",
     );
     expect(screen.getByText("Legacy same-family profile")).toBeVisible();
   });
@@ -1726,7 +1726,7 @@ describe("Catalyst query workflow", () => {
     await waitFor(() => expect(api.createWorkbenchSession).toHaveBeenCalledOnce());
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       QUESTION,
-      "catalyst-query-gemma-4-12b",
+      "catalyst-query-gemma-4-12b-coder",
       undefined,
       "openmrs-hiv",
     );

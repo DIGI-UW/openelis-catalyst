@@ -12,10 +12,10 @@ mvp_resolve_model_config() {
     fake)
       router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"
       model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_FAKE_MODEL_ID:-gemma-4-12b}}"
-      profile_id="${MVP_PROFILE_ID:-${MVP_FAKE_PROFILE_ID:-catalyst-query-gemma-4-12b}}"
+      profile_id="${MVP_PROFILE_ID:-${MVP_FAKE_PROFILE_ID:-catalyst-query-gemma-4-12b-coder}}"
       mode_role_models_json="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
       if [ -z "${mode_role_models_json}" ]; then
-        mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
+        mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-coder-1.5b-instruct-q4_k_m"}'
       fi
       ;;
     local)
@@ -27,10 +27,10 @@ mvp_resolve_model_config() {
     external)
       router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
       model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_EXTERNAL_MODEL_ID:-gemma-4-12b}}"
-      profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-4-12b}}"
+      profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-4-12b-coder}}"
       mode_role_models_json="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
       if [ -z "${mode_role_models_json}" ]; then
-        mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
+        mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-coder-1.5b-instruct-q4_k_m"}'
       fi
       ;;
     *)

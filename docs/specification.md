@@ -249,9 +249,12 @@ The demo configuration must point med-agent-hub at the local model router.
 
 | Profile | Status | Purpose |
 | --- | --- | --- |
-| `catalyst-query-gemma-e4b` | Implemented by the pinned Hub commit | Fast single-family baseline for initial queries |
+| `catalyst-query-gemma-e4b` | Implemented by the pinned Hub commit | Fast single-family baseline for initial queries (self-checked) |
+| `catalyst-query-gemma-e4b-coder` | Implemented by the pinned Hub commit | Revision-capable Gemma 4 E4B writer with Qwen 2.5 Coder 1.5B reviewer |
+| `catalyst-query-gemma-4-12b-coder` | Implemented by the pinned Hub commit | **Default query profile.** Revision-capable Gemma 4 12B writer with Qwen 2.5 Coder 1.5B reviewer |
+| `catalyst-query-gemma-4-12b-checked` | Implemented by the pinned Hub commit | Gemma 4 12B checked baseline (self-checked, no cross-model reviewer) |
 | `catalyst-query-gemma-4-12b` | Implemented by the pinned Hub commit | Revision-capable Gemma 4 12B writer with Qwen 2.5 14B reviewer |
-| `catalyst-query-checked` | Implemented by the pinned Hub commit | Qwen 2.5 14B checked baseline |
+| `catalyst-query-checked` | Implemented by the pinned Hub commit | Qwen 2.5 14B checked baseline (self-checked, no cross-model reviewer) |
 | `single-e4b-checked` | Shipped in hub; Catalyst integration planned in R4 | Default fast, checked narrative report |
 | `team-med-checked` | Shipped in hub; Catalyst integration planned in R4 | Optional deeper team-based report and later evaluation candidate |
 
