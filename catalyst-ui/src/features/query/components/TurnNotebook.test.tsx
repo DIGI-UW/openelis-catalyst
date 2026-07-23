@@ -8,7 +8,7 @@ type RevisionProfile = QueryProfile & { revisionCapable: boolean };
 
 const profiles: RevisionProfile[] = [
   {
-    id: "catalyst-query-gemma-4-12b-coder",
+    id: "catalyst-query-gemma-4-12b",
     label: "Gemma writer + Qwen reviewer",
     available: true,
     revisionCapable: true,

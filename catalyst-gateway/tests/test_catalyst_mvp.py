@@ -112,7 +112,7 @@ def ready_query(question: str = "Count tests since July 1") -> dict:
             "checks": [{"name": "review", "status": "passed"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-coder",
+            "profileId": "catalyst-query-gemma-4-12b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -130,7 +130,7 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
             "checks": [{"name": "scope", "status": "warned"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-coder",
+            "profileId": "catalyst-query-gemma-4-12b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -203,7 +203,7 @@ class FakeHub:
             raise self.error
         return [
             {
-                "id": "catalyst-query-gemma-4-12b-coder",
+                "id": "catalyst-query-gemma-4-12b",
                 "label": "Catalyst governed query — Gemma 4 12B",
                 "available": self.error is None,
                 "required_models": ["gemma-4-12b"],
@@ -371,7 +371,7 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
                 ],
                 "validation": {"status": "passed", "checks": []},
                 "provenance": {
-                    "profileId": "catalyst-query-gemma-4-12b-coder",
+                    "profileId": "catalyst-query-gemma-4-12b",
                     "traceId": "hub-runtime-schema",
                     "contextSourceIds": [context_id],
                 },
@@ -603,7 +603,7 @@ def test_loads_and_checks_all_normative_schemas():
             {
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-4-12b-coder",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": False,
                         "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                     }
@@ -615,7 +615,7 @@ def test_loads_and_checks_all_normative_schemas():
             {
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-4-12b-coder",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": True,
                         "capabilities": {"outputContracts": ["other.v1"]},
                     }
@@ -652,7 +652,7 @@ async def test_hub_discovery_and_completion_are_strict():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-4-12b-coder",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {
                                 "outputContracts": ["catalyst.query.v1"],
@@ -668,7 +668,7 @@ async def test_hub_discovery_and_completion_are_strict():
             json={
                 "id": "completion-1",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-coder",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -700,7 +700,7 @@ async def test_hub_discovery_and_completion_are_strict():
     evidence = result.pop("_hubEvidence")
     assert result == query
     assert json.loads(evidence["exactHubResponse"])["id"] == "completion-1"
-    assert sent["model"] == "catalyst-query-gemma-4-12b-coder"
+    assert sent["model"] == "catalyst-query-gemma-4-12b"
     assert sent["stream"] is False
     assert sent["catalystQuery"]["requiredOutputContract"] == "catalyst.query.v1"
     assert "dsn" not in json.dumps(sent).lower()
@@ -711,8 +711,8 @@ async def test_hub_discovery_and_completion_are_strict():
 @pytest.mark.parametrize(
     ("completion_model", "query_profile"),
     [
-        ("catalyst-query-other", "catalyst-query-gemma-4-12b-coder"),
-        ("catalyst-query-gemma-4-12b-coder", "catalyst-query-other"),
+        ("catalyst-query-other", "catalyst-query-gemma-4-12b"),
+        ("catalyst-query-gemma-4-12b", "catalyst-query-other"),
     ],
 )
 async def test_hub_completion_and_query_are_bound_to_requested_profile(
@@ -729,7 +729,7 @@ async def test_hub_completion_and_query_are_bound_to_requested_profile(
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-4-12b-coder",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -786,7 +786,7 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
             json={
                 "data": [
                     {
-                        "id": "catalyst-query-gemma-4-12b-coder",
+                        "id": "catalyst-query-gemma-4-12b",
                         "available": False,
                         "outputContracts": ["catalyst.query.v1"],
                     },
@@ -811,7 +811,7 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
             "ready": False,
             "message": (
                 "Hub does not advertise available profile "
-                "catalyst-query-gemma-4-12b-coder."
+                "catalyst-query-gemma-4-12b."
             ),
         },
         "modelRouter": {"ready": False},
@@ -836,7 +836,7 @@ async def test_hub_readiness_requires_the_default_gemma_profile():
             {
                 "id": "x",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-coder",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -860,7 +860,7 @@ async def test_hub_rejects_invalid_completion(response: dict, code: str):
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-4-12b-coder",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -899,7 +899,7 @@ async def test_hub_invalid_completion_preserves_raw_model_output():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-4-12b-coder",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -911,7 +911,7 @@ async def test_hub_invalid_completion_preserves_raw_model_output():
             json={
                 "id": "completion-raw",
                 "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-coder",
+                "model": "catalyst-query-gemma-4-12b",
                 "choices": [
                     {
                         "index": 0,
@@ -955,7 +955,7 @@ async def test_hub_non_json_completion_preserves_raw_response_text():
                 json={
                     "data": [
                         {
-                            "id": "catalyst-query-gemma-4-12b-coder",
+                            "id": "catalyst-query-gemma-4-12b",
                             "available": True,
                             "capabilities": {"outputContracts": ["catalyst.query.v1"]},
                         }
@@ -1676,7 +1676,7 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
     assert preview["question"] == question
     assert preview["reasoningTrace"] == {
         "traceId": "hub-trace-1",
-        "profileId": "catalyst-query-gemma-4-12b-coder",
+        "profileId": "catalyst-query-gemma-4-12b",
         "status": "passed",
         "stages": [
             "context",

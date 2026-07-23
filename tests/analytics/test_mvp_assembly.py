@@ -60,7 +60,7 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertNotIn('"patch"', self.health_script)
         self.assertNotIn("git apply", self.hub_bootstrap)
         self.assertIn(
-            "f00f82d796ba3e3ea5a049b55e4be32867b0dbb8",
+            "c4368339de9cd76c4e569656d1ad8db1847dd7ad",
             self.hub_bootstrap,
         )
         self.assertFalse(
@@ -189,10 +189,10 @@ class MvpComposeContractTests(unittest.TestCase):
             "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
         )
         self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-4-12b", self.env)
-        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b-coder", self.env)
+        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b", self.env)
         self.assertIn(
             "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='"
-            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-coder-1.5b-instruct-q4_k_m"}'
+            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
             "'",
             self.env,
         )
@@ -377,20 +377,20 @@ class MvpScriptContractTests(unittest.TestCase):
         expected = {
             "external": {
                 "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b-coder",
+                "profileId": "catalyst-query-gemma-4-12b",
                 "routerUrl": "http://host.docker.internal:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                    "query_review": "qwen2.5-14b",
                 },
             },
             "fake": {
                 "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b-coder",
+                "profileId": "catalyst-query-gemma-4-12b",
                 "routerUrl": "http://model-router-fake:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                    "query_review": "qwen2.5-14b",
                 },
             },
             "local": {
