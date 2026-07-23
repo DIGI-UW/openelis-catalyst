@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ROOT_DIR}/.med-agent-hub"
 HUB_REPO="${MED_AGENT_HUB_REPO:-https://github.com/pmanko/med-agent-hub.git}"
-HUB_REF="${MED_AGENT_HUB_REF:-1432e72346b77303fd6e339583e84f325cbf212a}"
+HUB_REF="${MED_AGENT_HUB_REF:-a2590fd0935a7689c9095cc6652b35fc8f4c7f81}"
 
 if [ -d "${TARGET_DIR}/.git" ]; then
   echo "med-agent-hub checkout already exists at ${TARGET_DIR}"
