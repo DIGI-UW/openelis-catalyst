@@ -2452,6 +2452,10 @@ class CatalystService:
             return f"{role}_transport", f"{role}_timeout"
         if outcome == "cancelled":
             return f"{role}_transport", f"{role}_cancelled"
+        if outcome == "succeeded":
+            # The model call itself worked; the turn still failed because the
+            # decision was a rejection, not because of a transport problem.
+            return f"{role}_decision", f"{role}_rejected"
         return f"{role}_transport", f"{role}_transport_failed"
 
     @staticmethod

@@ -815,3 +815,25 @@ def test_legacy_projection_is_stable_schema_valid_and_never_invents_provenance(
     registry.validate("catalyst-workbench-turn-v1.schema.json", turn)
     registry.validate("catalyst-workbench-generation-evidence-v1.schema.json", evidence)
     store.close()
+
+
+@pytest.mark.parametrize("reviewer", [True, False])
+def test_model_failure_stage_distinguishes_a_succeeded_rejection_from_transport(
+    reviewer: bool,
+) -> None:
+    from src.catalyst.service import CatalystService
+
+    role = "reviewer" if reviewer else "writer"
+    succeeded_evidence = {"modelInvocations": [{"role": role, "outcome": "succeeded"}]}
+    stage, code = CatalystService._model_failure_stage(
+        succeeded_evidence, reviewer=reviewer
+    )
+    assert (stage, code) == (f"{role}_decision", f"{role}_rejected")
+
+    transport_evidence = {
+        "modelInvocations": [{"role": role, "outcome": "transport_failed"}]
+    }
+    stage, code = CatalystService._model_failure_stage(
+        transport_evidence, reviewer=reviewer
+    )
+    assert (stage, code) == (f"{role}_transport", f"{role}_transport_failed")
