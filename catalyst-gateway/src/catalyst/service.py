@@ -2390,12 +2390,12 @@ class CatalystService:
             "writer": compact_role(exact["writer"]),
             "omissions": [],
         }
-        # Writer-only profiles omit the reviewer; record that in omissions so the
-        # snapshot stays contract-valid without inventing a reviewer leg.
+        # Writer-only profiles simply omit the reviewer leg. Recorded turns must
+        # keep omissions empty (that field is only for legacy-loaded turns), and
+        # the profileSnapshot no longer requires a reviewer, so an absent reviewer
+        # with empty omissions is contract-valid.
         if "reviewer" in exact:
             snapshot["reviewer"] = compact_role(exact["reviewer"])
-        else:
-            snapshot["omissions"] = ["reviewer"]
         snapshot["profileDigest"] = canonical_sha256(
             {key: value for key, value in snapshot.items() if key != "profileDigest"}
         )

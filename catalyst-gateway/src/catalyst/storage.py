@@ -2702,13 +2702,15 @@ class WorkbenchStore:
         detail = None
         if isinstance(profile_evidence, dict):
             writer = profile_evidence.get("writer")
-            reviewer = profile_evidence.get("reviewer")
-            if isinstance(writer, dict) and isinstance(reviewer, dict):
+            if isinstance(writer, dict):
+                # Writer is always present; reviewer only for reviewed profiles.
                 detail = {
                     "profileName": str(profile_evidence.get("profileName")),
                     "writer": writer,
-                    "reviewer": reviewer,
                 }
+                reviewer = profile_evidence.get("reviewer")
+                if isinstance(reviewer, dict):
+                    detail["reviewer"] = reviewer
         digest = profile.get("profileDigest")
         if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
             digest = canonical_sha256(
@@ -2729,16 +2731,17 @@ class WorkbenchStore:
         compact_digest: str,
     ) -> dict[str, Any]:
         writer = profile.get("writer")
-        reviewer = profile.get("reviewer")
         detail = None
-        if isinstance(writer, dict) and isinstance(reviewer, dict):
+        if isinstance(writer, dict):
             detail = {
                 "profileName": str(
                     profile.get("profileName") or profile.get("profileId")
                 ),
                 "writer": writer,
-                "reviewer": reviewer,
             }
+            reviewer = profile.get("reviewer")
+            if isinstance(reviewer, dict):
+                detail["reviewer"] = reviewer
         return {
             "profileId": str(profile.get("profileId") or "unknown-profile"),
             "profileRef": str(
