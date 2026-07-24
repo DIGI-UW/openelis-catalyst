@@ -12,7 +12,10 @@ import pytest
 from src.catalyst import query_engine
 from src.catalyst.hub import HubError
 from src.catalyst.local_hub import LocalHub
-from src.catalyst.query_profiles import PROFILES
+from src.catalyst.query_engine import query_profile_evidence
+from src.catalyst.query_profiles import PROFILES, WRITER_ONLY, WRITER_REVIEWED
+from src.catalyst.service import CatalystService
+from src.catalyst.storage import WorkbenchStore
 
 VIEW_NAME = "analytics.lab_result_fact_v1"
 TARGET = {
@@ -145,6 +148,42 @@ async def test_generate_writer_only_profile_returns_ready_query():
     assert result["status"] == "ready"
     assert result["provenance"]["profileId"] == "catalyst-query-gemma-4-12b-q4"
     assert "reviewer" not in result["_hubEvidence"]["profileEvidence"]
+
+
+def _discovery(profile) -> dict:
+    return {
+        "id": profile.id,
+        "label": profile.label,
+        "profileEvidence": query_profile_evidence(profile),
+    }
+
+
+def test_writer_only_turn_snapshot_omits_reviewer_with_empty_omissions():
+    # Regression: recorded turns must keep omissions empty, and a writer-only
+    # profile has no reviewer leg. (This only failed against the live contract;
+    # the unit suite never drove a writer-only turn through the snapshot builder.)
+    snap = CatalystService._turn_profile_snapshot(_discovery(WRITER_ONLY))
+    assert snap["writer"]["role"] == "writer"
+    assert "reviewer" not in snap
+    assert snap["omissions"] == []
+
+
+def test_reviewed_turn_snapshot_keeps_reviewer():
+    snap = CatalystService._turn_profile_snapshot(_discovery(WRITER_REVIEWED))
+    assert snap["reviewer"]["role"] == "reviewer"
+    assert snap["omissions"] == []
+
+
+def test_writer_only_generation_evidence_detail_has_writer_no_reviewer():
+    # Regression: the generation-evidence profileDetail must be a real object for
+    # recorded turns; writer-only builds it from the writer alone.
+    descriptor = WorkbenchStore._hub_profile_descriptor(
+        query_profile_evidence(WRITER_ONLY), compact_digest="0" * 64
+    )
+    detail = descriptor["detail"]
+    assert isinstance(detail, dict)
+    assert detail["writer"]["role"] == "writer"
+    assert "reviewer" not in detail
 
 
 @pytest.mark.asyncio
