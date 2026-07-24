@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import httpx
 
+from .hub import HubError
 from .query_engine import (
     EngineProfile,
     EngineRequest,
@@ -28,13 +29,6 @@ from .query_profiles import DEFAULT_PROFILE_ID, PROFILES
 
 _QUERY_STAGES = ("context", "query_generate", "query_lint", "query_review", "query_finalize")
 _OUTPUT_CONTRACT = "catalyst.query.v1"
-
-
-class LocalHubError(RuntimeError):
-    def __init__(self, code: str, message: str, *, raw_output: str | None = None) -> None:
-        self.code = code
-        self.raw_output = raw_output
-        super().__init__(message)
 
 
 class LocalHub:
@@ -87,13 +81,13 @@ class LocalHub:
         profile_id = str(request.get("model") or DEFAULT_PROFILE_ID)
         profile = self._profiles.get(profile_id)
         if profile is None:
-            raise LocalHubError(
+            raise HubError(
                 "profile_unavailable",
                 f"Gateway does not define query profile {profile_id}.",
             )
         catalyst_query = request.get("catalystQuery")
         if not isinstance(catalyst_query, dict):
-            raise LocalHubError(
+            raise HubError(
                 "profile_incompatible", "Request is missing its catalystQuery context."
             )
         engine_request = EngineRequest(
@@ -106,7 +100,7 @@ class LocalHub:
             if kind == "result":
                 result = json.loads(payload)
         if result is None:
-            raise LocalHubError(
+            raise HubError(
                 "hub_invalid_response", "Query engine produced no result."
             )
         return result

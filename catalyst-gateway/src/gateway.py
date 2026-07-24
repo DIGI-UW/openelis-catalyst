@@ -7,7 +7,7 @@ from .a2a_client import A2AClient
 from .catalyst.analytics import PostgresAnalyticsAdapter
 from .catalyst.catalog import Catalog
 from .catalyst.contracts import ContractRegistry
-from .catalyst.hub import HubClient
+from .catalyst.local_hub import LocalHub
 from .catalyst.policy import SqlPolicy
 from .catalyst.routes import install_catalyst_routes
 from .catalyst.service import CatalystService, DataSourceBundle
@@ -60,11 +60,10 @@ def _default_catalyst_service() -> CatalystService:
         )
     return CatalystService(
         contracts=contracts,
-        hub=HubClient(
-            config.hub_base_url,
-            contracts,
-            timeout_seconds=config.hub_timeout_seconds,
-        ),
+        # Orchestration now runs in-process (the gateway owns the governed-query
+        # engine); the hub is called only as a generic model executor from inside
+        # the engine. LocalHub implements the same interface the service expects.
+        hub=LocalHub(hub_base_url=config.hub_base_url),
         store=PreviewStore(
             config.preview_store_path,
             execution_lease_seconds=config.execution_lease_seconds,

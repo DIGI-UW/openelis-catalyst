@@ -5,7 +5,9 @@ from typing import Any
 from .catalog import Catalog
 
 
-QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b"
+# Default governed-query profile. Reviewed (self-checked) for now; flips to the
+# writer-only profile once the workbench binding tolerates a missing reviewer.
+QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b-q4-checked"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 

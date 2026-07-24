@@ -10,7 +10,8 @@ import httpx
 import pytest
 
 from src.catalyst import query_engine
-from src.catalyst.local_hub import LocalHub, LocalHubError
+from src.catalyst.hub import HubError
+from src.catalyst.local_hub import LocalHub
 from src.catalyst.query_profiles import PROFILES
 
 VIEW_NAME = "analytics.lab_result_fact_v1"
@@ -149,7 +150,7 @@ async def test_generate_writer_only_profile_returns_ready_query():
 @pytest.mark.asyncio
 async def test_unknown_profile_raises():
     hub = _hub()
-    with pytest.raises(LocalHubError) as excinfo:
+    with pytest.raises(HubError) as excinfo:
         await hub.generate_query(_request("nope"))
     await hub.aclose()
     assert excinfo.value.code == "profile_unavailable"
