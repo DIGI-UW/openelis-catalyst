@@ -431,7 +431,7 @@ class CatalystService:
                     presented_view["relationType"] = relation_type
                 schemas_by_name.setdefault(schema_name, []).append(presented_view)
 
-            body = {
+            body: dict[str, Any] = {
                 "contractVersion": "catalyst.workbench.editor-catalog.v1",
                 "catalogVersion": catalog.catalog_version,
                 "schemaVersion": catalog.schema_version,
@@ -707,7 +707,7 @@ class CatalystService:
             overview = await bundle.analytics.dataset_overview()
         except Exception:
             overview = {}
-        provenance = {
+        provenance: dict[str, Any] = {
             "dataSourceId": bundle.source_id,
             "catalogContextSourceId": runtime_catalog.context_source_id,
             "catalystTraceId": catalyst_trace_id,
@@ -2195,28 +2195,17 @@ class CatalystService:
 
     @staticmethod
     def _profile_snapshot(profile: dict[str, Any]) -> dict[str, Any]:
-        evidence = (
-            profile.get("profileEvidence")
-            if isinstance(profile.get("profileEvidence"), dict)
-            else {}
-        )
-        writer = (
-            evidence.get("writer") if isinstance(evidence.get("writer"), dict) else {}
-        )
-        reviewer = (
-            evidence.get("reviewer")
-            if isinstance(evidence.get("reviewer"), dict)
-            else {}
-        )
-        writer_prompt = (
-            writer.get("systemPrompt")
-            if isinstance(writer.get("systemPrompt"), dict)
-            else {}
-        )
+        raw_evidence = profile.get("profileEvidence")
+        evidence = raw_evidence if isinstance(raw_evidence, dict) else {}
+        raw_writer = evidence.get("writer")
+        writer = raw_writer if isinstance(raw_writer, dict) else {}
+        raw_reviewer = evidence.get("reviewer")
+        reviewer = raw_reviewer if isinstance(raw_reviewer, dict) else {}
+        raw_writer_prompt = writer.get("systemPrompt")
+        writer_prompt = raw_writer_prompt if isinstance(raw_writer_prompt, dict) else {}
+        raw_reviewer_prompt = reviewer.get("systemPrompt")
         reviewer_prompt = (
-            reviewer.get("systemPrompt")
-            if isinstance(reviewer.get("systemPrompt"), dict)
-            else {}
+            raw_reviewer_prompt if isinstance(raw_reviewer_prompt, dict) else {}
         )
         return {
             "profileId": profile.get("id"),

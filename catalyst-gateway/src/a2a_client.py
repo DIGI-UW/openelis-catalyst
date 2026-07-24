@@ -36,7 +36,7 @@ class A2AClient:
         query = self._extract_user_message(payload) or ""
         client = await self._create_client()
         message = Message(
-            messageId=payload.get("id") or "catalyst-m0",
+            message_id=payload.get("id") or "catalyst-m0",
             role=Role.user,
             parts=[Part(root=TextPart(text=query))],
         )

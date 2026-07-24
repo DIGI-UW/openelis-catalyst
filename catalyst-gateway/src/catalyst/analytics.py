@@ -626,6 +626,10 @@ class PostgresAnalyticsAdapter:
                     FROM analytics.lab_result_fact_v1
                     """
                 )
+                row = cursor.fetchone()
+                # Single-row aggregate query (COUNT/MIN/MAX with no GROUP BY):
+                # always returns exactly one row, even over an empty table.
+                assert row is not None
                 (
                     patients,
                     results,
@@ -633,7 +637,7 @@ class PostgresAnalyticsAdapter:
                     first_at,
                     last_at,
                     pipeline_run_id,
-                ) = cursor.fetchone()
+                ) = row
                 cursor.execute(
                     """
                     SELECT
@@ -722,7 +726,11 @@ class PostgresAnalyticsAdapter:
                         if key not in {"limit", "offset"}
                     },
                 )
-                total = int(cursor.fetchone()[0])
+                row = cursor.fetchone()
+                # Single-row aggregate query (COUNT with no GROUP BY): always
+                # returns exactly one row, even over an empty table.
+                assert row is not None
+                total = int(row[0])
                 cursor.execute(
                     """
                     SELECT observation_id, patient_id, test_name, result_value, result_unit,

@@ -59,11 +59,15 @@ def _parse_review_object(
     if value.get("message") is None:
         value.pop("message", None)
     decision = value.get("decision")
-    default_status = {
-        "approve": "passed",
-        "repair": "warned",
-        "reject": "failed",
-    }.get(decision)
+    default_status = (
+        {
+            "approve": "passed",
+            "repair": "warned",
+            "reject": "failed",
+        }.get(decision)
+        if isinstance(decision, str)
+        else None
+    )
     checks = value.get("checks")
     if default_status is not None and (checks is None or checks == []):
         value["checks"] = [
@@ -122,16 +126,18 @@ def _parse_review_object(
             "expectedColumns",
         )
         if any(field in value for field in candidate_fields):
-            candidate = {field: value.get(field) for field in candidate_fields}
-            candidate, _ = _normalize_exact_duplicate_parameter_bindings(candidate)
-            candidate, _ = _normalize_ordered_parameter_bindings(candidate)
-            candidate = _normalize_grounded_parameter_names(
-                candidate, question, extension
+            flat_candidate = {field: value.get(field) for field in candidate_fields}
+            flat_candidate, _ = _normalize_exact_duplicate_parameter_bindings(
+                flat_candidate
+            )
+            flat_candidate, _ = _normalize_ordered_parameter_bindings(flat_candidate)
+            flat_candidate = _normalize_grounded_parameter_names(
+                flat_candidate, question, extension
             )
             value = {
                 "decision": value.get("decision"),
                 "checks": value.get("checks"),
-                "candidate": candidate,
+                "candidate": flat_candidate,
             }
     candidate = value.get("candidate")
     if isinstance(candidate, Mapping) and candidate.get("status") == "ready":

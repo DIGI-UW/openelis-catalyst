@@ -123,7 +123,7 @@ def _request_payload(
     *,
     candidate: Optional[Mapping[str, Any]] = None,
     review_attempt: Optional[int] = None,
-    deterministic_findings: Optional[list[str]] = None,
+    deterministic_findings: Optional[list[dict[str, Any]]] = None,
     stateless_review: bool = False,
 ) -> Dict[str, Any]:
     instruction = str(request.messages[0]["content"])
@@ -473,6 +473,7 @@ async def _generate(
         patch_rejected: Optional[list[dict[str, Any]]] = None
         partial_base = False
         if using_patch:
+            assert correction_base is not None
             try:
                 parsed = _parse_and_apply_patch(
                     content,
@@ -1145,7 +1146,7 @@ async def execute_query_profile(
                                 "collaborative query roles require different model "
                                 "classes"
                             )
-                    model_collaboration = None
+                    model_collaboration: Optional[Dict[str, Any]] = None
                     writer_findings = (
                         deepcopy(lint_history[-1]["findings"])
                         if collaborative_review and lint_history
