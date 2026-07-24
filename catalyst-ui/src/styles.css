@@ -89,7 +89,7 @@ input {
 }
 
 .app-shell--with-query-dock {
-  padding-bottom: calc(20rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(25rem + env(safe-area-inset-bottom));
 }
 
 .app-shell--with-query-dock:has(.turn-composer[data-minimized="true"]) {
@@ -152,8 +152,8 @@ input {
   left: 50%;
   overflow-y: auto;
   width: min(calc(100% - 2rem), 76rem);
-  max-height: min(19rem, calc(100dvh - 3rem));
-  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  max-height: min(24rem, calc(100dvh - 2rem));
+  padding: 1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
   margin: 0;
   scroll-margin-block: 4rem;
   box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%);
@@ -161,11 +161,12 @@ input {
 }
 
 .query-composer__heading {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.375rem;
 }
 
-.query-composer__heading h1 {
-  font-size: clamp(1.5rem, 3vw, 2rem);
+.query-card--question .query-composer__heading h1 {
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  font-weight: 600;
 }
 
 .query-composer__heading h1:focus-visible {
@@ -184,12 +185,12 @@ input {
 }
 
 .query-composer__input {
-  padding: 1rem 1rem 0;
+  padding: 1.25rem 1.25rem 0;
   background: #fff;
 }
 
 .query-composer__input .cds--text-area {
-  min-height: 7.5rem;
+  min-height: 8.5rem;
   border-bottom-color: transparent;
   background: #fff;
   font-size: 1rem;
@@ -201,7 +202,7 @@ input {
   align-items: end;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
   border-top: 1px solid #c6c6c6;
 }
 
@@ -683,13 +684,13 @@ input {
   }
 
   .app-shell--with-query-dock {
-    padding-bottom: calc(22rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(26rem + env(safe-area-inset-bottom));
   }
 
   .query-card--question {
     left: 0;
     width: 100%;
-    max-height: min(21rem, calc(100dvh - 3rem));
+    max-height: min(26rem, calc(100dvh - 2rem));
     transform: none;
   }
 

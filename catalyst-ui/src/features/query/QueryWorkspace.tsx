@@ -965,6 +965,7 @@ export const QueryWorkspace = ({
               : "Catalyst is validating the question and proposed query."
           }
           running
+          loadingDescription="Generating answer"
         />
       )}
 
@@ -1057,6 +1058,7 @@ export const QueryWorkspace = ({
           message={state.outcome.message}
           kind="info"
           running
+          loadingDescription="Running query"
         />
       )}
 
