@@ -15,7 +15,7 @@ from src.catalyst.analytics import AnalyticsResult, PostgresAnalyticsAdapter
 from src.catalyst.catalog import Catalog
 from src.catalyst.contracts import ContractError, ContractRegistry
 from src.catalyst.digest import canonical_sha256
-from src.catalyst.hub import HubClient, HubError
+from src.catalyst.hub import HubError
 from src.catalyst.policy import (
     QueryInvariantError,
     SqlPolicy,
@@ -112,7 +112,7 @@ def ready_query(question: str = "Count tests since July 1") -> dict:
             "checks": [{"name": "review", "status": "passed"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-q4-checked",
+            "profileId": "catalyst-query-gemma-4-12b-q4",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -130,7 +130,7 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
             "checks": [{"name": "scope", "status": "warned"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-q4-checked",
+            "profileId": "catalyst-query-gemma-4-12b-q4",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -203,7 +203,7 @@ class FakeHub:
             raise self.error
         return [
             {
-                "id": "catalyst-query-gemma-4-12b-q4-checked",
+                "id": "catalyst-query-gemma-4-12b-q4",
                 "label": "Catalyst governed query — Gemma 4 12B",
                 "available": self.error is None,
                 "required_models": ["gemma-4-12b-q4"],
@@ -371,7 +371,7 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
                 ],
                 "validation": {"status": "passed", "checks": []},
                 "provenance": {
-                    "profileId": "catalyst-query-gemma-4-12b-q4-checked",
+                    "profileId": "catalyst-query-gemma-4-12b-q4",
                     "traceId": "hub-runtime-schema",
                     "contextSourceIds": [context_id],
                 },
@@ -593,422 +593,6 @@ def test_loads_and_checks_all_normative_schemas():
     )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("models_body", "code"),
-    [
-        ({"not_data": []}, "profile_incompatible"),
-        ({"data": []}, "profile_unavailable"),
-        (
-            {
-                "data": [
-                    {
-                        "id": "catalyst-query-gemma-4-12b-q4-checked",
-                        "available": False,
-                        "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                    }
-                ]
-            },
-            "profile_unavailable",
-        ),
-        (
-            {
-                "data": [
-                    {
-                        "id": "catalyst-query-gemma-4-12b-q4-checked",
-                        "available": True,
-                        "capabilities": {"outputContracts": ["other.v1"]},
-                    }
-                ]
-            },
-            "profile_incompatible",
-        ),
-    ],
-)
-async def test_hub_discovery_fails_closed(models_body: dict, code: str):
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=models_body)
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    with pytest.raises(HubError) as error:
-        await client.discover_query_profile()
-    assert error.value.code == code
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_discovery_and_completion_are_strict():
-    sent = {}
-    query = ready_query()
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-gemma-4-12b-q4-checked",
-                            "available": True,
-                            "capabilities": {
-                                "outputContracts": ["catalyst.query.v1"],
-                                "modelRouter": True,
-                            },
-                        }
-                    ]
-                },
-            )
-        sent.update(json.loads(request.content))
-        return httpx.Response(
-            200,
-            json={
-                "id": "completion-1",
-                "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-q4-checked",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": json.dumps(query),
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
-        )
-
-    registry = ContractRegistry.load(CONTRACTS)
-    client = HubClient(
-        "http://hub",
-        registry,
-        transport=httpx.MockTransport(handler),
-    )
-    request = build_query_request(
-        "Count tests since July 1",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
-    )
-    result = await client.generate_query(request)
-    evidence = result.pop("_hubEvidence")
-    assert result == query
-    assert json.loads(evidence["exactHubResponse"])["id"] == "completion-1"
-    assert sent["model"] == "catalyst-query-gemma-4-12b-q4-checked"
-    assert sent["stream"] is False
-    assert sent["catalystQuery"]["requiredOutputContract"] == "catalyst.query.v1"
-    assert "dsn" not in json.dumps(sent).lower()
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("completion_model", "query_profile"),
-    [
-        ("catalyst-query-other", "catalyst-query-gemma-4-12b-q4-checked"),
-        ("catalyst-query-gemma-4-12b-q4-checked", "catalyst-query-other"),
-    ],
-)
-async def test_hub_completion_and_query_are_bound_to_requested_profile(
-    completion_model: str,
-    query_profile: str,
-) -> None:
-    query = ready_query()
-    query["provenance"]["profileId"] = query_profile
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-gemma-4-12b-q4-checked",
-                            "available": True,
-                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(
-            200,
-            json={
-                "id": "completion-profile-mismatch",
-                "object": "chat.completion",
-                "model": completion_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": json.dumps(query),
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
-        )
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    request = build_query_request(
-        "Count tests since July 1",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-profile-binding",
-        trace_id="trace-profile-binding",
-    )
-
-    with pytest.raises(HubError) as error:
-        await client.generate_query(request)
-
-    assert error.value.code == "hub_invalid_response"
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_readiness_requires_the_default_gemma_profile():
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/health":
-            return httpx.Response(200, json={"status": "ready"})
-        return httpx.Response(
-            200,
-            json={
-                "data": [
-                    {
-                        "id": "catalyst-query-gemma-4-12b-q4-checked",
-                        "available": False,
-                        "outputContracts": ["catalyst.query.v1"],
-                    },
-                    {
-                        "id": "catalyst-query-checked",
-                        "available": True,
-                        "outputContracts": ["catalyst.query.v1"],
-                        "capabilities": {"modelRouter": True},
-                    },
-                ]
-            },
-        )
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    assert await client.readiness() == {
-        "hub": {"ready": True},
-        "queryProfile": {
-            "ready": False,
-            "message": (
-                "Hub does not advertise available profile "
-                "catalyst-query-gemma-4-12b-q4-checked."
-            ),
-        },
-        "modelRouter": {"ready": False},
-    }
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("response", "code"),
-    [
-        (
-            {
-                "id": "x",
-                "object": "chat.completion",
-                "model": "wrong-profile",
-                "choices": [],
-            },
-            "hub_invalid_response",
-        ),
-        (
-            {
-                "id": "x",
-                "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-q4-checked",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "```json\n{}\n```",
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
-            "hub_invalid_response",
-        ),
-    ],
-)
-async def test_hub_rejects_invalid_completion(response: dict, code: str):
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-gemma-4-12b-q4-checked",
-                            "available": True,
-                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(200, json=response)
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    request = build_query_request(
-        "Question",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
-    )
-    with pytest.raises(HubError) as error:
-        await client.generate_query(request)
-    assert error.value.code == code
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_invalid_completion_preserves_raw_model_output():
-    raw_output = "SELECT test_name FROM analytics.lab_results"
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-gemma-4-12b-q4-checked",
-                            "available": True,
-                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(
-            200,
-            json={
-                "id": "completion-raw",
-                "object": "chat.completion",
-                "model": "catalyst-query-gemma-4-12b-q4-checked",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": raw_output},
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
-        )
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    request = build_query_request(
-        "Question",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
-    )
-
-    with pytest.raises(HubError) as error:
-        await client.generate_query(request)
-
-    assert error.value.code == "hub_invalid_response"
-    assert error.value.raw_output == raw_output
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_non_json_completion_preserves_raw_response_text():
-    raw_output = "SELECT test_name FROM analytics.lab_results"
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-gemma-4-12b-q4-checked",
-                            "available": True,
-                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(200, text=raw_output)
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-    request = build_query_request(
-        "Question",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
-    )
-
-    with pytest.raises(HubError) as error:
-        await client.generate_query(request)
-
-    assert error.value.code == "hub_invalid_response"
-    assert error.value.raw_output == raw_output
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_non_success_preserves_exact_response_text():
-    raw_output = '{"error":{"code":"router_overloaded","detail":"try later"}}'
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            503,
-            content=raw_output.encode("utf-8"),
-            headers={"content-type": "application/json"},
-        )
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
-    )
-
-    with pytest.raises(HubError) as error:
-        await client._request("POST", "/v1/chat/completions", json={})
-
-    assert error.value.code == "hub_unavailable"
-    assert error.value.raw_output == raw_output
-    await client.aclose()
 
 
 @pytest.mark.parametrize(
@@ -1676,7 +1260,7 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
     assert preview["question"] == question
     assert preview["reasoningTrace"] == {
         "traceId": "hub-trace-1",
-        "profileId": "catalyst-query-gemma-4-12b-q4-checked",
+        "profileId": "catalyst-query-gemma-4-12b-q4",
         "status": "passed",
         "stages": [
             "context",

@@ -529,7 +529,6 @@
         "profileName",
         "profileDigest",
         "writer",
-        "reviewer",
         "omissions"
       ],
       "properties": {

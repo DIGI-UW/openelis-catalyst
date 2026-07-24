@@ -2109,19 +2109,23 @@ class CatalystService:
                 )
             )
 
+        # Reviewer evidence is only required for profiles that declare a reviewer.
+        # Writer-only profiles finalize on the writer's lint-passing candidate.
+        has_reviewer = isinstance(profile_snapshot.get("reviewer"), dict)
         if ready and (
             ("writer" not in succeeded_roles and not repaired_linted_writer)
-            or "reviewer" not in succeeded_roles
+            or (has_reviewer and "reviewer" not in succeeded_roles)
         ):
             missing = []
             if "writer" not in succeeded_roles and not repaired_linted_writer:
                 missing.append("successful writer or coherent reviewer repair")
-            if "reviewer" not in succeeded_roles:
+            if has_reviewer and "reviewer" not in succeeded_roles:
                 missing.append("successful reviewer invocation")
             raise HubError(
                 "hub_invalid_response",
-                "A ready Hub query requires completed writer and successful reviewer "
-                f"invocation evidence; missing: {', '.join(missing)}.",
+                "A ready Hub query requires completed writer"
+                + (" and successful reviewer" if has_reviewer else "")
+                + f" invocation evidence; missing: {', '.join(missing)}.",
             )
 
     @staticmethod
@@ -2282,7 +2286,12 @@ class CatalystService:
             raise ProfileEvidenceError(
                 "profileEvidence.profileDigest must be a lowercase SHA-256 digest."
             )
-        for role_name in ("writer", "reviewer"):
+        # Writer is always required; reviewer is present only for reviewed
+        # profiles. A writer-only profile legitimately omits the reviewer leg.
+        present_roles = ["writer"]
+        if "reviewer" in exact:
+            present_roles.append("reviewer")
+        for role_name in present_roles:
             role = exact.get(role_name)
             if not isinstance(role, dict) or role.get("role") != role_name:
                 raise ProfileEvidenceError(
@@ -2330,7 +2339,8 @@ class CatalystService:
         compact = deepcopy(exact)
         supplied_digest = compact.pop("profileDigest")
         compact["writer"]["systemPrompt"].pop("text")
-        compact["reviewer"]["systemPrompt"].pop("text")
+        if "reviewer" in compact:
+            compact["reviewer"]["systemPrompt"].pop("text")
         if canonical_sha256(compact) != supplied_digest:
             raise ProfileEvidenceError(
                 "profileEvidence.profileDigest does not match its compact snapshot."
@@ -2373,14 +2383,19 @@ class CatalystService:
                 "systemPrompt": prompt,
             }
 
-        snapshot = {
+        snapshot: dict[str, Any] = {
             "profileId": exact["profileId"],
             "profileName": exact["profileName"],
             "profileDigest": "0" * 64,
             "writer": compact_role(exact["writer"]),
-            "reviewer": compact_role(exact["reviewer"]),
             "omissions": [],
         }
+        # Writer-only profiles omit the reviewer; record that in omissions so the
+        # snapshot stays contract-valid without inventing a reviewer leg.
+        if "reviewer" in exact:
+            snapshot["reviewer"] = compact_role(exact["reviewer"])
+        else:
+            snapshot["omissions"] = ["reviewer"]
         snapshot["profileDigest"] = canonical_sha256(
             {key: value for key, value in snapshot.items() if key != "profileDigest"}
         )

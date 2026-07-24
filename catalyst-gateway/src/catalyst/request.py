@@ -5,9 +5,9 @@ from typing import Any
 from .catalog import Catalog
 
 
-# Default governed-query profile. Reviewed (self-checked) for now; flips to the
-# writer-only profile once the workbench binding tolerates a missing reviewer.
-QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b-q4-checked"
+# Default governed-query profile: writer-only (no independent review) per the
+# product default. The self-checked writer+reviewer profile is the opt-in option.
+QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b-q4"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 
