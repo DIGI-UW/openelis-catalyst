@@ -687,11 +687,7 @@ async def _review(
             ),
         },
     ]
-    response_format = (
-        _REPAIR_FORMAT
-        if deterministic_findings
-        else _REVIEW_FORMAT
-    )
+    response_format = _REPAIR_FORMAT if deterministic_findings else _REVIEW_FORMAT
     content = await _invoke_backend(
         client,
         profile.models["query_review"],
@@ -1422,12 +1418,12 @@ async def execute_query_profile(
                     if is_revision and collaborative_review:
                         if model_collaboration is not None:
                             model_collaboration = deepcopy(model_collaboration)
-                            model_collaboration["writer"][
-                                "disposition"
-                            ] = "retained_unselected"
-                            model_collaboration["reviewer"][
-                                "disposition"
-                            ] = "diagnostic_only"
+                            model_collaboration["writer"]["disposition"] = (
+                                "retained_unselected"
+                            )
+                            model_collaboration["reviewer"]["disposition"] = (
+                                "diagnostic_only"
+                            )
                             if not model_collaboration[
                                 "finalLintFindings"
                             ] and isinstance(exc, QueryContractError):

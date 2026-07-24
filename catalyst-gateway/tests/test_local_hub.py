@@ -27,14 +27,17 @@ TARGET = {
 
 def _hub() -> LocalHub:
     return LocalHub(
-        hub_base_url="http://hub", transport=httpx.MockTransport(lambda r: httpx.Response(200))
+        hub_base_url="http://hub",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)),
     )
 
 
 def _request(profile_id: str) -> dict:
     return {
         "model": profile_id,
-        "messages": [{"role": "user", "content": "Show viral load results since 2026-01-01"}],
+        "messages": [
+            {"role": "user", "content": "Show viral load results since 2026-01-01"}
+        ],
         "catalystQuery": {
             "contractVersion": "catalyst.query.request.v1",
             "requiredOutputContract": "catalyst.query.v1",
@@ -70,7 +73,12 @@ def _ready_candidate() -> dict:
         "target": {**TARGET, "approvedViews": [VIEW_NAME]},
         "sql": f"SELECT viral_load_value, release_date FROM {VIEW_NAME} WHERE release_date >= :since",
         "parameters": [
-            {"name": "since", "type": "date", "source": "question", "value": "2026-01-01"}
+            {
+                "name": "since",
+                "type": "date",
+                "source": "question",
+                "value": "2026-01-01",
+            }
         ],
         "expectedColumns": [
             {"name": "viral_load_value", "logicalType": "decimal", "nullable": False},
@@ -121,9 +129,13 @@ async def test_discovery_lists_both_profiles_with_matching_evidence():
 async def test_generate_reviewed_profile_returns_ready_query():
     hub = _hub()
     with patch.object(
-        query_engine, "_backend_chat", side_effect=_queued([_ready_candidate(), _approve_review()])
+        query_engine,
+        "_backend_chat",
+        side_effect=_queued([_ready_candidate(), _approve_review()]),
     ):
-        result = await hub.generate_query(_request("catalyst-query-gemma-4-12b-q4-checked"))
+        result = await hub.generate_query(
+            _request("catalyst-query-gemma-4-12b-q4-checked")
+        )
     await hub.aclose()
 
     assert result["status"] == "ready"

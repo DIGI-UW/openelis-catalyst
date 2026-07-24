@@ -176,7 +176,7 @@ class MvpComposeContractTests(unittest.TestCase):
             self.compose,
         )
         self.assertIn(
-            "proxy_read_timeout 420s",
+            "proxy_read_timeout 1800s",
             (ROOT / "catalyst-ui/nginx.conf").read_text(),
         )
         ui_proxy = (ROOT / "catalyst-ui/nginx.conf").read_text()

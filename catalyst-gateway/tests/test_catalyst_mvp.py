@@ -593,8 +593,6 @@ def test_loads_and_checks_all_normative_schemas():
     )
 
 
-
-
 @pytest.mark.parametrize(
     ("mutator", "violation"),
     [

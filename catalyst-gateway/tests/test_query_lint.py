@@ -188,8 +188,7 @@ def test_unqualified_column_must_belong_to_a_referenced_relation():
     )
     candidate = _candidate()
     candidate["sql"] = (
-        f"SELECT name_display FROM {VIEW} "
-        "WHERE test_name = :analyte LIMIT 100"
+        f"SELECT name_display FROM {VIEW} " "WHERE test_name = :analyte LIMIT 100"
     )
     candidate["parameters"] = [candidate["parameters"][0]]
     candidate["expectedColumns"] = [{"name": "name_display"}]

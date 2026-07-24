@@ -27,7 +27,13 @@ from .query_engine import (
 )
 from .query_profiles import DEFAULT_PROFILE_ID, PROFILES
 
-_QUERY_STAGES = ("context", "query_generate", "query_lint", "query_review", "query_finalize")
+_QUERY_STAGES = (
+    "context",
+    "query_generate",
+    "query_lint",
+    "query_review",
+    "query_finalize",
+)
 _OUTPUT_CONTRACT = "catalyst.query.v1"
 
 
@@ -52,8 +58,14 @@ class LocalHub:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    def _discovery_entry(self, profile: EngineProfile, *, available: bool) -> dict[str, Any]:
-        stages = [stage for stage in _QUERY_STAGES if stage != "query_review" or profile.has_review]
+    def _discovery_entry(
+        self, profile: EngineProfile, *, available: bool
+    ) -> dict[str, Any]:
+        stages = [
+            stage
+            for stage in _QUERY_STAGES
+            if stage != "query_review" or profile.has_review
+        ]
         return {
             "id": profile.id,
             "label": profile.label,
@@ -63,7 +75,11 @@ class LocalHub:
             "role_knobs": {role: dict(knobs) for role, knobs in profile.knobs.items()},
             "stages": stages,
             "unavailable_reasons": [] if available else ["model_unavailable"],
-            "capabilities": {"staged": False, "validation": True, "modelRouter": available},
+            "capabilities": {
+                "staged": False,
+                "validation": True,
+                "modelRouter": available,
+            },
             "outputContracts": [_OUTPUT_CONTRACT],
             "revisionCapable": profile.has_review,
             "profileEvidence": query_profile_evidence(profile),
@@ -100,9 +116,7 @@ class LocalHub:
             if kind == "result":
                 result = json.loads(payload)
         if result is None:
-            raise HubError(
-                "hub_invalid_response", "Query engine produced no result."
-            )
+            raise HubError("hub_invalid_response", "Query engine produced no result.")
         return result
 
     async def readiness(self) -> dict[str, dict[str, Any]]:

@@ -198,10 +198,7 @@ def _normalize_single_date_binding(
     ):
         return normalized, False
     parameter = parameters[0]
-    if (
-        parameter.get("type") != "date"
-        or str(parameter.get("value", "")) != dates[0]
-    ):
+    if parameter.get("type") != "date" or str(parameter.get("value", "")) != dates[0]:
         return normalized, False
     expected = {
         "name": placeholders[0],

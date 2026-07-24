@@ -52,7 +52,9 @@ def test_canonical_target_shape():
 def test_candidate_matches_catalog():
     ext = _extension()
     canonical = _canonical_target(ext)
-    assert _candidate_matches_catalog({"status": "ready", "target": canonical}, canonical)
+    assert _candidate_matches_catalog(
+        {"status": "ready", "target": canonical}, canonical
+    )
     assert not _candidate_matches_catalog({"status": "ready", "target": {}}, canonical)
     # Non-ready candidates never need to echo the catalog target.
     assert _candidate_matches_catalog({"status": "needs_clarification"}, canonical)
@@ -113,7 +115,12 @@ def test_parse_and_apply_patch_replaces_anchored_sql_text():
 
 
 def test_parse_and_apply_patch_rejects_out_of_scope_path():
-    base = {"status": "ready", "sql": "SELECT 1", "parameters": [], "expectedColumns": []}
+    base = {
+        "status": "ready",
+        "sql": "SELECT 1",
+        "parameters": [],
+        "expectedColumns": [],
+    }
     findings = [{"code": "sql.parse_error", "path": "sql"}]
     patch = json.dumps(
         {

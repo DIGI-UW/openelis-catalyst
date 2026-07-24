@@ -14,7 +14,11 @@ from unittest.mock import patch
 import pytest
 
 from src.catalyst import query_engine
-from src.catalyst.query_engine import EngineProfile, EngineRequest, execute_query_profile
+from src.catalyst.query_engine import (
+    EngineProfile,
+    EngineRequest,
+    execute_query_profile,
+)
 
 QUESTION = "Show viral load results since 2026-01-01 with value and release date"
 VIEW_NAME = "analytics.lab_result_fact_v1"
@@ -67,7 +71,12 @@ def _ready_candidate() -> dict:
             f"FROM {VIEW_NAME} WHERE release_date >= :since"
         ),
         "parameters": [
-            {"name": "since", "type": "date", "source": "question", "value": "2026-01-01"}
+            {
+                "name": "since",
+                "type": "date",
+                "source": "question",
+                "value": "2026-01-01",
+            }
         ],
         "expectedColumns": [
             {"name": "viral_load_value", "logicalType": "decimal", "nullable": False},
@@ -118,9 +127,7 @@ def _reviewed_profile() -> EngineProfile:
 
 
 def _queued_backend(responses: list):
-    queue = [
-        r if isinstance(r, str) else json.dumps(r) for r in responses
-    ]
+    queue = [r if isinstance(r, str) else json.dumps(r) for r in responses]
 
     async def fake_backend(client, model, messages, **kwargs) -> str:
         return queue.pop(0)

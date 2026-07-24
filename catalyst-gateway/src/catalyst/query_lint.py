@@ -130,9 +130,7 @@ def _unknown_columns(
                 allowed = parent_fields.get(column.table.casefold())
                 if allowed is not None:
                     return column.name.casefold() in allowed
-            elif column.name.casefold() in set().union(
-                *parent_fields.values(), set()
-            ):
+            elif column.name.casefold() in set().union(*parent_fields.values(), set()):
                 return True
             parent = parent.parent
         return False
