@@ -1,12 +1,115 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from .digest import canonical_sha256
+
+
+# Catalog-declared SQL identifiers are interpolated into the dataset-browser
+# queries, so they are constrained to the unambiguous lowercase form every
+# analytics view in this project uses. Anything else is an authoring error, not
+# something to quietly quote around.
+_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _checked_identifier(value: str, *, role: str) -> str:
+    for part in value.split("."):
+        if not _IDENTIFIER.match(part):
+            raise ValueError(
+                f"Dataset browser {role} is not a plain lowercase SQL identifier: "
+                f"{value!r}"
+            )
+    return value
+
+
+@dataclass(frozen=True)
+class DatasetBrowserProfile:
+    """Which relation and columns the dataset browser reads for one data source.
+
+    The browser renders one generic shape — subject, category, value, unit,
+    timestamps — but every source spells those differently (OpenELIS calls the
+    category ``test_name``; the OpenMRS HIV source calls it ``concept_name``).
+    Declaring the mapping per catalog is what lets one adapter serve both
+    without the query text assuming a single source's schema.
+    """
+
+    fact_view: str
+    identity_column: str
+    subject_column: str
+    category_column: str
+    observed_at_column: str
+    value_column: str | None = None
+    unit_column: str | None = None
+    issued_at_column: str | None = None
+    duration_column: str | None = None
+    # Display-only fallbacks for sources whose value is coded/text/boolean
+    # rather than numeric; the aggregates still use value_column alone.
+    value_fallback_columns: tuple[str, ...] = ()
+
+    @classmethod
+    def from_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        view_columns: dict[str, set[str]],
+    ) -> DatasetBrowserProfile:
+        fact_view = _checked_identifier(str(payload["factView"]), role="factView")
+        known = view_columns.get(fact_view)
+        if known is None:
+            raise ValueError(
+                "Dataset browser factView is not an approved catalog view: "
+                f"{fact_view!r}"
+            )
+
+        def column(key: str, *, required: bool) -> str | None:
+            raw = payload.get(key)
+            if raw is None:
+                if required:
+                    raise ValueError(f"Dataset browser profile is missing {key!r}")
+                return None
+            name = _checked_identifier(str(raw), role=key)
+            if name not in known:
+                raise ValueError(
+                    f"Dataset browser {key} references a column outside "
+                    f"{fact_view}: {name!r}"
+                )
+            return name
+
+        fallbacks = []
+        for raw in payload.get("valueFallbackColumns", []):
+            name = _checked_identifier(str(raw), role="valueFallbackColumns")
+            if name not in known:
+                raise ValueError(
+                    "Dataset browser valueFallbackColumns references a column "
+                    f"outside {fact_view}: {name!r}"
+                )
+            fallbacks.append(name)
+
+        identity = column("identityColumn", required=True)
+        subject = column("subjectColumn", required=True)
+        category = column("categoryColumn", required=True)
+        observed_at = column("observedAtColumn", required=True)
+        assert identity is not None
+        assert subject is not None
+        assert category is not None
+        assert observed_at is not None
+        return cls(
+            fact_view=fact_view,
+            identity_column=identity,
+            subject_column=subject,
+            category_column=category,
+            observed_at_column=observed_at,
+            value_column=column("valueColumn", required=False),
+            unit_column=column("unitColumn", required=False),
+            issued_at_column=column("issuedAtColumn", required=False),
+            duration_column=column("durationColumn", required=False),
+            value_fallback_columns=tuple(fallbacks),
+        )
 
 
 @dataclass(frozen=True)
@@ -18,6 +121,7 @@ class Catalog:
     context_source_id: str
     views: list[dict[str, Any]]
     freshness: dict[str, Any]
+    dataset_browser: DatasetBrowserProfile | None = dataclass_field(default=None)
 
     @property
     def approved_view_names(self) -> set[str]:
@@ -133,6 +237,9 @@ class Catalog:
             context_source_id=f"catalog:{catalog_version}",
             views=views,
             freshness=deepcopy(self.freshness),
+            # Runtime discovery re-describes the schema; it does not change
+            # which relation the dataset browser was curated to read.
+            dataset_browser=self.dataset_browser,
         )
 
     @classmethod
@@ -212,6 +319,15 @@ class Catalog:
             raise ValueError(f"Analytics catalog has no approved views: {catalog_path}")
 
         catalog_version = payload["catalogVersion"]
+        dataset_browser = None
+        if "datasetBrowser" in payload:
+            dataset_browser = DatasetBrowserProfile.from_payload(
+                payload["datasetBrowser"],
+                view_columns={
+                    view["name"]: {field["name"] for field in view["fields"]}
+                    for view in views
+                },
+            )
         return cls(
             data_source=payload["dataSource"],
             catalog_version=catalog_version,
@@ -220,6 +336,7 @@ class Catalog:
             context_source_id=f"catalog:{catalog_version}",
             views=views,
             freshness={},
+            dataset_browser=dataset_browser,
         )
 
     @classmethod

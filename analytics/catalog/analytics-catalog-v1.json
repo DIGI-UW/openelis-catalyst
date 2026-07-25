@@ -184,5 +184,16 @@
         }
       ]
     }
-  ]
+  ],
+  "datasetBrowser": {
+    "factView": "analytics.lab_result_fact_v1",
+    "identityColumn": "observation_id",
+    "subjectColumn": "patient_id",
+    "categoryColumn": "test_name",
+    "observedAtColumn": "observed_at",
+    "valueColumn": "result_value",
+    "unitColumn": "result_unit",
+    "issuedAtColumn": "issued_at",
+    "durationColumn": "receipt_to_release_minutes"
+  }
 }

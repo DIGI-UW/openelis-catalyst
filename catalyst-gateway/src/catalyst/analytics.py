@@ -15,6 +15,8 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
+from .catalog import DatasetBrowserProfile
+
 
 class AnalyticsError(RuntimeError):
     """The governed analytics execution failed."""
@@ -246,11 +248,25 @@ class PostgresAnalyticsAdapter:
         data_source_id: str | None = None,
         connect: Callable[..., Any] | None = None,
         connect_timeout_seconds: int = 5,
+        dataset_browser: DatasetBrowserProfile | None = None,
     ) -> None:
         self.dsn = dsn
         self.data_source_id = data_source_id
         self._connect = connect or psycopg.connect
         self.connect_timeout_seconds = connect_timeout_seconds
+        self.dataset_browser = dataset_browser
+
+    def _require_dataset_browser(self) -> DatasetBrowserProfile:
+        profile = self.dataset_browser
+        if profile is None:
+            raise AnalyticsError(
+                "Data source "
+                f"{self.data_source_id or self.dsn!r} declares no datasetBrowser "
+                "profile in its analytics catalog, so its dataset cannot be "
+                "browsed. Add one naming the fact view and its subject, "
+                "category, value, and timestamp columns."
+            )
+        return profile
 
     async def execute(
         self,
@@ -602,6 +618,7 @@ class PostgresAnalyticsAdapter:
         return list(by_name.values())
 
     def _dataset_overview_sync(self) -> dict[str, Any]:
+        profile = self._require_dataset_browser()
         with self._connect(
             self.dsn,
             connect_timeout=self.connect_timeout_seconds,
@@ -609,13 +626,13 @@ class PostgresAnalyticsAdapter:
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION READ ONLY")
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        count(DISTINCT patient_id),
+                        count(DISTINCT {profile.subject_column}),
                         count(*),
-                        count(DISTINCT test_name),
-                        min(observed_at),
-                        max(observed_at),
+                        count(DISTINCT {profile.category_column}),
+                        min({profile.observed_at_column}),
+                        max({profile.observed_at_column}),
                         (
                             SELECT pipeline_run_id
                             FROM analytics.pipeline_freshness_v1
@@ -623,7 +640,7 @@ class PostgresAnalyticsAdapter:
                             ORDER BY completed_at DESC NULLS LAST
                             LIMIT 1
                         )
-                    FROM analytics.lab_result_fact_v1
+                    FROM {profile.fact_view}
                     """
                 )
                 row = cursor.fetchone()
@@ -638,19 +655,31 @@ class PostgresAnalyticsAdapter:
                     last_at,
                     pipeline_run_id,
                 ) = row
+                unit = profile.unit_column
+                value = profile.value_column
+                # A source without a unit or a numeric value column still gets
+                # per-category counts; only the columns it cannot supply are
+                # reported as NULL.
+                unit_select = unit if unit else "NULL"
+                unit_group = f", {unit}" if unit else ""
+                value_selects = (
+                    f"""min({value}),
+                        percentile_cont(0.5) WITHIN GROUP (ORDER BY {value}),
+                        max({value})"""
+                    if value
+                    else "NULL, NULL, NULL"
+                )
                 cursor.execute(
-                    """
+                    f"""
                     SELECT
-                        test_name,
-                        result_unit,
+                        {profile.category_column},
+                        {unit_select},
                         count(*),
-                        count(DISTINCT patient_id),
-                        min(result_value),
-                        percentile_cont(0.5) WITHIN GROUP (ORDER BY result_value),
-                        max(result_value)
-                    FROM analytics.lab_result_fact_v1
-                    GROUP BY test_name, result_unit
-                    ORDER BY count(*) DESC, test_name
+                        count(DISTINCT {profile.subject_column}),
+                        {value_selects}
+                    FROM {profile.fact_view}
+                    GROUP BY {profile.category_column}{unit_group}
+                    ORDER BY count(*) DESC, {profile.category_column}
                     """
                 )
                 tests = cursor.fetchall()
@@ -703,15 +732,43 @@ class PostgresAnalyticsAdapter:
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
+        profile = self._require_dataset_browser()
         conditions: list[str] = []
         bindings: dict[str, Any] = {"limit": limit, "offset": offset}
         if test_name:
-            conditions.append("test_name = %(test_name)s")
+            conditions.append(f"{profile.category_column} = %(test_name)s")
             bindings["test_name"] = test_name
         if patient_id:
-            conditions.append("patient_id = %(patient_id)s")
+            conditions.append(f"{profile.subject_column} = %(patient_id)s")
             bindings["patient_id"] = patient_id
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        # Sources whose value is coded/text/boolean rather than numeric fall
+        # back in declared order so a row shows what it actually carries
+        # instead of an empty cell.
+        value_candidates = [
+            column
+            for column in (profile.value_column, *profile.value_fallback_columns)
+            if column
+        ]
+        if not value_candidates:
+            value_select = "NULL"
+        elif len(value_candidates) == 1:
+            value_select = value_candidates[0]
+        else:
+            casts = ", ".join(f"{column}::text" for column in value_candidates)
+            value_select = f"COALESCE({casts})"
+        selects = ", ".join(
+            (
+                profile.identity_column,
+                profile.subject_column,
+                profile.category_column,
+                value_select,
+                profile.unit_column or "NULL",
+                profile.observed_at_column,
+                profile.issued_at_column or "NULL",
+                profile.duration_column or "NULL",
+            )
+        )
         with self._connect(
             self.dsn,
             connect_timeout=self.connect_timeout_seconds,
@@ -719,7 +776,7 @@ class PostgresAnalyticsAdapter:
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION READ ONLY")
                 cursor.execute(
-                    "SELECT count(*) FROM analytics.lab_result_fact_v1" + where,
+                    f"SELECT count(*) FROM {profile.fact_view}" + where,
                     {
                         key: value
                         for key, value in bindings.items()
@@ -732,13 +789,12 @@ class PostgresAnalyticsAdapter:
                 assert row is not None
                 total = int(row[0])
                 cursor.execute(
-                    """
-                    SELECT observation_id, patient_id, test_name, result_value, result_unit,
-                           observed_at, issued_at, receipt_to_release_minutes
-                    FROM analytics.lab_result_fact_v1
-                    """
+                    f"SELECT {selects}"
+                    f" FROM {profile.fact_view}"
                     + where
-                    + " ORDER BY observed_at DESC NULLS LAST, observation_id LIMIT %(limit)s OFFSET %(offset)s",
+                    + f" ORDER BY {profile.observed_at_column} DESC NULLS LAST,"
+                    f" {profile.identity_column}"
+                    " LIMIT %(limit)s OFFSET %(offset)s",
                     bindings,
                 )
                 rows = cursor.fetchall()

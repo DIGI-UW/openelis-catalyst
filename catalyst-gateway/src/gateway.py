@@ -22,6 +22,7 @@ def _default_catalyst_service() -> CatalystService:
     analytics = PostgresAnalyticsAdapter(
         config.analytics_dsn,
         data_source_id=catalog.data_source,
+        dataset_browser=catalog.dataset_browser,
     )
     bundles: list[DataSourceBundle] = []
     for source in config.data_sources:
@@ -55,6 +56,7 @@ def _default_catalyst_service() -> CatalystService:
                 analytics=PostgresAnalyticsAdapter(
                     source.analytics_dsn,
                     data_source_id=source_catalog.data_source,
+                    dataset_browser=source_catalog.dataset_browser,
                 ),
             )
         )

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from src import gateway
 from src.catalyst.analytics import AnalyticsResult, PostgresAnalyticsAdapter
-from src.catalyst.catalog import Catalog
+from src.catalyst.catalog import Catalog, DatasetBrowserProfile
 from src.catalyst.contracts import ContractError, ContractRegistry
 from src.catalyst.digest import canonical_sha256
 from src.catalyst.hub import HubError
@@ -27,6 +27,21 @@ from src.config import load_config
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
+
+# The OpenELIS dataset-browser mapping, mirroring what its shipped catalog
+# declares. The adapter composes every dataset query from a profile like this
+# one, so a source's own column names never leak into another source's SQL.
+OPENELIS_DATASET_BROWSER = DatasetBrowserProfile(
+    fact_view="analytics.lab_result_fact_v1",
+    identity_column="observation_id",
+    subject_column="patient_id",
+    category_column="test_name",
+    observed_at_column="observed_at",
+    value_column="result_value",
+    unit_column="result_unit",
+    issued_at_column="issued_at",
+    duration_column="receipt_to_release_minutes",
+)
 
 
 def catalog() -> Catalog:
@@ -1121,6 +1136,7 @@ async def test_dataset_rows_include_stable_observation_identity_and_ordering():
     adapter = PostgresAnalyticsAdapter(
         "postgresql://demo",
         connect=lambda *args, **kwargs: Connection(),
+        dataset_browser=OPENELIS_DATASET_BROWSER,
     )
 
     result = await adapter.dataset_rows(
@@ -1193,6 +1209,7 @@ async def test_dataset_overview_uses_live_pipeline_identity_without_claiming_cla
         "postgresql://demo",
         data_source_id="openelis-fhir-postgresql",
         connect=lambda *args, **kwargs: Connection(),
+        dataset_browser=OPENELIS_DATASET_BROWSER,
     )
 
     overview = await adapter.dataset_overview()

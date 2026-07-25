@@ -485,6 +485,9 @@ const askQuestion = async () => {
 
 beforeEach(() => {
   localStorage.clear();
+  // The workspace writes the selected source into the query string, so each
+  // test has to start from a clean URL or it inherits the previous selection.
+  window.history.replaceState(null, "", "/");
 });
 
 describe("Catalyst query workflow", () => {
@@ -1696,6 +1699,65 @@ describe("Catalyst query workflow", () => {
     expect(
       within(switcher).getByRole("option", { name: "OpenMRS HIV/ART program" }),
     ).toBeInTheDocument();
+  });
+
+  const twoSourceApi = () => {
+    const api = makeNotebookApi();
+    api.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis",
+      dataSources: [
+        { id: "openelis", label: "OpenELIS Laboratory", available: true },
+        { id: "openmrs-hiv", label: "OpenMRS HIV/ART program", available: true },
+      ],
+    });
+    return api;
+  };
+
+  it("publishes the selected source to the URL so the view can be reloaded or shared", async () => {
+    const api = twoSourceApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    const switcher = await screen.findByLabelText("Data source");
+    await user.selectOptions(switcher, "openmrs-hiv");
+
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("dataSource")).toBe(
+        "openmrs-hiv",
+      ),
+    );
+  });
+
+  it("restores the source named in the URL instead of the registered default", async () => {
+    window.history.replaceState(null, "", "/?dataSource=openmrs-hiv");
+    const api = twoSourceApi();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Data source")).toHaveValue("openmrs-hiv");
+    await waitFor(() =>
+      expect(api.getWorkbenchCatalog).toHaveBeenCalledWith(
+        "openmrs-hiv",
+        expect.anything(),
+      ),
+    );
+    expect(api.getWorkbenchCatalog).not.toHaveBeenCalledWith(
+      "openelis",
+      expect.anything(),
+    );
+  });
+
+  it("falls back to the default when the URL names a source this deployment does not serve", async () => {
+    window.history.replaceState(null, "", "/?dataSource=retired-source");
+    const api = twoSourceApi();
+    render(<App api={api} />);
+
+    expect(await screen.findByLabelText("Data source")).toHaveValue("openelis");
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get("dataSource")).toBe(
+        "openelis",
+      ),
+    );
   });
 
   it("carries the switched source into the follow-up request and refetches its catalog", async () => {
