@@ -68,11 +68,20 @@ services:
 
   med-agent-hub:
     restart: unless-stopped
-    # The hub is a separate repo and publishes no image, so it builds from a
-    # source checkout. Default assumes a sibling clone next to this one
-    # (github.com/pmanko/med-agent-hub); set MED_AGENT_HUB_CONTEXT to point
-    # elsewhere, e.g. a superproject that vendors it as a submodule.
-    build: ${MED_AGENT_HUB_CONTEXT:-../med-agent-hub}
+    # The hub is a separate repo, so it builds from a source checkout. Default
+    # assumes a sibling clone next to this one (github.com/pmanko/med-agent-hub);
+    # set MED_AGENT_HUB_CONTEXT to point elsewhere, e.g. a superproject that
+    # vendors it as a submodule.
+    #
+    # HUB_BUILD_REVISION is required, not cosmetic: the hub validates it at
+    # startup and refuses to run on the Dockerfile's "unknown" default, so an
+    # image built without it builds cleanly and then exits 1. There is no
+    # sensible default to invent here — the value has to name the commit this
+    # context is actually checked out at.
+    build:
+      context: ${MED_AGENT_HUB_CONTEXT:-../med-agent-hub}
+      args:
+        HUB_BUILD_REVISION: ${MED_AGENT_HUB_REVISION:?set to the 40-character commit SHA of the med-agent-hub checkout, e.g. $(git -C ../med-agent-hub rev-parse HEAD)}
     environment:
       LLM_BASE_URL: "http://model-router:8077"
       LLM_PROVIDER: "llama.cpp"

@@ -22,14 +22,20 @@ Two inputs are too large for version control and must be supplied:
 
 One input is a separate repository:
 
-- **med-agent-hub**, which publishes no image and so builds from source. The
-  default assumes a sibling clone at `../med-agent-hub`; override with
-  `MED_AGENT_HUB_CONTEXT`.
+- **med-agent-hub**, which builds from source. The default context assumes a
+  sibling clone at `../med-agent-hub`; override with `MED_AGENT_HUB_CONTEXT`.
+  `MED_AGENT_HUB_REVISION` must name the commit that checkout sits at — the hub
+  validates it at startup and refuses to run without it, so an image built
+  without it builds cleanly and then exits 1.
+
+  Once the hub publishes an image this collapses to an `image:` pin and both
+  variables go away.
 
 ## Boot
 
 ```bash
-docker compose -f docker-compose.demo.yml up -d
+MED_AGENT_HUB_REVISION=$(git -C ../med-agent-hub rev-parse HEAD) \
+  docker compose -f docker-compose.demo.yml up -d
 ```
 
 Serves plain HTTP on `:80`. Set `CATALYST_SITE` to a domain to get automatic
