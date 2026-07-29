@@ -205,3 +205,42 @@ async def test_unknown_profile_raises():
         await hub.generate_query(_request("nope"))
     await hub.aclose()
     assert excinfo.value.code == "profile_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_gpu_lane_offers_a_full_weight_writer_and_a_cross_family_reviewer():
+    """The Q4 profiles exist for hosts with no GPU; a host that has one should
+    not be stuck paying for quantisation, and should be able to pick a reviewer
+    that is not the writer re-reading its own output."""
+
+    hub = _hub()
+    profiles = await hub.list_query_profiles()
+    await hub.aclose()
+    by_id = {p["id"]: p for p in profiles}
+
+    team = PROFILES["catalyst-query-gemma-4-12b-qwen2.5-14b-checked"]
+    writer = PROFILES["catalyst-query-gemma-4-12b"]
+
+    # Full-weight writer, not the Q4 demo build.
+    assert writer.models["query_generate"] == "gemma-4-12b"
+    assert not writer.has_review
+
+    # The team's reviewer is a different model AND a different family, which is
+    # what makes its review independent rather than a self-check.
+    assert team.models["query_generate"] == "gemma-4-12b"
+    assert team.models["query_review"] == "qwen2.5-14b"
+    assert team.models["query_generate"] != team.models["query_review"]
+    classes = team.policies["model_classes"]
+    assert classes["query_generate"] != classes["query_review"]
+
+    # Contrast: the CPU-only "checked" profile is the same model twice.
+    assert (
+        WRITER_REVIEWED.models["query_generate"]
+        == WRITER_REVIEWED.models["query_review"]
+    )
+
+    # Both new profiles are discoverable, and the team advertises its reviewer.
+    assert {writer.id, team.id} <= set(by_id)
+    assert by_id[team.id]["profileEvidence"]["reviewer"]["role"] == "reviewer"
+    assert "query_review" in by_id[team.id]["stages"]
+    assert "query_review" not in by_id[writer.id]["stages"]
