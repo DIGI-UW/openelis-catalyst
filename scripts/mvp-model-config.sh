@@ -27,7 +27,10 @@ mvp_resolve_model_config() {
     external)
       router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
       model_id="${MVP_EXPECTED_MODEL_ID:-${MVP_EXTERNAL_MODEL_ID:-gemma-4-12b}}"
-      profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-4-12b}}"
+      # An external router is the GPU lane, so it gets the full-weight
+      # cross-family team. The id has to name the reviewed profile or it
+      # disagrees with the two-role map below.
+      profile_id="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-4-12b-qwen2.5-14b-checked}}"
       mode_role_models_json="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
       if [ -z "${mode_role_models_json}" ]; then
         mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'

@@ -353,80 +353,59 @@ if configured != expected:
 PY
 }
 
+# The governed-query profiles moved out of the hub when the gateway took over
+# orchestration: the hub is now a generic model executor and advertises no
+# catalyst-query-* ids at all. Probe the gateway, which owns them.
 check_hub_profile() {
-  HUB_URL="http://localhost:${MED_AGENT_HUB_PORT:-8082}" \
+  GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}" \
   PROFILE_ID="${profile_id}" \
   EXPECTED_ROLE_MODELS_JSON="${role_models_json}" \
   python3 - <<'PY'
-import hashlib
 import json
 import os
-import re
 import urllib.request
 
-with urllib.request.urlopen(os.environ["HUB_URL"] + "/v1/models", timeout=5) as response:
-    models = json.load(response).get("data", [])
+url = os.environ["GATEWAY_URL"] + "/v1/catalyst/query-options"
+with urllib.request.urlopen(url, timeout=5) as response:
+    payload = json.load(response)
+profiles = payload.get("profiles", [])
 profile_id = os.environ["PROFILE_ID"]
 expected_role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-profile = next((item for item in models if item.get("id") == profile_id), None)
-if not profile or profile.get("available") is not True:
-    reasons = (profile or {}).get("unavailable_reasons", [])
-    raise SystemExit(f"{profile_id} is unavailable: {reasons}")
-if "catalyst.query.v1" not in profile.get("outputContracts", []):
-    raise SystemExit("catalyst.query.v1 is not advertised")
-role_models = profile.get("role_models", {})
+
+profile = next((item for item in profiles if item.get("id") == profile_id), None)
+if profile is None:
+    raise SystemExit(
+        f"{profile_id} is not offered; gateway advertises "
+        f"{[item.get('id') for item in profiles]}"
+    )
+if profile.get("available") is not True:
+    raise SystemExit(
+        f"{profile_id} is unavailable: {profile.get('unavailableReasons', [])}"
+    )
+
+role_models = profile.get("roleModels", {})
 if role_models != expected_role_models:
     raise SystemExit(
         f"{profile_id} role models {role_models!r} do not match "
         f"{expected_role_models!r}"
     )
-followup_profile = len(set(expected_role_models.values())) > 1
-if followup_profile:
+
+provenance = profile.get("provenance")
+if not isinstance(provenance, dict):
+    raise SystemExit(f"{profile_id} does not expose provenance")
+if provenance.get("profileId") != profile_id:
+    raise SystemExit("provenance.profileId does not match the selected profile")
+if provenance.get("profileLabel") != profile.get("label"):
+    raise SystemExit("provenance.profileLabel does not match the profile label")
+if not str(provenance.get("profileConfigurationDigest", "")):
+    raise SystemExit("provenance.profileConfigurationDigest is required")
+
+# A reviewed profile has to actually run a review stage and be able to revise.
+if "query_review" in expected_role_models:
     if profile.get("revisionCapable") is not True:
         raise SystemExit(f"{profile_id} is not advertised as revision capable")
-    profile_evidence = profile.get("profileEvidence")
-    if not isinstance(profile_evidence, dict):
-        raise SystemExit(f"{profile_id} does not expose profileEvidence")
-    if profile_evidence.get("profileId") != profile_id:
-        raise SystemExit("profileEvidence.profileId does not match the selected profile")
-    if profile_evidence.get("profileName") != profile.get("label"):
-        raise SystemExit("profileEvidence.profileName does not match the profile label")
-    if not re.fullmatch(r"[a-f0-9]{64}", str(profile_evidence.get("profileDigest", ""))):
-        raise SystemExit("profileEvidence.profileDigest is not a SHA-256 digest")
-    model_classes = []
-    for public_role, configured_role in (
-        ("writer", "query_generate"),
-        ("reviewer", "query_review"),
-    ):
-        role_evidence = profile_evidence.get(public_role)
-        expected_model = expected_role_models[configured_role]
-        if not isinstance(role_evidence, dict) or role_evidence.get("role") != public_role:
-            raise SystemExit(f"profileEvidence.{public_role} is incomplete")
-        if role_evidence.get("modelId") != expected_model:
-            raise SystemExit(
-                f"profileEvidence.{public_role}.modelId does not match {configured_role}"
-            )
-        for field in ("providerId", "modelClass"):
-            if not isinstance(role_evidence.get(field), str) or not role_evidence[field]:
-                raise SystemExit(f"profileEvidence.{public_role}.{field} is required")
-        if not isinstance(role_evidence.get("config"), dict):
-            raise SystemExit(f"profileEvidence.{public_role}.config is required")
-        prompt = role_evidence.get("systemPrompt")
-        if not isinstance(prompt, dict):
-            raise SystemExit(f"profileEvidence.{public_role}.systemPrompt is required")
-        for field in ("promptId", "version", "promptRef", "promptDigest", "text"):
-            if not isinstance(prompt.get(field), str) or not prompt[field]:
-                raise SystemExit(
-                    f"profileEvidence.{public_role}.systemPrompt.{field} is required"
-                )
-        prompt_digest = hashlib.sha256(prompt["text"].encode("utf-8")).hexdigest()
-        if prompt["promptDigest"] != prompt_digest:
-            raise SystemExit(
-                f"profileEvidence.{public_role} prompt digest does not match its text"
-            )
-        model_classes.append(role_evidence["modelClass"])
-    if len(set(model_classes)) != 2:
-        raise SystemExit("follow-up writer and reviewer must use different model classes")
+    if "query_review" not in profile.get("stages", []):
+        raise SystemExit(f"{profile_id} does not run a query_review stage")
 PY
 }
 
