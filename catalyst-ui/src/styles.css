@@ -207,6 +207,7 @@ input {
 }
 
 .query-composer__toolbar .profile-selector {
+  min-width: 0;
   width: min(32rem, 100%);
 }
 
@@ -370,6 +371,9 @@ input {
 .dataset-filters select,
 .dataset-filters input,
 .profile-selector select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 2.5rem;
   padding: 0.5rem;
   border: 0;
