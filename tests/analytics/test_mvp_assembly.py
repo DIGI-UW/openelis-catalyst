@@ -55,7 +55,7 @@ class MvpComposeContractTests(unittest.TestCase):
         expected_context = 'context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"'
         self.assertIn(expected_context, self.compose)
         self.assertIn(
-            'HUB_BUILD_REVISION: "${HUB_BUILD_REVISION:?',
+            'HUB_BUILD_REVISION: "${HUB_BUILD_REVISION:-unknown}"',
             self.compose,
         )
         self.assertIn(
