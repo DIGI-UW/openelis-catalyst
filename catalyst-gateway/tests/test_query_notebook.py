@@ -837,3 +837,20 @@ def test_model_failure_stage_distinguishes_a_succeeded_rejection_from_transport(
         transport_evidence, reviewer=reviewer
     )
     assert (stage, code) == (f"{role}_transport", f"{role}_transport_failed")
+
+
+def test_model_failure_stage_uses_terminal_invocation_role_for_reviewer_timeout() -> (
+    None
+):
+    from src.catalyst.service import CatalystService
+
+    evidence = {
+        "modelInvocations": [
+            {"role": "writer", "outcome": "succeeded"},
+            {"role": "reviewer", "outcome": "timed_out"},
+        ]
+    }
+
+    stage, code = CatalystService._model_failure_stage(evidence, reviewer=False)
+
+    assert (stage, code) == ("reviewer_transport", "reviewer_timeout")

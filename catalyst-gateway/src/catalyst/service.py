@@ -2459,7 +2459,12 @@ class CatalystService:
             else {}
         )
         outcome = str(terminal.get("outcome") or "validation_failed")
-        role = "reviewer" if reviewer else "writer"
+        terminal_role = terminal.get("role")
+        role = (
+            str(terminal_role)
+            if terminal_role in {"writer", "reviewer"}
+            else ("reviewer" if reviewer else "writer")
+        )
         if outcome == "contract_failed":
             return f"{role}_output_contract", f"{role}_output_contract_failed"
         if outcome == "validation_failed":
