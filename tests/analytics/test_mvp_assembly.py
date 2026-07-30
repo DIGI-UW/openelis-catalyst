@@ -71,6 +71,10 @@ class MvpComposeContractTests(unittest.TestCase):
             self.up_script,
         )
         self.assertIn(
+            "urllib.request.urlopen('http://localhost:8080/health', timeout=3)",
+            self.compose,
+        )
+        self.assertIn(
             'build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"',
             (ROOT / "docker-compose.full-stack.yml").read_text(),
         )

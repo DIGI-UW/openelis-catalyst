@@ -194,9 +194,9 @@ services:
       test:
         [
           "CMD",
-          "curl",
-          "-fsS",
-          "http://localhost:8080/health",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)",
         ]
       interval: 10s
       timeout: 5s
