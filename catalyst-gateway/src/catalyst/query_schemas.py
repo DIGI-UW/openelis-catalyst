@@ -159,6 +159,14 @@ class QueryGenerationError(QueryContractError):
         super().__init__(message)
 
 
+class QueryReviewError(QueryContractError):
+    """Review failed after retaining the exact model output as evidence."""
+
+    def __init__(self, message: str, *, raw_output: str) -> None:
+        self.raw_output = raw_output
+        super().__init__(message)
+
+
 class QueryPatchError(QueryContractError):
     """A generation correction patch violated its strict local scope."""
 

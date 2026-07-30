@@ -45,6 +45,7 @@ from .query_schemas import (
     QueryContractError,
     QueryGenerationError,
     QueryPatchError,
+    QueryReviewError,
     patch_format as _patch_format,
     validation_error as _validation_error,
 )
@@ -719,7 +720,7 @@ async def _review(
             invocations[-1], outcome="contract_failed", failure=str(error)
         )
         if not deterministic_findings:
-            raise
+            raise QueryReviewError(str(error), raw_output=content) from error
         if deterministic_findings:
             correction_instruction = (
                 "Your repair JSON failed the strict output contract: "
@@ -769,7 +770,9 @@ async def _review(
                 outcome="contract_failed",
                 failure=str(correction_error),
             )
-            raise
+            raise QueryReviewError(
+                str(correction_error), raw_output=corrected
+            ) from correction_error
         return parsed, 2
 
 
@@ -1502,15 +1505,18 @@ async def execute_query_profile(
                                     },
                                     "finalLintFindings": deepcopy(writer_findings),
                                 }
+                    diagnostic_candidate = {
+                        "executable": False,
+                        "candidate": locals().get("repaired", candidate),
+                    }
+                    if isinstance(exc, QueryReviewError):
+                        diagnostic_candidate["rawOutput"] = exc.raw_output
                     result = _rejected(
                         question,
                         extension,
                         message=f"Query review failed: {exc}",
                         check_name="query_review",
-                        diagnostic_candidate={
-                            "executable": False,
-                            "candidate": locals().get("repaired", candidate),
-                        },
+                        diagnostic_candidate=diagnostic_candidate,
                         profile_id=request.profile.id,
                         model_collaboration=model_collaboration,
                     )

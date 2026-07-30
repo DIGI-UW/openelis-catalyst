@@ -126,6 +126,30 @@ def _reviewed_profile() -> EngineProfile:
     )
 
 
+def _collaborative_profile() -> EngineProfile:
+    return EngineProfile(
+        id="catalyst-query-collaborative",
+        label="Cross-family writer + reviewer",
+        models={"query_generate": "gemma-4-12b", "query_review": "qwen2.5-14b"},
+        knobs={
+            "query_generate": {"temperature": 0, "dry": 0},
+            "query_review": {"temperature": 0, "dry": 0},
+        },
+        prompts={
+            "query_generate": "catalyst-query-generate",
+            "query_review": "catalyst-query-review",
+        },
+        policies={
+            "generation_attempts": 3,
+            "collaborative_review": True,
+            "model_classes": {
+                "query_generate": "gemma-4",
+                "query_review": "qwen2.5",
+            },
+        },
+    )
+
+
 def _queued_backend(responses: list):
     queue = [r if isinstance(r, str) else json.dumps(r) for r in responses]
 
@@ -138,6 +162,45 @@ def _queued_backend(responses: list):
 async def _run(profile: EngineProfile, responses: list) -> dict:
     request = EngineRequest(
         catalyst_query=_extension(),
+        messages=[{"role": "user", "content": QUESTION}],
+        profile=profile,
+    )
+    with patch.object(
+        query_engine, "_backend_chat", side_effect=_queued_backend(responses)
+    ):
+        results = [
+            payload
+            async for kind, payload in execute_query_profile(request)
+            if kind == "result"
+        ]
+    assert len(results) == 1
+    return json.loads(results[0])
+
+
+async def _run_revision(profile: EngineProfile, responses: list) -> dict:
+    extension = _extension()
+    extension["contractVersion"] = "catalyst.query.request.v2"
+    extension["revision"] = {
+        "baseClassification": "reused",
+        "observedBase": {
+            "versionId": "00000000-0000-4000-8000-000000000001",
+            "queryDigest": "a" * 64,
+        },
+        "effectiveBaseVersion": {
+            "versionId": "00000000-0000-4000-8000-000000000001",
+            "queryDigest": "a" * 64,
+        },
+        "editorSnapshot": {
+            "sql": _ready_candidate()["sql"],
+            "parameters": _ready_candidate()["parameters"],
+            "expectedColumns": _ready_candidate()["expectedColumns"],
+            "editorDigest": "a" * 64,
+        },
+        "currentInstruction": QUESTION,
+        "instructionHistory": [],
+    }
+    request = EngineRequest(
+        catalyst_query=extension,
         messages=[{"role": "user", "content": QUESTION}],
         profile=profile,
     )
@@ -181,3 +244,28 @@ async def test_reviewed_path_runs_writer_then_reviewer():
     assert evidence["reviewer"]["modelId"] == "gemma-4-12b-q4"
     # Two model invocations: writer + reviewer.
     assert len(result["_hubEvidence"]["modelInvocations"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
+    malformed_review = {
+        "decision": "repair",
+        "checks": _approve_review()["checks"],
+        "candidate": {
+            "status": "ready",
+            "target": copy.deepcopy(RESPONSE_TARGET),
+        },
+    }
+
+    result = await _run_revision(
+        _collaborative_profile(),
+        [_ready_candidate(), malformed_review],
+    )
+
+    assert result["status"] == "rejected"
+    assert result["diagnosticCandidate"]["rawOutput"] == json.dumps(malformed_review)
+    collaboration = result["modelCollaboration"]
+    assert collaboration["writer"]["candidate"] == _ready_candidate()
+    assert collaboration["writer"]["disposition"] == "retained_unselected"
+    assert collaboration["reviewer"]["decision"] == "failed"
+    assert collaboration["reviewer"]["disposition"] == "diagnostic_only"

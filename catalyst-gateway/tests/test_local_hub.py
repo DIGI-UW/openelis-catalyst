@@ -531,6 +531,7 @@ async def test_gpu_lane_offers_a_full_weight_writer_and_a_cross_family_reviewer(
     assert team.models["query_generate"] != team.models["query_review"]
     classes = team.policies["model_classes"]
     assert classes["query_generate"] != classes["query_review"]
+    assert team.policies["collaborative_review"] is True
 
     # Contrast: the CPU-only "checked" profile is the same model twice.
     assert (

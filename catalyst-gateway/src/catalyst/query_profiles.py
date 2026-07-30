@@ -99,6 +99,7 @@ GPU_WRITER_REVIEWED_TEAM = EngineProfile(
     policies={
         "generation_attempts": 3,
         "allowed_operation": "select",
+        "collaborative_review": True,
         # Distinct classes: this is the cross-family pairing, not a self-check.
         "model_classes": {
             "query_generate": "gemma-4",
