@@ -52,10 +52,26 @@ class MvpComposeContractTests(unittest.TestCase):
             self.assertIn(f"@sha256:{digest}", self.compose)
 
     def test_hub_source_is_injectable_and_standalone_fallback_is_unmodified(self):
-        expected_context = 'build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"'
+        expected_context = 'context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"'
         self.assertIn(expected_context, self.compose)
         self.assertIn(
-            expected_context,
+            'HUB_BUILD_REVISION: "${HUB_BUILD_REVISION:?',
+            self.compose,
+        )
+        self.assertIn(
+            'hub_context="${MED_AGENT_HUB_CONTEXT:-${ROOT_DIR}/.med-agent-hub}"',
+            self.up_script,
+        )
+        self.assertIn(
+            'hub_build_revision="$(git -C "${hub_context}" rev-parse HEAD)"',
+            self.up_script,
+        )
+        self.assertIn(
+            'export HUB_BUILD_REVISION="${hub_build_revision}"',
+            self.up_script,
+        )
+        self.assertIn(
+            'build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"',
             (ROOT / "docker-compose.full-stack.yml").read_text(),
         )
         self.assertIn("MED_AGENT_HUB_CONTEXT", self.up_script)

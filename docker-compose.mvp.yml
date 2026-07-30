@@ -171,7 +171,10 @@ services:
       - openelis-network
 
   med-agent-hub:
-    build: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
+    build:
+      context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
+      args:
+        HUB_BUILD_REVISION: "${HUB_BUILD_REVISION:?mvp-up must export the pinned Hub revision}"
     ports:
       - "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080"
     environment:

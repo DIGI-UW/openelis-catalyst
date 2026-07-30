@@ -161,6 +161,13 @@ if [ -n "${MED_AGENT_HUB_CONTEXT:-}" ]; then
 else
   "${ROOT_DIR}/scripts/bootstrap-med-agent-hub.sh"
 fi
+hub_context="${MED_AGENT_HUB_CONTEXT:-${ROOT_DIR}/.med-agent-hub}"
+hub_build_revision="$(git -C "${hub_context}" rev-parse HEAD)"
+if [[ ! "${hub_build_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ERROR: unable to resolve a 40-character Hub commit from ${hub_context}" >&2
+  exit 1
+fi
+export HUB_BUILD_REVISION="${hub_build_revision}"
 
 compose_all_profiles=("${compose[@]}" --profile fake)
 model_services=()
