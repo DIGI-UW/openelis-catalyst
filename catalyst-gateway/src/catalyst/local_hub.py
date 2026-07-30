@@ -162,6 +162,7 @@ class LocalHub:
             catalyst_query=catalyst_query,
             messages=list(request.get("messages") or []),
             profile=profile,
+            max_tokens=int(profile.knobs["query_generate"]["maxTokens"]),
         )
         result: Optional[dict[str, Any]] = None
         async for kind, payload in execute_query_profile(engine_request):

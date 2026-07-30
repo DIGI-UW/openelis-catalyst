@@ -19,7 +19,12 @@ GPU_WRITER_MODEL = "gemma-4-12b"
 GPU_REVIEWER_MODEL = "qwen2.5-14b"
 WRITER_PROMPT = "catalyst-query-generate"
 REVIEW_PROMPT = "catalyst-query-review"
-_ZERO_KNOBS = {"temperature": 0, "dry": 0}
+MAX_OUTPUT_TOKENS = 1024
+_ZERO_KNOBS = {
+    "temperature": 0,
+    "dry": 0,
+    "maxTokens": MAX_OUTPUT_TOKENS,
+}
 
 # Default: writer-only. No independent review — the writer's candidate passes
 # deterministic lint inside the engine and is finalized directly.

@@ -98,7 +98,7 @@ class EngineProfile:
     id: str
     label: str
     models: Mapping[str, str]
-    knobs: Mapping[str, Mapping[str, float]]
+    knobs: Mapping[str, Mapping[str, Any]]
     prompts: Mapping[str, str]
     policies: Mapping[str, Any] = field(default_factory=dict)
 
@@ -221,7 +221,8 @@ def query_profile_evidence(
         prompt_id = str(profile.prompts[configured_role])
         prompt_text = _load_prompt(prompt_id)
         config = dict(profile.knobs.get(configured_role) or {})
-        config["maxTokens"] = max_tokens
+        if max_tokens is not None:
+            config["maxTokens"] = max_tokens
         return {
             "role": public_role,
             "providerId": _PROVIDER_ID,

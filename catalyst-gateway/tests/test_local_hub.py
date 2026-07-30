@@ -175,12 +175,14 @@ async def test_discovery_lists_profiles_with_matching_evidence():
     assert "reviewer" not in writer_only["profileEvidence"]
     assert "query_review" not in writer_only["stages"]
     assert writer_only["revisionCapable"] is True
+    assert writer_only["profileEvidence"]["writer"]["config"]["maxTokens"] == 1024
     assert writer_only["profileEvidence"]["writer"]["systemPrompt"]["promptRef"] == (
         "catalyst-gateway:src/catalyst/prompts/catalyst-query-generate.txt"
     )
 
     # Reviewed advertises both roles and the review stage.
     assert reviewed["profileEvidence"]["reviewer"]["role"] == "reviewer"
+    assert reviewed["profileEvidence"]["reviewer"]["config"]["maxTokens"] == 1024
     assert "query_review" in reviewed["stages"]
     assert reviewed["profileEvidence"]["reviewer"]["systemPrompt"]["promptRef"] == (
         "catalyst-gateway:src/catalyst/prompts/catalyst-query-review.txt"
@@ -301,10 +303,16 @@ async def test_discovery_fails_closed_when_inventory_cannot_be_verified(
 @pytest.mark.asyncio
 async def test_generate_reviewed_profile_returns_ready_query():
     hub = _hub()
+    calls = []
+
+    async def backend(client, model, messages, **kwargs):
+        calls.append({"model": model, **kwargs})
+        return json.dumps(_ready_candidate() if len(calls) == 1 else _approve_review())
+
     with patch.object(
         query_engine,
         "_backend_chat",
-        side_effect=_queued([_ready_candidate(), _approve_review()]),
+        side_effect=backend,
     ):
         result = await hub.generate_query(
             _request("catalyst-query-gemma-4-12b-q4-checked")
@@ -319,6 +327,7 @@ async def test_generate_reviewed_profile_returns_ready_query():
         result["_hubEvidence"]["profileEvidence"]
         == discovery["catalyst-query-gemma-4-12b-q4-checked"]["profileEvidence"]
     )
+    assert [call["max_tokens"] for call in calls] == [1024, 1024]
 
 
 @pytest.mark.asyncio
@@ -371,7 +380,9 @@ async def test_bundled_profile_resolves_exact_model_without_reviewer():
     assert PROFILES[bundled["id"]] is BUNDLED_WRITER_ONLY
     assert BUNDLED_WRITER_ONLY.models == {"query_generate": BUNDLED_WRITER_MODEL}
     assert BUNDLED_WRITER_MODEL == "qwen2.5-coder-1.5b-instruct-q4_k_m"
-    assert BUNDLED_WRITER_ONLY.knobs == {"query_generate": {"temperature": 0, "dry": 0}}
+    assert BUNDLED_WRITER_ONLY.knobs == {
+        "query_generate": {"temperature": 0, "dry": 0, "maxTokens": 1024}
+    }
     assert BUNDLED_WRITER_ONLY.prompts == {"query_generate": "catalyst-query-generate"}
     assert BUNDLED_WRITER_ONLY.policies["allowed_operation"] == "select"
     assert bundled["role_models"] == {
