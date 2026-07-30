@@ -175,10 +175,16 @@ async def test_discovery_lists_profiles_with_matching_evidence():
     assert "reviewer" not in writer_only["profileEvidence"]
     assert "query_review" not in writer_only["stages"]
     assert writer_only["revisionCapable"] is True
+    assert writer_only["profileEvidence"]["writer"]["systemPrompt"]["promptRef"] == (
+        "catalyst-gateway:src/catalyst/prompts/catalyst-query-generate.txt"
+    )
 
     # Reviewed advertises both roles and the review stage.
     assert reviewed["profileEvidence"]["reviewer"]["role"] == "reviewer"
     assert "query_review" in reviewed["stages"]
+    assert reviewed["profileEvidence"]["reviewer"]["systemPrompt"]["promptRef"] == (
+        "catalyst-gateway:src/catalyst/prompts/catalyst-query-review.txt"
+    )
 
 
 @pytest.mark.asyncio

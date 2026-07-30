@@ -234,7 +234,7 @@ def query_profile_evidence(
             "systemPrompt": {
                 "promptId": prompt_id,
                 "version": "1",
-                "promptRef": f"server/prompts/{prompt_id}.txt",
+                "promptRef": (f"catalyst-gateway:src/catalyst/prompts/{prompt_id}.txt"),
                 "promptDigest": _evidence_digest(prompt_text),
                 "text": prompt_text,
             },
