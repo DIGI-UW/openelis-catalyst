@@ -56,11 +56,15 @@ connection, and structured-output pass-through. It does not interpret the
 Catalyst catalog, choose a query profile, run query lint, or compose query
 roles. Catalyst does not call model-router endpoints directly.
 
-The older `GET /v1/models` and `POST /v1/chat/completions` product-profile
-surface remains relevant to planned report integration and legacy Hub
-consumers, not to the implemented Catalyst query path. Low-level dynamic report
-legs such as `answer:...`, `answer-review:...`, and `indepth-only:...` are
-experimentation interfaces, not stable Catalyst dependencies.
+The `data` entries from `GET /v1/models` and
+`POST /v1/chat/completions` remain Hub product-profile surfaces for planned
+report integration and legacy consumers. Catalyst query generation does not
+depend on those profiles. It consumes only the endpoint's versioned top-level
+`backend` router catalog so Gateway can verify its own exact role-model aliases
+without receiving router credentials or calling the router directly. Low-level
+dynamic report legs such as `answer:...`, `answer-review:...`, and
+`indepth-only:...` are experimentation interfaces, not stable Catalyst
+dependencies.
 
 ## Gateway query-profile policy
 
@@ -85,12 +89,13 @@ revision capability is independent of reviewer presence. A writer-only profile
 has no reviewer invocation or reviewer evidence. A reviewed profile runs writer
 → deterministic lint → reviewer → deterministic re-lint before finalization.
 
-The current demo's query-options registry marks configured profiles available
-and readiness checks Hub process health plus the configured default profile. It
-does not yet probe the router for each configured model. The selected router
-must serve every role model; otherwise the generic Hub call fails and Catalyst
-records a generation/backend failure. Adding an exact model-presence probe is
-future hardening.
+The query-options registry derives live availability from Hub's versioned,
+credential-free router catalog. A profile is available only when the catalog
+advertises every exact writer/reviewer alias it requires. Inventory failure
+fails closed; missing aliases are reported per model, unavailable profiles are
+omitted by the UI, and selection is rejected before model invocation or session
+mutation. Availability is a discovery snapshot, so Catalyst still records a
+truthful generation/backend failure if the backend changes before invocation.
 
 The umbrella harness builds its pinned sibling Hub checkout; standalone
 Catalyst clones the same unmodified Hub commit as a fallback.
@@ -376,9 +381,9 @@ Catalyst reports separate states for:
 
 1. Catalyst process readiness.
 2. Hub health.
-3. Presence of the configured Gateway default query profile.
-4. Model-router readiness currently inferred from Hub health (an exact
-   per-model probe is future hardening).
+3. Availability of at least one configured Gateway query profile whose exact
+   role-model IDs are advertised by the router.
+4. Hub-owned model-router catalog reachability.
 5. Enabled report-profile availability when R4 is implemented.
 6. Analytics catalog and source freshness.
 7. Query execution service readiness.

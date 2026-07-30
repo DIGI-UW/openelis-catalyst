@@ -109,8 +109,8 @@ boundary.
    - Keep catalog semantics, output contracts, and workflow out of Hub.
 4. Configuration and readiness
    - Prove Catalyst requires no model-provider credentials.
-   - Report Hub health and configured profile presence; retain an exact
-     router-model availability probe as follow-up hardening.
+   - Report Hub health and derive live profile availability from Hub's
+     versioned, credential-free router catalog.
 
 ### Ownership rule
 
@@ -121,8 +121,9 @@ by Catalyst.
 
 ### Exit criteria
 
-- Catalyst health distinguishes process health, Hub transport health and
-  configured-profile presence.
+- Catalyst health distinguishes process health, Hub transport health,
+  router-inventory reachability, and whether any configured profile has every
+  required role model.
 - Hub is the only provider/router integration service on the target path;
   Gateway is the only Catalyst query orchestrator.
 - Existing Gateway callers receive stable errors when Hub, a Gateway profile,

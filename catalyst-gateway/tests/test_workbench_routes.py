@@ -403,6 +403,59 @@ class IncompleteProfileHub(FakeHub):
         return profiles
 
 
+class SwitchableAvailabilityHub(FakeHub):
+    available = True
+
+    async def list_query_profiles(self) -> list[dict]:
+        profiles = await super().list_query_profiles()
+        profiles[0]["available"] = self.available
+        profiles[0]["unavailable_reasons"] = (
+            [] if self.available else ["model_not_advertised:gemma-4-12b-q4"]
+        )
+        return profiles
+
+
+class TransportFailureHub(FakeHub):
+    async def generate_query(self, request: dict) -> dict:
+        self.requests.append(deepcopy(request))
+        profile = (await self.list_query_profiles())[0]["profileEvidence"]
+        query = _rejected_query()
+        query.pop("diagnosticCandidate")
+        query["message"] = (
+            "The model backend rejected the query-generation request (HTTP 502)."
+        )
+        timestamp = "2026-07-18T12:00:00Z"
+        query["_hubEvidence"] = {
+            "profileEvidence": profile,
+            "modelInvocations": [
+                {
+                    "invocationId": "00000000-0000-0000-0000-000000000103",
+                    "role": "writer",
+                    "stage": "initial_generation",
+                    "attempt": 1,
+                    "providerId": profile["writer"]["providerId"],
+                    "modelId": profile["writer"]["modelId"],
+                    "configuration": {
+                        "temperature": 0,
+                        "maxTokens": None,
+                        "responseFormat": "json_object",
+                    },
+                    "startedAt": timestamp,
+                    "endedAt": timestamp,
+                    "durationMs": 1,
+                    "requestDigest": canonical_sha256(request),
+                    "responseDigest": None,
+                    "failureDigest": canonical_sha256(
+                        {"status": 502, "role": "writer"}
+                    ),
+                    "outcome": "transport_failed",
+                }
+            ],
+            "totalModelInvocationDurationMs": 1,
+        }
+        return query
+
+
 class FakeAnalytics:
     def __init__(self, error: ManualAnalyticsError | None = None) -> None:
         self.error = error
@@ -544,6 +597,83 @@ def test_initial_generation_rejects_incomplete_profile_evidence_before_events(
     assert response.json()["error"]["code"] == "profile_evidence_unavailable"
     assert _workbench_session_count(tmp_path) == 0
     assert hub.requests == []
+
+
+def test_initial_generation_rejects_runtime_unavailable_profile_before_events(
+    tmp_path: Path,
+) -> None:
+    hub = SwitchableAvailabilityHub(_ready_query())
+    hub.available = False
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+
+    response = client.post(
+        "/v1/catalyst/workbench/sessions",
+        json={
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": QUESTION,
+            "profileId": PROFILE_ID,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "profile_unavailable"
+    assert _workbench_session_count(tmp_path) == 0
+    assert hub.requests == []
+
+
+def test_governed_generation_rejects_runtime_unavailable_profile_before_preview(
+    tmp_path: Path,
+) -> None:
+    hub = SwitchableAvailabilityHub(_ready_query())
+    hub.available = False
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+
+    response = client.post(
+        "/v1/catalyst/queries",
+        json={
+            "contractVersion": "catalyst.question.request.v1",
+            "deploymentMode": "demo",
+            "question": QUESTION,
+            "profileId": PROFILE_ID,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "profile_unavailable"
+    assert _preview_count(tmp_path) == 0
+    assert hub.requests == []
+
+
+def test_initial_backend_rejection_is_retained_as_writer_transport_failure(
+    tmp_path: Path,
+) -> None:
+    hub = TransportFailureHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+
+    session = _create_session(client)
+
+    assert session["currentVersion"] is None
+    assert session["draftSeed"] is None
+    turns = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"]
+    assert len(turns) == 1
+    assert turns[0]["status"] == "failed"
+    failure = turns[0]["failure"]
+    assert failure["stage"] == "writer_transport"
+    assert failure["code"] == "writer_transport_failed"
+    assert failure["message"] == (
+        "The model backend rejected the query-generation request (HTTP 502)."
+    )
+    assert failure["rawEvidenceRef"] is None
+    assert failure["diagnostic"]["retryable"] is True
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{turns[0]['turnId']}/generation-evidence"
+    )
+    assert evidence.status_code == 200
+    assert evidence.json()["invocations"][0]["outcome"] == "transport_failed"
 
 
 def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None:
@@ -1575,6 +1705,44 @@ def test_stale_followup_has_no_turn_event_or_hub_generation_side_effects(
             (session["sessionId"],),
         ).fetchall()
     assert events_after == events_before
+    assert hub.requests == hub_requests_before
+
+
+def test_followup_rejects_runtime_unavailable_profile_before_events(
+    tmp_path: Path,
+) -> None:
+    hub = SwitchableAvailabilityHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    turns_url = f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    timeline_before = client.get(turns_url).json()
+    hub_requests_before = deepcopy(hub.requests)
+    hub.available = False
+
+    response = client.post(
+        turns_url,
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Only include finalized observations",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": base["queryDigest"],
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "profile_unavailable"
+    assert client.get(turns_url).json() == timeline_before
     assert hub.requests == hub_requests_before
 
 

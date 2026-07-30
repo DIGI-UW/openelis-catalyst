@@ -456,6 +456,9 @@ export const QueryWorkspace = ({
   const revisionProfiles = queryOptions?.profiles.filter(
     (profile) => profile.available && profile.revisionCapable === true,
   ) ?? [];
+  const noAvailableProfiles =
+    queryOptions !== null &&
+    !queryOptions.profiles.some((profile) => profile.available);
   const fallbackRevisionProfileId =
     revisionProfiles.find(
       (profile) => profile.id === queryOptions?.defaultProfileId,
@@ -993,7 +996,7 @@ export const QueryWorkspace = ({
         <QuestionForm
           question={question}
           busy={state.kind === "submitting"}
-          disabled={questionIsLocked}
+          disabled={questionIsLocked || noAvailableProfiles}
           onQuestionChange={setQuestion}
           onSubmit={submitQuestion}
           profiles={queryOptions?.profiles ?? []}
@@ -1009,7 +1012,7 @@ export const QueryWorkspace = ({
           }
           message={
             usesWorkbench
-              ? "Med-Agent Hub is generating an editable SQL draft with the selected profile."
+              ? "Catalyst is generating an editable SQL draft with the selected profile."
               : "Catalyst is validating the question and proposed query."
           }
           running

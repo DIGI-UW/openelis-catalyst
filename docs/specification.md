@@ -277,10 +277,13 @@ capability does not depend on having a reviewer. A profile without
 `query_review` is writer-only; a reviewed profile adds the reviewer after the
 writer/deterministic-lint stage.
 
-The current demo marks configured Gateway profiles available and verifies Hub
-process health. The selected router must actually serve every configured role
-model; an explicit router model-presence probe remains future hardening, and a
-missing model currently surfaces as a generation/backend failure.
+Gateway derives profile availability from the versioned, credential-free
+router catalog served by Hub. A profile is advertised as available only when
+every exact writer/reviewer alias is advertised; an unavailable selection is
+rejected before model invocation or session/event creation, without
+substitution. Inventory failure fails closed. Availability is a point-in-time
+observation, so a backend change between discovery and invocation still
+surfaces as a recorded generation/backend failure.
 
 Both roles use `temperature: 0` and `dry: 0`. Gateway sends the latter to Hub as
 `dry_multiplier: 0`; declared role knobs and effective per-invocation

@@ -131,9 +131,12 @@ export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","qu
 
 The profile ID must exist in
 `catalyst-gateway/src/catalyst/query_profiles.py`; each configured role model
-must be served by the selected router. The current demo exposes the
-Gateway-configured profile registry and surfaces an unserved model as a
-generation/backend failure; a model-presence probe is future hardening.
+must be advertised by the selected router. Gateway reads Hub's versioned,
+credential-free router catalog and advertises a profile as available only when
+every exact writer and reviewer alias is present. The UI omits unavailable
+profiles, and Gateway rejects an unavailable selection before creating a
+session or invoking a model. A backend can still change after discovery, so
+generation/backend failure remains a supported residual path.
 
 An optional bundled fallback selects the writer-only
 `catalyst-query-qwen-coder-1.5b` profile, downloads Qwen2.5-Coder 1.5B, and

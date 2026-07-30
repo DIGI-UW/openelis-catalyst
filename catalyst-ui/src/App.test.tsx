@@ -548,7 +548,7 @@ describe("Catalyst query workflow", () => {
       mode: "workbench",
       title: "Generating workbench draft",
       message:
-        "Med-Agent Hub is generating an editable SQL draft with the selected profile.",
+        "Catalyst is generating an editable SQL draft with the selected profile.",
     },
     {
       mode: "legacy preview",
@@ -576,7 +576,7 @@ describe("Catalyst query workflow", () => {
     },
   );
 
-  it("shows the dataset browser and uses the Hub-owned available profile", async () => {
+  it("shows the dataset browser and uses the Gateway-owned available profile", async () => {
     const api = makeApi();
     api.getQueryOptions = vi.fn().mockResolvedValue(queryOptions);
     api.getDatasetOverview = vi.fn().mockResolvedValue({
@@ -1469,6 +1469,31 @@ describe("Catalyst query workflow", () => {
       QUESTION,
       "catalyst-query-gemma-e4b",
     );
+  });
+
+  it("blocks generation when runtime discovery marks every profile unavailable", async () => {
+    const api = makeApi();
+    api.getQueryOptions = vi.fn().mockResolvedValue({
+      ...queryOptions,
+      profiles: queryOptions.profiles.map((profile) => ({
+        ...profile,
+        available: false,
+        unavailableReasons: ["model backend is unavailable"],
+      })),
+    });
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByText(
+        "No configured model profile is currently available.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByLabelText("Model profile")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    expect(screen.getByRole("button", { name: "Generate query" })).toBeDisabled();
+    expect(api.submitQuestion).not.toHaveBeenCalled();
   });
 
   it("keeps the no-profile fallback when query options cannot be loaded", async () => {

@@ -442,7 +442,7 @@ export const TurnNotebook = ({
           {noRevisionProfiles && (
             <p id="catalyst-followup-profile-unavailable" role="status">
               No revision-capable model profile is currently available. Load a
-              different-family writer/reviewer profile to generate the next query.
+              configured model profile to generate the next query.
             </p>
           )}
         </form>

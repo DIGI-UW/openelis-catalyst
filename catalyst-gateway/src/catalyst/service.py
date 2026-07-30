@@ -523,7 +523,11 @@ class CatalystService:
                 enforce_invariants=True,
             )
         except HubError as error:
-            return self._error(502, error.code, str(error))
+            return self._error(
+                422 if error.code == "profile_unavailable" else 502,
+                error.code,
+                str(error),
+            )
         except AnalyticsError as error:
             return self._error(502, "catalog_unavailable", str(error))
         except (ContractError, QueryInvariantError) as error:
@@ -674,7 +678,7 @@ class CatalystService:
                 return self._workbench_error(
                     422,
                     "profile_unavailable",
-                    f"Hub does not advertise available profile {profile_id}.",
+                    f"Gateway does not advertise available profile {profile_id}.",
                 )
             profile_evidence = self._require_profile_evidence(selected_profile)
             initial_profile_snapshot = self._turn_profile_snapshot(selected_profile)
@@ -977,14 +981,22 @@ class CatalystService:
                 validations=validation_payloads,
             )
         else:
-            code = str(
-                generation.body.get("error", {}).get("code") or "generation_failed"
+            evidence = (
+                dict(hub_generation.hub_evidence or {})
+                if hub_generation is not None
+                else {}
             )
-            stage = (
-                "writer_transport"
-                if generation.status_code >= 500 and code != "hub_invalid_response"
-                else "writer_output_contract"
-            )
+            if evidence.get("modelInvocations"):
+                stage, code = self._model_failure_stage(evidence, reviewer=False)
+            else:
+                code = str(
+                    generation.body.get("error", {}).get("code") or "generation_failed"
+                )
+                stage = (
+                    "writer_transport"
+                    if generation.status_code >= 500 and code != "hub_invalid_response"
+                    else "writer_output_contract"
+                )
             store.fail_turn(
                 initial_turn["turnId"],
                 stage=stage,
@@ -996,11 +1008,9 @@ class CatalystService:
                 ),
                 raw_evidence=raw_output,
                 hub_trace_id=self._response_hub_trace_id(generation.body),
-                hub_response=generation.body,
+                hub_response=evidence or generation.body,
                 invocations=self._generation_invocations(
-                    dict(hub_generation.hub_evidence or {})
-                    if hub_generation is not None
-                    else {},
+                    evidence,
                     request=initial_request,
                     response=generation.body,
                     profile_snapshot=initial_turn["profileSnapshot"],
@@ -1142,7 +1152,7 @@ class CatalystService:
                 return self._workbench_error(
                     422,
                     "profile_unavailable",
-                    f"Hub does not advertise available profile {profile_id}.",
+                    f"Gateway does not advertise available profile {profile_id}.",
                 )
             if not self._profile_revision_capable(selected_profile):
                 return self._workbench_error(
@@ -1905,7 +1915,7 @@ class CatalystService:
         if selected_profile is None or selected_profile.get("available") is not True:
             raise HubError(
                 "profile_unavailable",
-                f"Hub does not advertise available profile {profile_id}.",
+                f"Gateway does not advertise available profile {profile_id}.",
             )
 
         runtime_catalog = await self._runtime_catalog()

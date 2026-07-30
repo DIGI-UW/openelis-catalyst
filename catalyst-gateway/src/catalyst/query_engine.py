@@ -1063,6 +1063,23 @@ async def execute_query_profile(
             raise
         except Exception as exc:
             logger.warning("Catalyst query generation failed: %s", exc)
+            if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+                failure_message = (
+                    "The model backend timed out while generating the query."
+                )
+            elif isinstance(exc, httpx.HTTPStatusError):
+                failure_message = (
+                    "The model backend rejected the query-generation request "
+                    f"(HTTP {exc.response.status_code})."
+                )
+            elif isinstance(exc, httpx.HTTPError):
+                failure_message = (
+                    "The model backend request failed while generating the query."
+                )
+            else:
+                failure_message = (
+                    "Query generation failed its structured-output contract."
+                )
             diagnostic_candidate = None
             if isinstance(exc, QueryGenerationError):
                 diagnostic_candidate = {
@@ -1076,7 +1093,7 @@ async def execute_query_profile(
             result = _rejected(
                 question,
                 extension,
-                message="Query generation failed its structured-output contract.",
+                message=failure_message,
                 check_name="query_generate",
                 diagnostic_candidate=diagnostic_candidate,
                 profile_id=request.profile.id,

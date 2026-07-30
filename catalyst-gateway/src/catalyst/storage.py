@@ -2718,7 +2718,9 @@ class WorkbenchStore:
             )
         descriptor = {
             "profileId": profile["profileId"],
-            "profileRef": f"med-agent-hub:/v1/models/{profile['profileId']}",
+            "profileRef": (
+                f"catalyst-gateway:/v1/catalyst/query-options/{profile['profileId']}"
+            ),
             "profileDigest": digest,
             "detail": detail if isinstance(detail, dict) else None,
         }
@@ -2746,7 +2748,8 @@ class WorkbenchStore:
             "profileId": str(profile.get("profileId") or "unknown-profile"),
             "profileRef": str(
                 profile.get("profileRef")
-                or f"med-agent-hub:/v1/models/{profile.get('profileId') or 'unknown'}"
+                or "catalyst-gateway:/v1/catalyst/query-options/"
+                f"{profile.get('profileId') or 'unknown'}"
             ),
             "profileDigest": compact_digest,
             "detail": detail,

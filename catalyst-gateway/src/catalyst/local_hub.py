@@ -58,9 +58,54 @@ class LocalHub:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    @staticmethod
+    def _profile_unavailable_reasons(
+        profile: EngineProfile,
+        advertised_models: set[str] | None,
+        inventory_error: str | None,
+    ) -> list[str]:
+        if inventory_error:
+            return [inventory_error]
+        assert advertised_models is not None
+        return [
+            f"model_not_advertised:{model}"
+            for model in sorted(set(profile.models.values()) - advertised_models)
+        ]
+
+    async def _backend_model_inventory(self) -> tuple[set[str] | None, str | None]:
+        """Read the exact model IDs in the Hub-owned router catalog."""
+        try:
+            response = await self._client.get("/v1/models")
+            response.raise_for_status()
+        except httpx.HTTPError:
+            # The Gateway could not obtain the Hub-owned inventory. That does
+            # not prove whether the model router itself is up or down.
+            return None, "model_inventory_unavailable"
+        try:
+            payload = response.json()
+        except (TypeError, ValueError):
+            return None, "model_inventory_unavailable"
+        backend = payload.get("backend") if isinstance(payload, dict) else None
+        if not isinstance(backend, dict):
+            return None, "model_inventory_unavailable"
+        if (
+            backend.get("contract_version")
+            != "med-agent-hub.backend-model-inventory.v1"
+        ):
+            return None, "model_inventory_unavailable"
+        if backend.get("catalog_reachable") is not True:
+            return None, "model_backend_unreachable"
+        models = backend.get("advertised_model_ids")
+        if not isinstance(models, list) or any(
+            not isinstance(model, str) or not model for model in models
+        ):
+            return None, "model_inventory_unavailable"
+        return set(models), None
+
     def _discovery_entry(
-        self, profile: EngineProfile, *, available: bool
+        self, profile: EngineProfile, *, unavailable_reasons: list[str]
     ) -> dict[str, Any]:
+        available = not unavailable_reasons
         stages = [
             stage
             for stage in _QUERY_STAGES
@@ -74,7 +119,7 @@ class LocalHub:
             "role_models": dict(profile.models),
             "role_knobs": {role: dict(knobs) for role, knobs in profile.knobs.items()},
             "stages": stages,
-            "unavailable_reasons": [] if available else ["model_unavailable"],
+            "unavailable_reasons": unavailable_reasons,
             "capabilities": {
                 "staged": False,
                 "validation": True,
@@ -89,10 +134,14 @@ class LocalHub:
         }
 
     async def list_query_profiles(self) -> list[dict[str, Any]]:
-        # Availability is optimistic for the demo: the configured model is present
-        # on the router. (A model-presence probe can tighten this later.)
+        advertised_models, inventory_error = await self._backend_model_inventory()
         return [
-            self._discovery_entry(profile, available=True)
+            self._discovery_entry(
+                profile,
+                unavailable_reasons=self._profile_unavailable_reasons(
+                    profile, advertised_models, inventory_error
+                ),
+            )
             for profile in self._profiles.values()
         ]
 
@@ -131,12 +180,26 @@ class LocalHub:
         except httpx.HTTPError as error:
             hub_message = str(error)
 
-        default_available = DEFAULT_PROFILE_ID in self._profiles
+        advertised_models, inventory_error = await self._backend_model_inventory()
+        profile_reasons = [
+            self._profile_unavailable_reasons(
+                profile, advertised_models, inventory_error
+            )
+            for profile in self._profiles.values()
+        ]
+        any_profile_available = any(not reasons for reasons in profile_reasons)
         hub_check: dict[str, Any] = {"ready": hub_ready}
         if hub_message:
             hub_check["message"] = hub_message
+        profile_check: dict[str, Any] = {"ready": any_profile_available}
+        if not any_profile_available:
+            profile_check["unavailableReasons"] = (
+                [inventory_error]
+                if inventory_error
+                else ["no_configured_profile_models_available"]
+            )
         return {
             "hub": hub_check,
-            "profile": {"ready": default_available},
-            "modelRouter": {"ready": hub_ready},
+            "queryProfile": profile_check,
+            "modelRouter": {"ready": advertised_models is not None},
         }

@@ -33,9 +33,58 @@ TARGET = {
 
 
 def _hub() -> LocalHub:
+    advertised_models = sorted(
+        {model for profile in PROFILES.values() for model in profile.models.values()}
+    )
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [],
+                    "backend": {
+                        "contract_version": (
+                            "med-agent-hub.backend-model-inventory.v1"
+                        ),
+                        "catalog_reachable": True,
+                        "advertised_model_ids": advertised_models,
+                    },
+                },
+            )
+        return httpx.Response(200, json={"status": "healthy"})
+
     return LocalHub(
         hub_base_url="http://hub",
-        transport=httpx.MockTransport(lambda r: httpx.Response(200)),
+        transport=httpx.MockTransport(transport),
+    )
+
+
+def _hub_with_inventory(
+    advertised_models: set[str], *, backend_reachable: bool = True
+) -> LocalHub:
+    def transport(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [],
+                    "backend": {
+                        "contract_version": (
+                            "med-agent-hub.backend-model-inventory.v1"
+                        ),
+                        "catalog_reachable": backend_reachable,
+                        "advertised_model_ids": sorted(advertised_models),
+                    },
+                },
+            )
+        return httpx.Response(200, json={"status": "healthy"})
+
+    return LocalHub(
+        hub_base_url="http://hub",
+        transport=httpx.MockTransport(transport),
     )
 
 
@@ -133,6 +182,117 @@ async def test_discovery_lists_profiles_with_matching_evidence():
 
 
 @pytest.mark.asyncio
+async def test_discovery_only_marks_profiles_with_all_role_models_available():
+    hub = _hub_with_inventory({"gemma-4-12b", "qwen2.5-14b"})
+    profiles = {profile["id"]: profile for profile in await hub.list_query_profiles()}
+    readiness = await hub.readiness()
+    await hub.aclose()
+
+    assert {
+        profile_id for profile_id, profile in profiles.items() if profile["available"]
+    } == {
+        "catalyst-query-gemma-4-12b",
+        "catalyst-query-gemma-4-12b-qwen2.5-14b-checked",
+    }
+    assert profiles["catalyst-query-gemma-4-12b-q4"]["unavailable_reasons"] == [
+        "model_not_advertised:gemma-4-12b-q4"
+    ]
+    assert profiles["catalyst-query-qwen-coder-1.5b"]["unavailable_reasons"] == [
+        "model_not_advertised:qwen2.5-coder-1.5b-instruct-q4_k_m"
+    ]
+    assert (
+        profiles["catalyst-query-gemma-4-12b-qwen2.5-14b-checked"]["revisionCapable"]
+        is True
+    )
+    assert readiness["queryProfile"]["ready"] is True
+    assert readiness["modelRouter"]["ready"] is True
+
+
+@pytest.mark.asyncio
+async def test_discovery_fails_closed_when_backend_inventory_is_unreachable():
+    hub = _hub_with_inventory(set(), backend_reachable=False)
+    profiles = await hub.list_query_profiles()
+    readiness = await hub.readiness()
+    await hub.aclose()
+
+    assert profiles
+    assert all(profile["available"] is False for profile in profiles)
+    assert all(
+        profile["unavailable_reasons"] == ["model_backend_unreachable"]
+        for profile in profiles
+    )
+    assert readiness["hub"]["ready"] is True
+    assert readiness["queryProfile"] == {
+        "ready": False,
+        "unavailableReasons": ["model_backend_unreachable"],
+    }
+    assert readiness["modelRouter"]["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_discovery_distinguishes_an_empty_reachable_router_catalog():
+    hub = _hub_with_inventory(set())
+    profiles = await hub.list_query_profiles()
+    readiness = await hub.readiness()
+    await hub.aclose()
+
+    assert all(profile["available"] is False for profile in profiles)
+    assert all(
+        profile["unavailable_reasons"]
+        and all(
+            reason.startswith("model_not_advertised:")
+            for reason in profile["unavailable_reasons"]
+        )
+        for profile in profiles
+    )
+    assert readiness["queryProfile"] == {
+        "ready": False,
+        "unavailableReasons": ["no_configured_profile_models_available"],
+    }
+    assert readiness["modelRouter"]["ready"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "payload"),
+    [
+        (503, {"detail": "hub unavailable"}),
+        (200, {"object": "list", "data": []}),
+        (
+            200,
+            {
+                "backend": {
+                    "contract_version": ("med-agent-hub.backend-model-inventory.v1"),
+                    "catalog_reachable": True,
+                    "advertised_model_ids": ["", 42],
+                }
+            },
+        ),
+    ],
+)
+async def test_discovery_fails_closed_when_inventory_cannot_be_verified(
+    status_code: int, payload: dict
+):
+    def transport(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(status_code, json=payload)
+        return httpx.Response(200, json={"status": "healthy"})
+
+    hub = LocalHub(
+        hub_base_url="http://hub",
+        transport=httpx.MockTransport(transport),
+    )
+    profiles = await hub.list_query_profiles()
+    await hub.aclose()
+
+    assert all(profile["available"] is False for profile in profiles)
+    assert all(
+        profile["unavailable_reasons"] == ["model_inventory_unavailable"]
+        for profile in profiles
+    )
+
+
+@pytest.mark.asyncio
 async def test_generate_reviewed_profile_returns_ready_query():
     hub = _hub()
     with patch.object(
@@ -167,6 +327,32 @@ async def test_generate_writer_only_profile_returns_ready_query():
     assert result["status"] == "ready"
     assert result["provenance"]["profileId"] == "catalyst-query-gemma-4-12b-q4"
     assert "reviewer" not in result["_hubEvidence"]["profileEvidence"]
+
+
+@pytest.mark.asyncio
+async def test_generate_records_backend_rejection_as_transport_failure():
+    request = httpx.Request("POST", "http://hub/v1/hub/generate")
+    response = httpx.Response(502, request=request)
+    backend_error = httpx.HTTPStatusError(
+        "model backend returned 502",
+        request=request,
+        response=response,
+    )
+    hub = _hub()
+    with patch.object(query_engine, "_backend_chat", side_effect=backend_error):
+        result = await hub.generate_query(_request("catalyst-query-gemma-4-12b-q4"))
+    await hub.aclose()
+
+    assert result["status"] == "rejected"
+    assert result["message"] == (
+        "The model backend rejected the query-generation request (HTTP 502)."
+    )
+    invocations = result["_hubEvidence"]["modelInvocations"]
+    assert len(invocations) == 1
+    assert invocations[0]["role"] == "writer"
+    assert invocations[0]["outcome"] == "transport_failed"
+    assert invocations[0]["failureDigest"]
+    assert invocations[0]["responseDigest"] is None
 
 
 @pytest.mark.asyncio
@@ -283,6 +469,15 @@ def test_writer_only_generation_evidence_detail_has_writer_no_reviewer():
     assert isinstance(detail, dict)
     assert detail["writer"]["role"] == "writer"
     assert "reviewer" not in detail
+    assert descriptor["profileRef"] == (
+        "catalyst-gateway:/v1/catalyst/query-options/" "catalyst-query-gemma-4-12b-q4"
+    )
+
+    current = query_profile_evidence(WRITER_ONLY)
+    current_descriptor = WorkbenchStore._evidence_profile_descriptor(
+        current, profile_evidence=current
+    )
+    assert current_descriptor["profileRef"] == descriptor["profileRef"]
 
 
 @pytest.mark.asyncio

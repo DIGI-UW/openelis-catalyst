@@ -95,6 +95,11 @@ export const QuestionForm = ({
                 </select>
               </label>
             )}
+            {profiles.length > 0 && availableProfiles.length === 0 && (
+              <p className="query-composer__availability" role="status">
+                No configured model profile is currently available.
+              </p>
+            )}
             <Button
               type="submit"
               renderIcon={ArrowRight}
