@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-completion-v1.schema.json",
   "title": "Catalyst query-profile completion envelope",
-  "description": "OpenAI-compatible blocking completion envelope returned by med-agent-hub for catalyst-query-checked.",
+  "description": "Legacy OpenAI-compatible completion envelope retained for pre-Gateway-orchestration compatibility evidence.",
   "type": "object",
   "required": [
     "id",

@@ -14,6 +14,7 @@ from .query_engine import EngineProfile
 # Q4 writer for the CPU-only demo lane; the full-weight writer and a
 # different-family reviewer for hosts with a GPU to spend.
 WRITER_MODEL = "gemma-4-12b-q4"
+BUNDLED_WRITER_MODEL = "qwen2.5-coder-1.5b-instruct-q4_k_m"
 GPU_WRITER_MODEL = "gemma-4-12b"
 GPU_REVIEWER_MODEL = "qwen2.5-14b"
 WRITER_PROMPT = "catalyst-query-generate"
@@ -48,6 +49,17 @@ WRITER_REVIEWED = EngineProfile(
         "allowed_operation": "select",
         "model_classes": {"query_generate": "gemma-4-q4", "query_review": "gemma-4-q4"},
     },
+)
+
+# Optional bundled lane: the small local GGUF writes once, then deterministic
+# lint decides whether the candidate can be finalized. It has no reviewer role.
+BUNDLED_WRITER_ONLY = EngineProfile(
+    id="catalyst-query-qwen-coder-1.5b",
+    label="Catalyst governed query — Qwen 2.5 Coder 1.5B (Q4, writer only, bundled demo)",
+    models={"query_generate": BUNDLED_WRITER_MODEL},
+    knobs={"query_generate": dict(_ZERO_KNOBS)},
+    prompts={"query_generate": WRITER_PROMPT},
+    policies={"generation_attempts": 3, "allowed_operation": "select"},
 )
 
 # Full-weight writer, no review. The Q4 profiles exist so the demo runs on a
@@ -97,6 +109,7 @@ DEFAULT_PROFILE_ID = WRITER_ONLY.id
 PROFILES: dict[str, EngineProfile] = {
     WRITER_ONLY.id: WRITER_ONLY,
     WRITER_REVIEWED.id: WRITER_REVIEWED,
+    BUNDLED_WRITER_ONLY.id: BUNDLED_WRITER_ONLY,
     GPU_WRITER_ONLY.id: GPU_WRITER_ONLY,
     GPU_WRITER_REVIEWED_TEAM.id: GPU_WRITER_REVIEWED_TEAM,
 }

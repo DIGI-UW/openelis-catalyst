@@ -148,10 +148,13 @@ import json
 import os
 
 role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-expected_roles = {"query_generate", "query_review"}
-if not isinstance(role_models, dict) or set(role_models) != expected_roles:
+allowed_role_sets = (
+    {"query_generate"},
+    {"query_generate", "query_review"},
+)
+if not isinstance(role_models, dict) or set(role_models) not in allowed_role_sets:
     raise SystemExit(
-        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and query_review"
+        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and may map query_review"
     )
 if any(not isinstance(model, str) or not model.strip() for model in role_models.values()):
     raise SystemExit("MVP_EXPECTED_ROLE_MODELS_JSON model IDs must be non-empty strings")

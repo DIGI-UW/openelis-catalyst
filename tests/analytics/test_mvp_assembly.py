@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker-compose.mvp.yml"
 EXTERNAL_REVIEWED_PROFILE_ID = "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
+BUNDLED_WRITER_PROFILE_ID = "catalyst-query-qwen-coder-1.5b"
+BUNDLED_WRITER_MODEL_ID = "qwen2.5-coder-1.5b-instruct-q4_k_m"
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -213,6 +215,38 @@ class MvpComposeContractTests(unittest.TestCase):
             self.compose,
         )
 
+    def test_bundled_router_uses_the_writer_only_gateway_profile(self):
+        self.assertIn(
+            f"MVP_BUNDLED_PROFILE_ID={BUNDLED_WRITER_PROFILE_ID}",
+            self.env,
+        )
+        self.assertIn(
+            f"MVP_BUNDLED_MODEL_ID={BUNDLED_WRITER_MODEL_ID}",
+            self.env,
+        )
+        self.assertIn(
+            "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON='"
+            f'{{"query_generate":"{BUNDLED_WRITER_MODEL_ID}"}}'
+            "'",
+            self.env,
+        )
+
+    def test_fake_router_uses_the_writer_only_gateway_profile(self):
+        self.assertIn(
+            "MVP_FAKE_PROFILE_ID=catalyst-query-gemma-4-12b",
+            self.env,
+        )
+        self.assertIn(
+            "MVP_FAKE_MODEL_ID=gemma-4-12b",
+            self.env,
+        )
+        self.assertIn(
+            "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON='"
+            '{"query_generate":"gemma-4-12b"}'
+            "'",
+            self.env,
+        )
+
     def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
         self.assertIn(
             'router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
@@ -296,9 +330,10 @@ class MvpComposeContractTests(unittest.TestCase):
             self.health_script,
         )
         self.assertIn(
-            '{"query_generate": model_id, "query_review": model_id}',
+            '{"query_generate": model_id}',
             self.model_config_script,
         )
+        self.assertIn('{"query_generate"}', self.health_script)
         self.assertIn("if len(model_ids) == 1:", self.health_script)
         self.assertIn('"roleModels": role_models', self.health_script)
         self.assertIn('"modelIds": model_ids', self.health_script)
@@ -398,23 +433,37 @@ class MvpScriptContractTests(unittest.TestCase):
                 "routerUrl": "http://model-router-fake:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-14b",
                 },
             },
             "local": {
-                "modelId": "qwen2.5-coder-1.5b-instruct-q4_k_m",
-                "profileId": "catalyst-query-qwen-coder-1.5b",
+                "modelId": BUNDLED_WRITER_MODEL_ID,
+                "profileId": BUNDLED_WRITER_PROFILE_ID,
                 "routerUrl": "http://model-router:8077",
                 "roleModels": {
-                    "query_generate": "qwen2.5-coder-1.5b-instruct-q4_k_m",
-                    "query_review": "qwen2.5-coder-1.5b-instruct-q4_k_m",
+                    "query_generate": BUNDLED_WRITER_MODEL_ID,
                 },
             },
         }
         for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
             for backend, backend_expected in expected.items():
                 with self.subTest(script=script_name, backend=backend):
-                    resolved = self._resolved_model_config(script_name, backend)
+                    overrides = {}
+                    if backend in {"fake", "local"}:
+                        # Keep this contract test independent of a developer's
+                        # ignored .env copied from an older branch.
+                        role_map_key = (
+                            "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON"
+                            if backend == "local"
+                            else "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON"
+                        )
+                        overrides[role_map_key] = json.dumps(
+                            backend_expected["roleModels"]
+                        )
+                    resolved = self._resolved_model_config(
+                        script_name,
+                        backend,
+                        **overrides,
+                    )
                     self.assertEqual(resolved["backend"], backend)
                     for key, value in backend_expected.items():
                         self.assertEqual(resolved[key], value)

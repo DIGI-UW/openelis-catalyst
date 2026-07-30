@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-request-v1.schema.json",
   "title": "Catalyst query-profile request",
-  "description": "Planned OpenAI-compatible request extension for the med-agent-hub catalyst-query-checked profile.",
+  "description": "Versioned Catalyst Gateway request envelope for an initial governed-query generation.",
   "type": "object",
   "additionalProperties": false,
   "required": [

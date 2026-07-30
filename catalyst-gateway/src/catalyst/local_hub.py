@@ -81,7 +81,10 @@ class LocalHub:
                 "modelRouter": available,
             },
             "outputContracts": [_OUTPUT_CONTRACT],
-            "revisionCapable": profile.has_review,
+            # Revision support comes from the v2 request context consumed by the
+            # query engine. It does not depend on whether a second model reviews
+            # the writer's complete successor query.
+            "revisionCapable": True,
             "profileEvidence": query_profile_evidence(profile),
         }
 

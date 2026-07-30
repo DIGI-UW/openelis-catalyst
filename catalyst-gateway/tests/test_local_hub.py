@@ -13,7 +13,14 @@ from src.catalyst import query_engine
 from src.catalyst.hub import HubError
 from src.catalyst.local_hub import LocalHub
 from src.catalyst.query_engine import query_profile_evidence
-from src.catalyst.query_profiles import PROFILES, WRITER_ONLY, WRITER_REVIEWED
+from src.catalyst.query_profiles import (
+    BUNDLED_WRITER_MODEL,
+    BUNDLED_WRITER_ONLY,
+    DEFAULT_PROFILE_ID,
+    PROFILES,
+    WRITER_ONLY,
+    WRITER_REVIEWED,
+)
 from src.catalyst.service import CatalystService
 from src.catalyst.storage import WorkbenchStore
 
@@ -104,7 +111,7 @@ def _queued(responses: list):
 
 
 @pytest.mark.asyncio
-async def test_discovery_lists_both_profiles_with_matching_evidence():
+async def test_discovery_lists_profiles_with_matching_evidence():
     hub = _hub()
     profiles = await hub.list_query_profiles()
     await hub.aclose()
@@ -118,7 +125,7 @@ async def test_discovery_lists_both_profiles_with_matching_evidence():
     # Writer-only advertises no reviewer role and no review stage.
     assert "reviewer" not in writer_only["profileEvidence"]
     assert "query_review" not in writer_only["stages"]
-    assert writer_only["revisionCapable"] is False
+    assert writer_only["revisionCapable"] is True
 
     # Reviewed advertises both roles and the review stage.
     assert reviewed["profileEvidence"]["reviewer"]["role"] == "reviewer"
@@ -160,6 +167,86 @@ async def test_generate_writer_only_profile_returns_ready_query():
     assert result["status"] == "ready"
     assert result["provenance"]["profileId"] == "catalyst-query-gemma-4-12b-q4"
     assert "reviewer" not in result["_hubEvidence"]["profileEvidence"]
+
+
+@pytest.mark.asyncio
+async def test_bundled_profile_resolves_exact_model_without_reviewer():
+    hub = _hub()
+    profiles = {profile["id"]: profile for profile in await hub.list_query_profiles()}
+    await hub.aclose()
+
+    bundled = profiles["catalyst-query-qwen-coder-1.5b"]
+    assert PROFILES[bundled["id"]] is BUNDLED_WRITER_ONLY
+    assert BUNDLED_WRITER_ONLY.models == {"query_generate": BUNDLED_WRITER_MODEL}
+    assert BUNDLED_WRITER_MODEL == "qwen2.5-coder-1.5b-instruct-q4_k_m"
+    assert BUNDLED_WRITER_ONLY.knobs == {"query_generate": {"temperature": 0, "dry": 0}}
+    assert BUNDLED_WRITER_ONLY.prompts == {"query_generate": "catalyst-query-generate"}
+    assert BUNDLED_WRITER_ONLY.policies["allowed_operation"] == "select"
+    assert bundled["role_models"] == {
+        "query_generate": "qwen2.5-coder-1.5b-instruct-q4_k_m"
+    }
+    assert bundled["required_models"] == ["qwen2.5-coder-1.5b-instruct-q4_k_m"]
+    assert "reviewer" not in bundled["profileEvidence"]
+    assert "query_review" not in bundled["stages"]
+    assert bundled["revisionCapable"] is True
+    assert DEFAULT_PROFILE_ID == WRITER_ONLY.id
+
+
+@pytest.mark.asyncio
+async def test_bundled_writer_only_profile_accepts_revision_context():
+    request = _request(BUNDLED_WRITER_ONLY.id)
+    base = _ready_candidate()
+    base_digest = "a" * 64
+    request["messages"] = [
+        {"role": "user", "content": "Keep the current query and lower its limit"}
+    ]
+    request["catalystQuery"]["contractVersion"] = "catalyst.query.request.v2"
+    request["catalystQuery"]["revision"] = {
+        "contractVersion": "catalyst.query.revision-context.v1",
+        "turnId": "turn-followup",
+        "currentInstruction": request["messages"][0]["content"],
+        "instructionDigest": "b" * 64,
+        "baseClassification": "stored_version",
+        "observedBase": {"versionId": "query-v1", "queryDigest": base_digest},
+        "effectiveBaseVersion": {
+            "versionId": "query-v1",
+            "queryDigest": base_digest,
+        },
+        "editorSnapshot": {
+            "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+            "sql": base["sql"],
+            "parameters": base["parameters"],
+            "expectedColumns": base["expectedColumns"],
+            "editorDigest": base_digest,
+        },
+        "instructionHistory": [
+            {
+                "turnId": "turn-initial",
+                "instruction": "Show viral load results since 2026-01-01",
+            }
+        ],
+        "validationContext": None,
+        "executionContext": None,
+        "selection": {"omissions": {"prohibitedClasses": []}},
+        "contextDigest": "c" * 64,
+    }
+    calls = []
+
+    async def backend(client, model, messages, **kwargs):
+        calls.append({"model": model, "payload": json.loads(messages[-1]["content"])})
+        return json.dumps(base)
+
+    hub = _hub()
+    with patch.object(query_engine, "_backend_chat", side_effect=backend):
+        result = await hub.generate_query(request)
+    await hub.aclose()
+
+    assert result["status"] == "ready"
+    assert result["provenance"]["profileId"] == BUNDLED_WRITER_ONLY.id
+    assert len(calls) == 1
+    assert calls[0]["model"] == BUNDLED_WRITER_MODEL
+    assert calls[0]["payload"]["instruction"] == request["messages"][0]["content"]
+    assert calls[0]["payload"]["revision"] == request["catalystQuery"]["revision"]
 
 
 def _discovery(profile) -> dict:

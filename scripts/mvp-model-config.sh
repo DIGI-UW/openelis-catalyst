@@ -15,7 +15,7 @@ mvp_resolve_model_config() {
       profile_id="${MVP_PROFILE_ID:-${MVP_FAKE_PROFILE_ID:-catalyst-query-gemma-4-12b}}"
       mode_role_models_json="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
       if [ -z "${mode_role_models_json}" ]; then
-        mode_role_models_json='{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
+        mode_role_models_json='{"query_generate":"gemma-4-12b"}'
       fi
       ;;
     local)
@@ -55,7 +55,7 @@ import json
 import os
 
 model_id = os.environ["MODEL_ID"]
-print(json.dumps({"query_generate": model_id, "query_review": model_id}))
+print(json.dumps({"query_generate": model_id}))
 PY
     )"
   fi

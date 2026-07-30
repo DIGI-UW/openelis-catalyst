@@ -135,12 +135,14 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 
 #### MVP path
 
-med-agent-hub and its local model router own providers, models, prompts, stage
-ordering, review, grounding, and context budgets. Catalyst discovers available
-query profiles and records the selected profile per turn; it does not override
-the profile's model roles or configuration. The standalone bootstrap checks out
-the pinned Hub commit without local patches; the harness owns and pins the same
-Hub repository as a sibling submodule.
+Catalyst Gateway owns governed-query profiles, role-to-model mapping, prompts,
+writer/reviewer stage ordering, deterministic lint/re-lint, and query evidence.
+med-agent-hub provides the generic `POST /v1/hub/generate` model-provider
+boundary and forwards each Gateway-selected role to its local model router.
+Hub's separate clinical-answer/report profiles are not the Catalyst query
+engine. The standalone bootstrap checks out the pinned Hub commit without local
+patches; the harness owns and pins the same Hub repository as a sibling
+submodule.
 
 #### Current prototype
 

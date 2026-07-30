@@ -1,16 +1,17 @@
 # Catalyst
 
-Catalyst is the OpenELIS reporting integration service. Its target architecture
-uses med-agent-hub for all LLM profile, model-team, prompt, review and grounding
-behavior while Catalyst owns trusted data integration, deterministic query
-policy, execution and table output.
+Catalyst is the OpenELIS reporting integration service. For governed query
+generation, Catalyst owns the profile registry, prompts, role-to-model mapping,
+writer/reviewer workflow, deterministic validation, execution, and table
+output. It uses med-agent-hub as the shared local model-provider boundary
+through a generic, single-role generation API.
 
 The current target is a local demo using demo data and local LLMs. Production
 security and real clinical data are future roadmap work.
 
 The first product milestone is:
 
-> Natural-language question → reviewed query → table output
+> Natural-language question → governed query → table output
 
 ## Canonical documentation
 
@@ -28,7 +29,8 @@ capabilities are retained, reassigned, superseded or deferred.
 
 ```text
 OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
-  → Catalyst → med-agent-hub profile → local read-only demo execution → table
+  → Catalyst query engine → med-agent-hub role executor → local model router
+  → Catalyst local read-only demo execution → table
   → optional med-agent-hub report profile
 ```
 
@@ -37,8 +39,11 @@ The query-to-table sandbox implements that path with:
 - a pinned synthetic multi-analyte OpenELIS cohort;
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- Hub-owned Gemma and Qwen generation/review profiles selectable in the UI,
+- Gateway-owned Gemma and Qwen generation/review profiles selectable in the UI,
   with SQL roles fixed at temperature zero and DRY repetition penalty zero;
+- writer → deterministic lint/correction → optional reviewer → deterministic
+  re-lint orchestration in Gateway, with exact role/model/prompt/configuration
+  evidence;
 - deterministic Catalyst SQL policy, explicit preview acceptance, read-only
   execution, typed table contracts, and declared/effective model provenance;
 - a switchable second data source (OpenMRS HIV/ART) alongside OpenELIS —
@@ -101,19 +106,22 @@ cp env.recommended .env
 ```
 
 The recommended configuration connects the containerized Hub to the existing
-host llama.cpp router at `http://host.docker.internal:8077` and selects the
-revision-capable `catalyst-query-gemma-4-12b-coder` profile: Gemma 4 12B writes
-and Qwen 2.5 Coder 1.5B reviews. Both exact model IDs must be served.
+host llama.cpp router at `http://host.docker.internal:8077`. Its external
+verification profile is the Gateway-owned
+`catalyst-query-gemma-4-12b-qwen2.5-14b-checked`: Gemma 4 12B writes and Qwen
+2.5 14B reviews. Both exact model IDs must be served. The product default
+remains the CPU-oriented, writer-only `catalyst-query-gemma-4-12b-q4`; choose
+the cross-family profile in the UI for the recommended external lane.
 Open the sidecar at `http://localhost:3000`.
 
 To use a different OpenAI-compatible server, set its root without a trailing
-`/v1` together with the exact model and Hub profile IDs:
+`/v1` together with the exact model and Gateway profile IDs:
 
 ```bash
 export MVP_MODEL_BACKEND=external
 export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
 export MVP_EXTERNAL_MODEL_ID=my-exact-model-id
-export MVP_EXTERNAL_PROFILE_ID=my-hub-profile-id
+export MVP_EXTERNAL_PROFILE_ID=my-gateway-profile-id
 # For a multi-model profile, map every exact role model for this backend:
 export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","query_review":"reviewer-id"}'
 ./scripts/mvp-up.sh
@@ -121,11 +129,15 @@ export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","qu
 ./scripts/mvp-health.sh
 ```
 
-The server's advertised model IDs must exactly match a configured Hub profile.
-The UI lists only profiles whose required models are currently served.
+The profile ID must exist in
+`catalyst-gateway/src/catalyst/query_profiles.py`; each configured role model
+must be served by the selected router. The current demo exposes the
+Gateway-configured profile registry and surfaces an unserved model as a
+generation/backend failure; a model-presence probe is future hardening.
 
-An optional bundled fallback downloads Qwen2.5-Coder 1.5B and advertises its
-truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
+An optional bundled fallback selects the writer-only
+`catalyst-query-qwen-coder-1.5b` profile, downloads Qwen2.5-Coder 1.5B, and
+advertises its truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
 
 ```bash
 export MVP_MODEL_BACKEND=local
