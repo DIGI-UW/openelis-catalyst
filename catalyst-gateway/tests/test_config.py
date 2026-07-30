@@ -42,6 +42,20 @@ def test_unset_registry_path_yields_default_source_only(monkeypatch) -> None:
     assert config.default_data_source_id == "openelis"
 
 
+def test_query_profile_default_is_configurable(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "CATALYST_QUERY_PROFILE_ID",
+        "catalyst-query-gemma-4-12b-qwen2.5-14b-checked",
+    )
+
+    config = load_config()
+
+    assert (
+        config.default_query_profile_id
+        == "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
+    )
+
+
 def test_set_but_missing_registry_path_fails_boot(monkeypatch, tmp_path: Path) -> None:
     """A configured-but-absent registry is an operator error, not a silent
     fallback to single-source mode (which would hide a broken deployment)."""

@@ -414,6 +414,7 @@ def _service(
     *,
     hub: LineageHub | None = None,
     catalog: Catalog | None = None,
+    default_query_profile_id: str | None = None,
 ) -> tuple[CatalystService, LineageHub, DriftingAnalytics]:
     actual_hub = hub or LineageHub()
     analytics = DriftingAnalytics()
@@ -428,6 +429,7 @@ def _service(
         sql_policy=SqlPolicy(max_rows=2),
         max_rows=2,
         statement_timeout_ms=500,
+        default_query_profile_id=default_query_profile_id,
     )
     return service, actual_hub, analytics
 
@@ -448,6 +450,21 @@ async def test_query_options_exposes_compact_profile_provenance(tmp_path: Path) 
         "query_generate": _profile_evidence()["writer"]["systemPrompt"]["promptDigest"],
         "query_review": _profile_evidence()["reviewer"]["systemPrompt"]["promptDigest"],
     }
+
+
+@pytest.mark.asyncio
+async def test_query_options_uses_runtime_default_profile(tmp_path: Path) -> None:
+    service, _, _ = _service(
+        tmp_path,
+        default_query_profile_id="catalyst-query-gemma-4-12b-qwen2.5-14b-checked",
+    )
+
+    response = await service.query_options()
+
+    assert (
+        response.body["defaultProfileId"]
+        == "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
+    )
 
 
 async def _create_session(service: CatalystService) -> dict:

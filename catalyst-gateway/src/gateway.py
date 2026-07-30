@@ -79,6 +79,7 @@ def _default_catalyst_service() -> CatalystService:
         ),
         data_sources=tuple(bundles),
         default_data_source_id=config.default_data_source_id,
+        default_query_profile_id=config.default_query_profile_id,
     )
 
 

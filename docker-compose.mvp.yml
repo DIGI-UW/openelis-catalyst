@@ -212,6 +212,7 @@ services:
     environment:
       CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
+      CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID:-catalyst-query-gemma-4-12b-q4}"
       CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"

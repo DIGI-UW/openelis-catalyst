@@ -71,6 +71,10 @@ class MvpComposeContractTests(unittest.TestCase):
             self.up_script,
         )
         self.assertIn(
+            'CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID',
+            self.compose,
+        )
+        self.assertIn(
             "urllib.request.urlopen('http://localhost:8080/health', timeout=3)",
             self.compose,
         )

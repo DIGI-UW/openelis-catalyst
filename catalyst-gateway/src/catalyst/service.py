@@ -160,6 +160,7 @@ class CatalystService:
         workbench_store: WorkbenchStore | None = None,
         data_sources: tuple[DataSourceBundle, ...] | None = None,
         default_data_source_id: str | None = None,
+        default_query_profile_id: str | None = None,
     ) -> None:
         self.contracts = contracts
         self.hub = hub
@@ -168,6 +169,7 @@ class CatalystService:
         self.max_rows = max_rows
         self.statement_timeout_ms = statement_timeout_ms
         self.workbench_store = workbench_store
+        self.default_query_profile_id = default_query_profile_id or QUERY_PROFILE_ID
         # Data-source registry. When bundles are not supplied (e.g. unit tests
         # that build a single-source service), derive one bundle wrapping the
         # ctor catalog/analytics so every path routes through the registry.
@@ -298,7 +300,7 @@ class CatalystService:
             200,
             {
                 "contractVersion": "catalyst.query-options.v1",
-                "defaultProfileId": QUERY_PROFILE_ID,
+                "defaultProfileId": self.default_query_profile_id,
                 "profiles": [
                     {
                         "id": profile.get("id"),
