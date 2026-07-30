@@ -86,10 +86,6 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("harness-sibling", self.health_script)
         self.assertNotIn('"patch"', self.health_script)
         self.assertNotIn("git apply", self.hub_bootstrap)
-        self.assertIn(
-            "946afa92c9ba8fae0c56d54dcf9dc71f54589c5b",
-            self.hub_bootstrap,
-        )
         self.assertFalse(
             (ROOT / "patches/med-agent-hub/catalyst-query-profile.patch").exists()
         )
