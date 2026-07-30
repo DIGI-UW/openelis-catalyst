@@ -492,6 +492,7 @@ def test_failed_retained_writer_uses_final_evidence_ref_and_hub_trace(
     final_ref = failed["generationEvidenceRef"]
     assert failed["hubTraceId"] == "hub-trace-failed"
     assert evidence["correlation"]["hubTraceId"] == "hub-trace-failed"
+    assert evidence["candidates"][-1]["role"] == "reviewer"
     assert retained["provenance"]["generationEvidenceRef"] == final_ref
     assert failed["outputVersions"][0]["generationEvidenceRef"] == final_ref
     assert final_ref["evidenceDigest"] == evidence["evidenceDigest"]

@@ -2516,11 +2516,21 @@ class WorkbenchStore:
             for index, output in enumerate(turn["outputVersions"])
         ]
         if raw_evidence is not None:
+            terminal_role = (
+                invocations[-1].get("role")
+                if invocations and isinstance(invocations[-1], dict)
+                else None
+            )
+            if terminal_role not in {"writer", "reviewer"}:
+                failure_stage = str((turn.get("failure") or {}).get("stage") or "")
+                terminal_role = (
+                    "reviewer" if failure_stage.startswith("reviewer") else "writer"
+                )
             evidence["candidates"].append(
                 {
                     "candidateId": candidate_ids[len(turn["outputVersions"])],
                     "attemptOrdinal": len(evidence["candidates"]) + 1,
-                    "role": "writer",
+                    "role": terminal_role,
                     "candidateDigest": None,
                     "disposition": "diagnostic_only",
                     "versionRef": None,

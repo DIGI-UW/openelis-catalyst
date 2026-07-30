@@ -21,6 +21,7 @@ from src.catalyst.query_engine import (
 )
 
 QUESTION = "Show viral load results since 2026-01-01 with value and release date"
+FOLLOWUP = "Keep the current query and preserve its columns."
 VIEW_NAME = "analytics.lab_result_fact_v1"
 TARGET = {
     "dataSource": "openelis-demo-analytics",
@@ -150,10 +151,12 @@ def _collaborative_profile() -> EngineProfile:
     )
 
 
-def _queued_backend(responses: list):
+def _queued_backend(responses: list, captured_messages: list | None = None):
     queue = [r if isinstance(r, str) else json.dumps(r) for r in responses]
 
     async def fake_backend(client, model, messages, **kwargs) -> str:
+        if captured_messages is not None:
+            captured_messages.append(copy.deepcopy(messages))
         return queue.pop(0)
 
     return fake_backend
@@ -177,7 +180,12 @@ async def _run(profile: EngineProfile, responses: list) -> dict:
     return json.loads(results[0])
 
 
-async def _run_revision(profile: EngineProfile, responses: list) -> dict:
+async def _run_revision(
+    profile: EngineProfile,
+    responses: list,
+    *,
+    captured_messages: list | None = None,
+) -> dict:
     extension = _extension()
     extension["contractVersion"] = "catalyst.query.request.v2"
     extension["revision"] = {
@@ -196,16 +204,18 @@ async def _run_revision(profile: EngineProfile, responses: list) -> dict:
             "expectedColumns": _ready_candidate()["expectedColumns"],
             "editorDigest": "a" * 64,
         },
-        "currentInstruction": QUESTION,
-        "instructionHistory": [],
+        "currentInstruction": FOLLOWUP,
+        "instructionHistory": [{"kind": "initial", "instruction": QUESTION}],
     }
     request = EngineRequest(
         catalyst_query=extension,
-        messages=[{"role": "user", "content": QUESTION}],
+        messages=[{"role": "user", "content": FOLLOWUP}],
         profile=profile,
     )
     with patch.object(
-        query_engine, "_backend_chat", side_effect=_queued_backend(responses)
+        query_engine,
+        "_backend_chat",
+        side_effect=_queued_backend(responses, captured_messages),
     ):
         results = [
             payload
@@ -248,6 +258,7 @@ async def test_reviewed_path_runs_writer_then_reviewer():
 
 @pytest.mark.asyncio
 async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
+    captured_messages = []
     malformed_review = {
         "decision": "repair",
         "checks": _approve_review()["checks"],
@@ -260,9 +271,14 @@ async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
     result = await _run_revision(
         _collaborative_profile(),
         [_ready_candidate(), malformed_review],
+        captured_messages=captured_messages,
     )
 
     assert result["status"] == "rejected"
+    reviewer_request = json.loads(captured_messages[1][-1]["content"])
+    assert reviewer_request["question"] == FOLLOWUP
+    assert reviewer_request["instruction"] == FOLLOWUP
+    assert reviewer_request["revision"]["currentInstruction"] == FOLLOWUP
     assert result["diagnosticCandidate"]["rawOutput"] == json.dumps(malformed_review)
     collaboration = result["modelCollaboration"]
     assert collaboration["writer"]["candidate"] == _ready_candidate()

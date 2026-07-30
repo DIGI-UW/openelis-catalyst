@@ -55,7 +55,6 @@ from .query_parse import (
     _candidate_matches_catalog,
     _canonical_target,
     _contract_lint_finding,
-    _initial_question,
     _lint_validation_checks,
     _missing_name_findings,
     _missing_parameter_name_paths,
@@ -125,14 +124,8 @@ def _request_payload(
     candidate: Optional[Mapping[str, Any]] = None,
     review_attempt: Optional[int] = None,
     deterministic_findings: Optional[list[dict[str, Any]]] = None,
-    stateless_review: bool = False,
 ) -> Dict[str, Any]:
     instruction = str(request.messages[0]["content"])
-    if stateless_review:
-        # Review is a stateless check on every turn: the same context the
-        # first review saw (the session's original question), with only the
-        # candidate updated. No revision artifact, history, or writer feedback.
-        instruction = _initial_question(extension) or instruction
     payload: Dict[str, Any] = {
         "question": instruction,
         "target": _canonical_target(extension),
@@ -141,10 +134,7 @@ def _request_payload(
         "requiredOutputContract": extension["requiredOutputContract"],
         "correlation": extension["correlation"],
     }
-    if (
-        extension.get("contractVersion") == "catalyst.query.request.v2"
-        and not stateless_review
-    ):
+    if extension.get("contractVersion") == "catalyst.query.request.v2":
         payload["instruction"] = instruction
         payload["revision"] = deepcopy(extension["revision"])
     if candidate is not None:
@@ -684,7 +674,6 @@ async def _review(
                     candidate=candidate,
                     review_attempt=attempt,
                     deterministic_findings=deterministic_findings,
-                    stateless_review=not deterministic_findings,
                 ),
                 separators=(",", ":"),
             ),
