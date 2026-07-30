@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker-compose.mvp.yml"
+EXTERNAL_REVIEWED_PROFILE_ID = "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -189,7 +190,10 @@ class MvpComposeContractTests(unittest.TestCase):
             "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
         )
         self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-4-12b", self.env)
-        self.assertIn("MVP_EXTERNAL_PROFILE_ID=catalyst-query-gemma-4-12b", self.env)
+        self.assertIn(
+            f"MVP_EXTERNAL_PROFILE_ID={EXTERNAL_REVIEWED_PROFILE_ID}",
+            self.env,
+        )
         self.assertIn(
             "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='"
             '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
@@ -276,15 +280,19 @@ class MvpComposeContractTests(unittest.TestCase):
             self.health_script,
         )
         self.assertIn(
-            'profile_evidence = profile.get("profileEvidence")',
+            'provenance = profile.get("provenance")',
             self.health_script,
         )
         self.assertIn(
-            'if profile_evidence.get("profileId") != profile_id:',
+            'if provenance.get("profileId") != profile_id:',
             self.health_script,
         )
         self.assertIn(
-            'if role_evidence.get("modelId") != expected_model:',
+            'if provenance.get("profileLabel") != profile.get("label"):',
+            self.health_script,
+        )
+        self.assertIn(
+            'if not str(provenance.get("profileConfigurationDigest", "")):',
             self.health_script,
         )
         self.assertIn(
@@ -377,7 +385,7 @@ class MvpScriptContractTests(unittest.TestCase):
         expected = {
             "external": {
                 "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b",
+                "profileId": EXTERNAL_REVIEWED_PROFILE_ID,
                 "routerUrl": "http://host.docker.internal:8077",
                 "roleModels": {
                     "query_generate": "gemma-4-12b",
