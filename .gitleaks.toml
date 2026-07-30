@@ -1,0 +1,46 @@
+# gitleaks configuration for the Catalyst repository.
+#
+# This repo is cloned and scanned on its own, so it carries its own config
+# rather than relying on the superproject's.
+#
+# Every entry below is a value that is deliberately public: a documented
+# placeholder or a test fixture. The allowlists match on the literal values
+# rather than on the files that contain them, so a genuine credential
+# appearing in the same file still gets reported.
+#
+# Note on how to run this: `gitleaks git .` scans what the repository actually
+# contains. `gitleaks dir .` also walks gitignored paths — the vendored
+# .fhir-data-pipes checkout and logs/, which holds real TLS material the MVP
+# health script copies out of the OpenELIS container. Neither is tracked; the
+# path allowlist below keeps a casual `dir` scan from drowning in them.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Demo placeholders and test fixtures. demo-only-change-me and
+demo-readonly-change-me are the analytics database passwords the demo stack
+ships with — the name is the instruction, and they are published in
+env.recommended and both compose files. idempotency-123 is a fixed value in a
+UI test fixture so the assertion has something stable to compare against.
+"""
+regexes = [
+  '''demo-only-change-me''',
+  '''demo-readonly-change-me''',
+  '''idempotency-123''',
+]
+
+[[allowlists]]
+description = """
+Gitignored paths: an upstream fhir-data-pipes checkout vendored for bootstrap,
+and runtime TLS material under logs/. Neither is tracked — confirmed with
+`git ls-files` — so a finding here is scanner noise from the working tree,
+not repository content.
+"""
+paths = [
+  '''(^|/)\.fhir-data-pipes/''',
+  '''(^|/)logs/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+]
