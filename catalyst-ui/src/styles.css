@@ -121,7 +121,7 @@ input {
   flex-wrap: wrap;
 }
 
-.session-strip__meta {
+.app-shell__session-meta {
   color: #525252;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

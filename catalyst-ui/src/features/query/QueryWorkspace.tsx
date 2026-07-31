@@ -973,7 +973,7 @@ export const QueryWorkspace = ({
             </label>
           )}
           {workbenchSession && (
-            <span className="session-strip__meta">
+            <span className="app-shell__session-meta">
               Session {workbenchSession.sessionId.slice(0, 8)}
               {workbenchTimeline
                 ? ` · ${workbenchTimeline.turns.length} turn${
