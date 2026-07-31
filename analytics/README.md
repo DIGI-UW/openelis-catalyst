@@ -172,6 +172,58 @@ discovers every relation and column the configured read-only role can select
 and uses that same catalog for model grounding, editor completion, and
 validation.
 
+### `datasetBrowser`: which relation the dataset view reads
+
+The catalog also carries a `datasetBrowser` block, copied through from
+`catalog-overlay.json` verbatim because it is a curation decision the database
+cannot answer. The dataset view renders one generic shape — subject, category,
+value, unit, timestamps — and every source spells those differently: here the
+category is `test_name` on `analytics.lab_result_fact_v1`, while the OpenMRS
+HIV source calls it `concept_name` on `analytics.hiv_observation_fact_v1`.
+
+```json
+"datasetBrowser": {
+  "factView": "analytics.lab_result_fact_v1",
+  "identityColumn": "observation_id",
+  "subjectColumn": "patient_id",
+  "categoryColumn": "test_name",
+  "observedAtColumn": "observed_at",
+  "valueColumn": "result_value",
+  "unitColumn": "result_unit",
+  "issuedAtColumn": "issued_at",
+  "durationColumn": "receipt_to_release_minutes"
+}
+```
+
+Only `factView` and the identity/subject/category/observedAt columns are
+required; a source without a unit, an issued time, or a turnaround interval
+reports those as null rather than inventing them. A source whose value is
+coded or textual rather than numeric can list `valueFallbackColumns`, which are
+coalesced in order for display — without them a source like the HIV one renders
+an empty value on most rows, because its answers live in `value_coded_name`
+rather than `value_numeric`.
+
+Every identifier is checked at catalog load: it must be a plain lowercase SQL
+identifier and must exist in the named view, so a typo fails on startup naming
+the offending column instead of reaching the database. A catalog with no
+`datasetBrowser` is still fully queryable — the block only governs the dataset
+view, which reports that this source is unconfigured rather than guessing
+another source's column names.
+
+## More than one data source
+
+This directory is one source's slice. Catalyst registers additional sources
+through `CATALYST_DATA_SOURCES_PATH`, a JSON registry naming each source's id,
+label, `analyticsDsn`, and `catalogPath`. Each source is independent: its own
+database, its own generated catalog, its own `datasetBrowser` mapping. Nothing
+here is shared with another source, and a turn targets exactly one of them, so
+switching sources mid-session cannot mix schemas.
+
+The second source shipped with the demo (OpenMRS HIV/ART) lives outside this
+repository, in the harness's `catalyst-sources/openmrs-hiv/`, because it brings
+its own ingestion pipeline and database. See `DEMO-DEPLOY.md` for how a
+directory of extra sources is mounted into the demo stack.
+
 `contracts/pipeline-run-v1.schema.json` and
 `analytics.pipeline_run_v1` define the run metadata contract. The controller
 does not populate Catalyst-specific metadata itself. The deployment wrapper
