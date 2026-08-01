@@ -71,3 +71,27 @@ def load_fhir_config() -> FhirConfig:
         timeout_s=float(os.getenv("OE2_FHIR_TIMEOUT_S", "15")),
         verify_tls=os.getenv("OE2_FHIR_VERIFY_TLS", "false").lower() == "true",
     )
+
+
+@dataclass(frozen=True)
+class HapiConfig:
+    """OE2's HAPI FHIR sidecar (feature 011, Story 4 parity probe only).
+
+    Not used by the answer path (see FhirConfig) — its TLS listener demands
+    a client certificate this POC does not provision, so every read against
+    it is expected to fail with a transport-layer error. The parity probe
+    exists to record that failure as a documented, non-blocking gap-log
+    entry rather than to actually retrieve data from it.
+    """
+
+    base_url: str
+    timeout_s: float
+    verify_tls: bool = False
+
+
+def load_hapi_config() -> HapiConfig:
+    return HapiConfig(
+        base_url=os.getenv("OE2_HAPI_BASE_URL", "https://localhost:8444/fhir").rstrip("/"),
+        timeout_s=float(os.getenv("OE2_HAPI_TIMEOUT_S", "10")),
+        verify_tls=os.getenv("OE2_HAPI_VERIFY_TLS", "false").lower() == "true",
+    )
