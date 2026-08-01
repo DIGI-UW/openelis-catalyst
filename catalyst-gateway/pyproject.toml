@@ -25,4 +25,5 @@ dev = [
     "mypy>=1.14.0,<2.0.0",
     "pre-commit>=4.0.0,<5.0.0",
     "types-requests>=2.32.0",
+    "jsonschema>=4.23.0,<5.0.0",  # sidecar_response.schema.json contract test (feature 011)
 ]

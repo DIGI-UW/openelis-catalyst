@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Optional
 
 import httpx
@@ -42,19 +43,50 @@ class A2AClient:
         async for event in client.send_message(message):
             final_task = event[0] if isinstance(event, tuple) else event
 
-        sql_text = ""
+        response_text = ""
         if final_task and getattr(final_task, "artifacts", None):
             parts = final_task.artifacts[-1].parts
             if parts and hasattr(parts[0].root, "text"):
-                sql_text = parts[0].root.text
+                response_text = parts[0].root.text
+
+        completion_id = payload.get("id", "catalyst-m0")
+
+        # feature 011: the FHIR sidecar agent returns a JSON-encoded
+        # sidecar_response.schema.json payload (answer/facts/citations/
+        # uiBlocks/provenance). Merge it into the OpenAI-shaped envelope so
+        # `answer` doubles as choices[0].message.content and generic OpenAI
+        # clients keep working, while Catalyst-aware clients (the sidecar UI,
+        # the harness adapter) read the additive fields. Older agents
+        # (sqlgen's plain-SQL-text artifact) fall back to the legacy
+        # plain-text envelope below.
+        sidecar_response: Optional[Dict[str, Any]] = None
+        try:
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict) and "answer" in parsed:
+                sidecar_response = parsed
+        except (ValueError, TypeError):
+            sidecar_response = None
+
+        if sidecar_response is not None:
+            envelope = dict(sidecar_response)
+            envelope["id"] = completion_id
+            envelope["object"] = "chat.completion"
+            envelope["choices"] = [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": sidecar_response["answer"]},
+                    "finish_reason": "stop",
+                }
+            ]
+            return envelope
 
         return {
-            "id": payload.get("id", "catalyst-m0"),
+            "id": completion_id,
             "object": "chat.completion",
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": sql_text},
+                    "message": {"role": "assistant", "content": response_text},
                     "finish_reason": "stop",
                 }
             ],

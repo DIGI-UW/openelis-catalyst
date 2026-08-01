@@ -5,11 +5,14 @@ SchemaAgent calls MCP get_query_context to retrieve relevant schema metadata
 based on the user's natural language query.
 """
 
+import pytest
+
 from src import mcp_client
 from src.agents import schema_executor
 
 
-def test_schema_executor_calls_mcp_get_query_context(monkeypatch):
+@pytest.mark.asyncio
+async def test_schema_executor_calls_mcp_get_query_context(monkeypatch):
     """
     Test that SchemaAgent calls MCP get_query_context and returns schema context.
 
@@ -20,7 +23,7 @@ def test_schema_executor_calls_mcp_get_query_context(monkeypatch):
     """
 
     # Mock MCP get_query_context to return sample schema
-    def mock_get_query_context(query: str) -> dict:
+    async def mock_get_query_context(query: str) -> dict:
         return {
             "tables": ["sample", "analysis"],
             "schema": "sample(id, entered_date)\nanalysis(id, sample_id, test_name)",
@@ -29,7 +32,7 @@ def test_schema_executor_calls_mcp_get_query_context(monkeypatch):
     monkeypatch.setattr(mcp_client, "get_query_context", mock_get_query_context)
 
     # Call schema executor
-    result = schema_executor.get_schema_context("count samples today")
+    result = await schema_executor.get_schema_context("count samples today")
 
     # Verify result contains schema context
     assert "tables" in result
@@ -39,7 +42,8 @@ def test_schema_executor_calls_mcp_get_query_context(monkeypatch):
     assert "sample(id, entered_date)" in result["schema"]
 
 
-def test_schema_executor_passes_query_to_mcp(monkeypatch):
+@pytest.mark.asyncio
+async def test_schema_executor_passes_query_to_mcp(monkeypatch):
     """
     Test that SchemaAgent passes the user query to MCP for context retrieval.
 
@@ -48,7 +52,7 @@ def test_schema_executor_passes_query_to_mcp(monkeypatch):
     """
     captured_query = None
 
-    def mock_get_query_context(query: str) -> dict:
+    async def mock_get_query_context(query: str) -> dict:
         nonlocal captured_query
         captured_query = query
         return {"tables": ["test"], "schema": "test(id, name)"}
@@ -57,23 +61,24 @@ def test_schema_executor_passes_query_to_mcp(monkeypatch):
 
     # Call with specific query
     user_query = "What tests are available?"
-    schema_executor.get_schema_context(user_query)
+    await schema_executor.get_schema_context(user_query)
 
     # Verify query was passed to MCP
     assert captured_query == user_query
 
 
-def test_schema_executor_returns_empty_on_no_tables(monkeypatch):
+@pytest.mark.asyncio
+async def test_schema_executor_returns_empty_on_no_tables(monkeypatch):
     """
     Test SchemaAgent handles case where MCP returns no relevant tables.
     """
 
-    def mock_get_query_context(query: str) -> dict:
+    async def mock_get_query_context(query: str) -> dict:
         return {"tables": [], "schema": ""}
 
     monkeypatch.setattr(mcp_client, "get_query_context", mock_get_query_context)
 
-    result = schema_executor.get_schema_context("unknown query")
+    result = await schema_executor.get_schema_context("unknown query")
 
     assert "tables" in result
     assert len(result["tables"]) == 0

@@ -21,7 +21,7 @@ from .. import mcp_client
 logger = logging.getLogger(__name__)
 
 
-def get_schema_context(user_query: str) -> dict[str, Any]:
+async def get_schema_context(user_query: str) -> dict[str, Any]:
     """
     Retrieve relevant schema context for a user query via MCP.
 
@@ -33,7 +33,7 @@ def get_schema_context(user_query: str) -> dict[str, Any]:
             - tables: List of relevant table names
             - schema: Schema metadata (DDL, relationships, etc.)
     """
-    return mcp_client.get_query_context(user_query)
+    return await mcp_client.get_query_context(user_query)
 
 
 class SchemaAgentExecutor(AgentExecutor):
@@ -64,7 +64,7 @@ class SchemaAgentExecutor(AgentExecutor):
         )
 
         # Get schema context via MCP
-        schema_context = get_schema_context(query)
+        schema_context = await get_schema_context(query)
 
         # Return schema context as artifact (JSON for A2A/interop consumers)
         await task_updater.add_artifact(

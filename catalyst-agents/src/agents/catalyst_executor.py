@@ -1,5 +1,5 @@
+import json
 import logging
-from typing import Any
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -7,24 +7,21 @@ from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, TaskState, TextPart
 from a2a.utils import new_agent_text_message, new_task
 
-from .. import mcp_client
-from ..config import load_llm_config
-from ..llm_clients import create_llm_client
+from .. import fhir_grounding
 
 logger = logging.getLogger(__name__)
 
 
-def generate_sql(user_query: str) -> dict[str, Any]:
-    """Generate SQL from natural language query using configured LLM provider."""
-    schema = mcp_client.get_schema()
-    config = load_llm_config()
-    client = create_llm_client(config)
-    prompt = f"Schema:\n{schema}\n\nQuestion:\n{user_query}\n\nSQL:"
-    sql = client.generate_sql(prompt)
-    return {"sql": sql, "schema": schema}
-
-
 class CatalystAgentExecutor(AgentExecutor):
+    """Answers the FHIR sidecar POC's canonical lab questions (feature 011).
+
+    Replaces the earlier M0.0 NL-to-SQL flow (generate_sql against a mocked
+    schema) with FHIR-grounded question answering against OE2's embedded FHIR
+    provider — see ../fhir_grounding.py. The response is JSON-serialized (the
+    full sidecar_response.schema.json shape) into the A2A text artifact;
+    catalyst-gateway's a2a_client.py parses it back out.
+    """
+
     async def execute(
         self,
         context: RequestContext,
@@ -37,18 +34,18 @@ class CatalystAgentExecutor(AgentExecutor):
         await task_updater.update_status(
             TaskState.working,
             new_agent_text_message(
-                "Generating SQL from schema context.",
+                "Resolving patient and fetching FHIR resources.",
                 task.context_id,
                 task.id,
             ),
         )
 
-        result = generate_sql(query)
-        sql_text = result["sql"]
+        response = await fhir_grounding.answer_question(query)
+        response_text = json.dumps(response)
 
         await task_updater.add_artifact(
-            [Part(root=TextPart(text=sql_text))],
-            name="generated_sql",
+            [Part(root=TextPart(text=response_text))],
+            name="sidecar_response",
         )
         await task_updater.complete()
 

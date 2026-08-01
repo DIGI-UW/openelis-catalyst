@@ -13,6 +13,12 @@ class LLMClient(Protocol):
         """Generate SQL from natural language prompt."""
         ...
 
+    def complete(self, prompt: str, system: str) -> str:
+        """Generic text completion with an explicit system prompt (feature 011:
+        FHIR answer synthesis) — distinct from generate_sql, which hardcodes a
+        SQL-specific system prompt unsuitable for other tasks."""
+        ...
+
 
 class LMStudioClient:
     """LM Studio client (local OpenAI-compatible API)."""
@@ -49,6 +55,24 @@ class LMStudioClient:
             result = response.json()
             return result["choices"][0]["message"]["content"].strip()
 
+    def complete(self, prompt: str, system: str) -> str:
+        with httpx.Client() as client:
+            response = client.post(
+                f"{self._base_url}/chat/completions",
+                json={
+                    "model": self._model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.1,
+                },
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+
 
 class GeminiClient:
     """Google Gemini client (cloud provider)."""
@@ -67,6 +91,21 @@ class GeminiClient:
             model=self._model,
             contents=prompt,
             config=types.GenerateContentConfig(
+                temperature=0.1,
+                top_p=0.95,
+                top_k=40,
+            ),
+        )
+        return response.text.strip()
+
+    def complete(self, prompt: str, system: str) -> str:
+        from google.genai import types
+
+        response = self._client.models.generate_content(
+            model=self._model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
                 temperature=0.1,
                 top_p=0.95,
                 top_k=40,

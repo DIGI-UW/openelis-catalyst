@@ -1,15 +1,26 @@
+"""Router -> Catalyst delegation integration test (feature 011).
+
+Verifies RouterAgentExecutor.delegate_query_single_agent correctly forwards
+a question and returns whatever text artifact the downstream agent produced
+— now a JSON sidecar_response payload (feature 011) rather than raw SQL text.
+This test only exercises the router's delegation plumbing (via a fake A2A
+client, as before); it does not re-test fhir_grounding's own logic (see
+test_fhir_grounding.py) or the executor's JSON-artifact wiring (see
+test_catalyst_agent.py).
+"""
+
+import json
+
 import pytest
 from a2a.types import Part, TextPart
 
-from src import llm_clients, mcp_client
-from src.agents.catalyst_executor import generate_sql
 from src.agents.router_executor import RouterAgentExecutor
 
 
 class _FakeArtifact:
     def __init__(self, text: str) -> None:
         self.parts = [Part(root=TextPart(text=text))]
-        self.name = "generated_sql"
+        self.name = "sidecar_response"
 
 
 class _FakeTask:
@@ -18,39 +29,40 @@ class _FakeTask:
 
 
 class _FakeClient:
-    def __init__(self, sql: str) -> None:
-        self._sql = sql
+    def __init__(self, response_text: str) -> None:
+        self._response_text = response_text
 
     async def send_message(self, message):
-        yield _FakeTask(self._sql)
+        yield _FakeTask(self._response_text)
 
 
 @pytest.mark.asyncio
-async def test_router_to_catalyst_to_mcp_flow(monkeypatch):
-    monkeypatch.setattr(mcp_client, "get_schema", lambda: "sample\nanalysis")
-
-    # Mock LMStudioClient.generate_sql method to return expected SQL
-    def mock_generate_sql(self, prompt: str) -> str:
-        return "SELECT COUNT(*) FROM sample"
-
-    monkeypatch.setattr(llm_clients.LMStudioClient, "generate_sql", mock_generate_sql)
-
-    sql_result = generate_sql("count samples")["sql"]
-    # Verify sql_result is what we expect
-    assert (
-        sql_result == "SELECT COUNT(*) FROM sample"
-    ), f"Expected 'SELECT COUNT(*) FROM sample', got '{sql_result}'"
+async def test_router_delegates_to_catalyst_and_returns_its_artifact():
+    fake_sidecar_response = {
+        "answer": "No service requests found for this patient.",
+        "facts": [],
+        "citations": [],
+        "uiBlocks": [],
+        "provenance": {
+            "fhir_surface": "embedded",
+            "fhir_base_url": "https://localhost:18443/OpenELIS-Global/fhir",
+            "tools_called": ["search_patient", "get_service_requests"],
+            "resource_ids": ["Patient/1"],
+        },
+    }
+    response_text = json.dumps(fake_sidecar_response)
 
     executor = RouterAgentExecutor()
-    executor.mode = "single"  # Use single-agent mode for this test
+    executor.mode = "single"  # Use single-agent mode (CatalystAgent) for this test
 
     async def _fake_create_client(agent_url: str):
-        return _FakeClient(sql_result)
+        return _FakeClient(response_text)
 
-    monkeypatch.setattr(executor, "_create_client", _fake_create_client)
-    parts = await executor.delegate_query_single_agent("count samples")
-    # Verify the parts contain the expected SQL
-    assert len(parts) > 0, "Should have at least one part"
-    assert (
-        parts[0].root.text == "SELECT COUNT(*) FROM sample"
-    ), f"Expected 'SELECT COUNT(*) FROM sample', got '{parts[0].root.text}'"
+    executor._create_client = _fake_create_client  # type: ignore[method-assign]
+
+    parts = await executor.delegate_query_single_agent(
+        "What tests were ordered for patient E2E-PAT-001?"
+    )
+
+    assert len(parts) == 1
+    assert json.loads(parts[0].root.text) == fake_sidecar_response

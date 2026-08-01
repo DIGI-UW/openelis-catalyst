@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv>=1.0.1,<2.0.0",
     "mcp>=1.1.2,<2.0.0",
     "psycopg2-binary>=2.9.9,<3.0.0",  # For M1+ PostgreSQL schema extraction
+    "httpx>=0.27.0,<1.0.0",  # OE2 embedded FHIR provider client (feature 011)
 ]
 
 [project.optional-dependencies]

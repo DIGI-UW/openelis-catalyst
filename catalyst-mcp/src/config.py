@@ -41,3 +41,33 @@ def load_database_config() -> Optional[DatabaseConfig]:
         password=os.getenv("MCP_DB_PASSWORD", ""),
         schema=os.getenv("MCP_DB_SCHEMA", "clinlims"),
     )
+
+
+@dataclass(frozen=True)
+class FhirConfig:
+    """OE2 embedded FHIR provider configuration (feature 011).
+
+    Primary data-access surface for the FHIR sidecar POC. Named "embedded" to
+    distinguish it from OE2's separate HAPI FHIR sidecar container, which
+    requires a client TLS certificate this POC does not provision (see
+    specs/011-catalyst-fhir-sidecar-poc/research.md item 5) and is only used
+    by the Story 4 parity probe, not this config.
+    """
+
+    base_url: str
+    username: str
+    password: str
+    timeout_s: float
+    verify_tls: bool = False  # local dev uses OE2's self-signed cert
+
+
+def load_fhir_config() -> FhirConfig:
+    return FhirConfig(
+        base_url=os.getenv(
+            "OE2_FHIR_BASE_URL", "https://localhost:18443/OpenELIS-Global/fhir"
+        ).rstrip("/"),
+        username=os.getenv("OE2_FHIR_USERNAME", "admin"),
+        password=os.getenv("OE2_FHIR_PASSWORD", ""),
+        timeout_s=float(os.getenv("OE2_FHIR_TIMEOUT_S", "15")),
+        verify_tls=os.getenv("OE2_FHIR_VERIFY_TLS", "false").lower() == "true",
+    )
