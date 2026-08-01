@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Catalyst — Lab Report Sidecar</title>
+<style>{% include "style.css.inc" %}</style>
+</head>
+<body>
+  <main class="page">
+    <h1>Catalyst Lab Sidecar</h1>
+    <p class="tagline">Ask a question about a patient's lab record. Every answer is cited against OE2's live FHIR data — no citation, no claim.</p>
+
+    <form method="post" action="/sidecar/ask" class="ask-form">
+      <label for="question">Question</label>
+      <textarea id="question" name="question" rows="3" placeholder="e.g. What tests were ordered for patient E2E-PAT-001?">{{ question or "" }}</textarea>
+      <button type="submit">Ask</button>
+    </form>
+
+    <p class="examples">
+      Try: <em>Show recent lab results for patient E2E-PAT-001.</em> ·
+      <em>What tests were ordered for patient E2E-PAT-002?</em> ·
+      <em>Summarize abnormal results for patient E2E-PAT-003.</em>
+    </p>
+
+    {% if response %}
+      {% include "response.html" %}
+    {% endif %}
+  </main>
+</body>
+</html>

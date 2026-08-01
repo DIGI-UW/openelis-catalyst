@@ -13,6 +13,8 @@ dependencies = [
     "httpx>=0.28.1,<0.29.0",
     "python-dotenv>=1.2.2,<2.0.0",
     "a2a-sdk[http-server]>=0.3.22,<0.4.0",
+    "jinja2>=3.1.0,<4.0.0",  # sidecar report UI templates (feature 011)
+    "python-multipart>=0.0.12,<0.1.0",  # FastAPI Form() parsing for /sidecar/ask (feature 011)
 ]
 
 [project.optional-dependencies]

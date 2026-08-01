@@ -1,0 +1,67 @@
+<div class="answer-panel">
+  {% if response.citations|length == 0 %}
+    <span class="abstained-badge">No data found</span>
+  {% endif %}
+  <h2>Answer</h2>
+  <p>{{ answer_html|safe }}</p>
+</div>
+
+{% if response.citations %}
+<section class="panel">
+  <h2>Evidence</h2>
+  <div class="evidence-cards">
+    {% for c in response.citations %}
+    <div class="evidence-card">
+      <div class="badge">{{ c.resourceType }}</div>
+      <div>{{ c.display }}</div>
+      <div class="rid">[{{ c.index }}] {{ c.resourceType }}/{{ c.id }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% for block in response.uiBlocks %}
+  {% if block.type == "lab_result_table" and block.rows %}
+  <section class="panel">
+    <h2>Lab Results</h2>
+    <table class="lab-results">
+      <thead>
+        <tr><th>Test</th><th>Value</th><th>Unit</th><th>Ref. range</th><th>Flag</th><th>Date</th></tr>
+      </thead>
+      <tbody>
+        {% for row in block.rows %}
+        <tr>
+          <td>{{ row.test }}</td>
+          <td>{{ row.value }}</td>
+          <td>{{ row.unit }}</td>
+          <td>{{ row.refRange }}</td>
+          <td class="{% if row.flag and row.flag != 'N' %}flag-abnormal{% endif %}">{{ row.flag or "" }}</td>
+          <td>{{ row.date }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% elif block.type == "lab_timeline" and block.events %}
+  <section class="panel">
+    <h2>Lab Timeline</h2>
+    <ul class="timeline">
+      {% for event in block.events %}
+      <li class="{% if event.flag == 'abnormal' %}abnormal{% endif %}">
+        <strong>{{ event.date or "unknown date" }}</strong> — {{ event.display }} ({{ event.resourceType }})
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+{% endfor %}
+
+<details class="debug-drawer">
+  <summary>Debug: FHIR query plan</summary>
+  <p><strong>FHIR surface:</strong> {{ response.provenance.fhir_surface }} ({{ response.provenance.fhir_base_url }})</p>
+  <p><strong>Tools called:</strong> {{ response.provenance.tools_called|join(", ") if response.provenance.tools_called else "none (abstained before any tool call)" }}</p>
+  <p><strong>Resource IDs checked:</strong> {{ response.provenance.resource_ids|join(", ") if response.provenance.resource_ids else "none" }}</p>
+  <p><strong>Raw response:</strong></p>
+  <pre>{{ response_json }}</pre>
+</details>
