@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 import sqlglot
@@ -21,6 +22,59 @@ class QueryInvariantError(ValueError):
     def __init__(self, violations: list[Violation]) -> None:
         self.violations = violations
         super().__init__("; ".join(item.message for item in violations))
+
+
+def _phrase_in_question(question: str, phrase: str) -> bool:
+    pattern = rf"(?<!\w){re.escape(phrase.strip())}(?!\w)"
+    return re.search(pattern, question, flags=re.IGNORECASE) is not None
+
+
+def _named_semantic_requirements(
+    question: str, catalog: dict[str, Any]
+) -> list[tuple[str, str]]:
+    requirements: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for view in catalog.get("views", []):
+        for dimension in view.get("semanticDimensions", []):
+            if dimension.get("semanticType") != "analyte":
+                continue
+            field = str(dimension.get("field", ""))
+            for value in dimension.get("values", []):
+                canonical = str(value.get("canonical", ""))
+                phrases = [canonical, *value.get("aliases", [])]
+                if not canonical or not any(
+                    _phrase_in_question(question, phrase) for phrase in phrases
+                ):
+                    continue
+                key = (field.casefold(), canonical.casefold())
+                if key not in seen:
+                    requirements.append((field, canonical))
+                    seen.add(key)
+    return requirements
+
+
+def _predicate_parameter_names(statement: exp.Expression, field: str) -> set[str]:
+    names: set[str] = set()
+
+    def is_field(node: exp.Expression | None) -> bool:
+        return isinstance(node, exp.Column) and node.name.casefold() == field.casefold()
+
+    for predicate in statement.find_all(exp.EQ):
+        left = predicate.args.get("this")
+        right = predicate.args.get("expression")
+        if is_field(left) and isinstance(right, exp.Placeholder) and right.name:
+            names.add(right.name)
+        elif is_field(right) and isinstance(left, exp.Placeholder) and left.name:
+            names.add(left.name)
+    for predicate in statement.find_all(exp.In):
+        if not is_field(predicate.args.get("this")):
+            continue
+        names.update(
+            placeholder.name
+            for placeholder in predicate.expressions
+            if isinstance(placeholder, exp.Placeholder) and placeholder.name
+        )
+    return names
 
 
 def validate_query_invariants(
@@ -62,18 +116,6 @@ def validate_query_invariants(
                 )
             )
 
-        approved_catalog = {
-            view["name"] for view in context["catalog"].get("views", [])
-        }
-        returned_views = target.get("approvedViews", [])
-        if any(view not in approved_catalog for view in returned_views):
-            violations.append(
-                Violation(
-                    "unapproved_view",
-                    "Hub response names a view outside the approved catalog.",
-                )
-            )
-
         parameters = query.get("parameters", [])
         names = [parameter.get("name") for parameter in parameters]
         if len(names) != len(set(names)):
@@ -85,8 +127,12 @@ def validate_query_invariants(
             )
 
         placeholders: set[str] = set()
+        statements: list[exp.Expression | None] = []
         try:
-            for statement in sqlglot.parse(query.get("sql", ""), read="postgres"):
+            statements = sqlglot.parse(query.get("sql", ""), read="postgres")
+            for statement in statements:
+                if statement is None:
+                    continue
                 placeholders.update(
                     node.name
                     for node in statement.find_all(exp.Placeholder)
@@ -103,6 +149,28 @@ def validate_query_invariants(
                 )
             )
 
+        if len(statements) == 1 and statements[0] is not None:
+            parameter_values = {
+                parameter.get("name"): parameter.get("value")
+                for parameter in parameters
+            }
+            for field, canonical in _named_semantic_requirements(
+                expected_question, context["catalog"]
+            ):
+                bound_names = _predicate_parameter_names(statements[0], field)
+                if not any(
+                    str(parameter_values.get(name, "")).casefold()
+                    == canonical.casefold()
+                    for name in bound_names
+                ):
+                    violations.append(
+                        Violation(
+                            "missing_semantic_filter",
+                            f"The named analyte {canonical!r} must be constrained "
+                            f"by {field} using its canonical bound value.",
+                        )
+                    )
+
     if violations:
         raise QueryInvariantError(violations)
 
@@ -116,7 +184,7 @@ class SqlPolicy:
         self,
         query: dict[str, Any],
         *,
-        approved_views: set[str],
+        available_relations: set[str] | None = None,
     ) -> list[Violation]:
         sql = query.get("sql", "")
         try:
@@ -172,32 +240,33 @@ class SqlPolicy:
             for cte in statement.find_all(exp.CTE)
             if cte.alias_or_name
         }
-        referenced_views = {
+        referenced_relations = {
             self._table_name(table)
             for table in statement.find_all(exp.Table)
-            if table.name.casefold() not in cte_names
+            if not (
+                not table.catalog
+                and not table.db
+                and table.name.casefold() in cte_names
+            )
             and table.find_ancestor(exp.Into) is None
         }
-        approved_folded = {view.casefold() for view in approved_views}
-        invalid_views = sorted(
-            view for view in referenced_views if view.casefold() not in approved_folded
-        )
-        if invalid_views or not referenced_views:
-            detail = ", ".join(invalid_views) if invalid_views else "none"
-            violations.append(
-                Violation(
-                    "unapproved_view",
-                    f"Query references unapproved analytics views: {detail}.",
-                )
+        if available_relations is not None:
+            available_folded = {relation.casefold() for relation in available_relations}
+            missing_relations = sorted(
+                relation
+                for relation in referenced_relations
+                if relation.casefold() not in available_folded
             )
-
-        if self._has_unbound_predicate_literal(statement):
-            violations.append(
-                Violation(
-                    "unbound_literal",
-                    "Predicate values from the question must use named parameters.",
+            if missing_relations:
+                violations.append(
+                    Violation(
+                        "relation_not_found",
+                        "Query references relations not present in the current "
+                        "readable PostgreSQL schema: "
+                        + ", ".join(missing_relations)
+                        + ".",
+                    )
                 )
-            )
 
         limit = statement.args.get("limit")
         if limit is not None:
@@ -222,30 +291,6 @@ class SqlPolicy:
             )
             if part
         )
-
-    @staticmethod
-    def _has_unbound_predicate_literal(statement: exp.Expression) -> bool:
-        predicate_types = (
-            exp.EQ,
-            exp.NEQ,
-            exp.GT,
-            exp.GTE,
-            exp.LT,
-            exp.LTE,
-            exp.Between,
-            exp.In,
-            exp.Like,
-            exp.ILike,
-        )
-        for literal in statement.find_all(exp.Literal):
-            if literal.find_ancestor(exp.Limit) is not None:
-                continue
-            if any(
-                literal.find_ancestor(node_type) is not None
-                for node_type in predicate_types
-            ):
-                return True
-        return False
 
     @staticmethod
     def _limit_value(

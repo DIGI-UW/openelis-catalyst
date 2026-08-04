@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-request-v1.schema.json",
   "title": "Catalyst query-profile request",
-  "description": "Planned OpenAI-compatible request extension for the med-agent-hub catalyst-query-checked profile.",
+  "description": "Versioned Catalyst Gateway request envelope for an initial governed-query generation.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,7 +13,9 @@
   ],
   "properties": {
     "model": {
-      "const": "catalyst-query-checked"
+      "type": "string",
+      "pattern": "^catalyst-query-",
+      "minLength": 1
     },
     "stream": {
       "const": false
@@ -187,6 +189,54 @@
         },
         "relationships": {
           "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "semanticDimensions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/semanticDimension"
+          }
+        }
+      }
+    },
+    "semanticDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "semanticType", "values"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "semanticType": {
+          "const": "analyte"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/semanticValue"
+          }
+        }
+      }
+    },
+    "semanticValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical", "aliases"],
+      "properties": {
+        "canonical": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
           "items": {
             "type": "string",
             "minLength": 1

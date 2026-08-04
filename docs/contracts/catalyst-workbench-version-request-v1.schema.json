@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-workbench-version-request-v1.schema.json",
+  "title": "Catalyst manual workbench query-version request",
+  "type": "object",
+  "additionalProperties": false,
+  "dependentRequired": {
+    "parentVersionId": ["parentQueryDigest"],
+    "parentQueryDigest": ["parentVersionId"]
+  },
+  "required": [
+    "contractVersion",
+    "sql",
+    "parameters"
+  ],
+  "properties": {
+    "contractVersion": {"const": "catalyst.workbench.version.request.v1"},
+    "parentVersionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when the session already has a query version; omitted only for its first human draft."
+    },
+    "parentQueryDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Required with parentVersionId; omitted only for a parentless first human draft."
+    },
+    "dataSourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Data source this version targets; omitted, it inherits the session's last-targeted source."
+    },
+    "sql": {"type": "string", "minLength": 1},
+    "parameters": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/parameter"}
+    },
+    "expectedColumns": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/column"}
+    }
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "source", "value"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "date-time",
+            "string-list",
+            "integer-list"
+          ]
+        },
+        "source": {"enum": ["question", "human"]},
+        "value": {}
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "logicalType", "nullable"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "logicalType": {
+          "enum": ["string", "integer", "decimal", "boolean", "date", "date-time"]
+        },
+        "nullable": {"type": "boolean"},
+        "unit": {"type": "string"}
+      }
+    }
+  }
+}

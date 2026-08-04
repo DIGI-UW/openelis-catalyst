@@ -2,6 +2,7 @@
   color: #161616;
   background: #f4f4f4;
   font-synthesis: none;
+  scroll-padding-block: 4rem 5rem;
   text-rendering: optimizeLegibility;
 }
 
@@ -19,7 +20,9 @@ body {
 }
 
 button,
-textarea {
+textarea,
+select,
+input {
   font: inherit;
 }
 
@@ -53,10 +56,52 @@ textarea {
   margin: 0;
 }
 
+.demo-banner__message {
+  flex: 1 1 18rem;
+}
+
+.ask-openelis-navigation {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.ask-openelis-jump[data-visible="false"] {
+  display: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .app-shell {
   width: min(100% - 2rem, 76rem);
   padding: 2rem 0 5rem;
   margin: 0 auto;
+}
+
+.app-shell--with-query-dock {
+  padding-bottom: calc(25rem + env(safe-area-inset-bottom));
+}
+
+:root:has(.turn-composer[data-minimized="false"]) {
+  scroll-padding-block-end: calc(23rem + env(safe-area-inset-bottom));
+}
+
+:root:has(.turn-composer[data-minimized="true"]) {
+  scroll-padding-block-end: calc(8rem + env(safe-area-inset-bottom));
+}
+
+.app-shell--with-query-dock:has(.turn-composer[data-minimized="true"]) {
+  padding-bottom: calc(8rem + env(safe-area-inset-bottom));
 }
 
 .app-shell__intro {
@@ -77,6 +122,29 @@ textarea {
   font-weight: 600;
 }
 
+.app-shell__session-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.app-shell__session-meta {
+  color: #525252;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.query-turn__source {
+  background: #e0e0e0;
+  color: #161616;
+  border-radius: 0.75rem;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  align-self: center;
+}
+
 .query-card {
   padding: clamp(1rem, 3vw, 2rem);
   border-top: 4px solid #0f62fe;
@@ -86,9 +154,307 @@ textarea {
 }
 
 .query-card--question {
+  position: fixed;
+  z-index: 90;
+  bottom: 0;
+  left: 50%;
+  overflow-y: auto;
+  width: min(calc(100% - 2rem), 76rem);
+  max-height: min(24rem, calc(100dvh - 2rem));
+  padding: 1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
+  margin: 0;
+  scroll-margin-block: 4rem;
+  box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%);
+  transform: translateX(-50%);
+}
+
+.query-composer__heading {
+  margin-bottom: 0.375rem;
+}
+
+.query-card--question .query-composer__heading h1 {
+  font-size: clamp(1rem, 1.4vw, 1.15rem);
+  font-weight: 600;
+}
+
+.query-composer__heading h1:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: 0.25rem;
+}
+
+.query-composer-form {
+  max-width: 58rem;
+}
+
+.query-composer {
+  overflow: hidden;
+  border: 1px solid #8d8d8d;
+  background: #f4f4f4;
+}
+
+.query-composer__input {
+  padding: 1.25rem 1.25rem 0;
+  background: #fff;
+}
+
+.query-composer__input .cds--text-area {
+  min-height: 8.5rem;
+  border-bottom-color: transparent;
+  background: #fff;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.query-composer__toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #c6c6c6;
+}
+
+.query-composer__toolbar .profile-selector {
+  min-width: 0;
+  width: min(32rem, 100%);
+}
+
+.dataset-browser {
+  border-top-color: #8a3ffc;
+}
+
+.dataset-metrics {
   display: grid;
-  gap: 2rem;
-  grid-template-columns: minmax(15rem, 0.75fr) minmax(20rem, 1.25fr);
+  padding: 0;
+  margin: 0 0 1.5rem;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: #e0e0e0;
+}
+
+.dataset-metrics > div {
+  padding: 1rem;
+  background: #f4f4f4;
+}
+
+.dataset-metrics dt {
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.dataset-metrics dd {
+  margin: 0.35rem 0 0;
+  font-size: 1.25rem;
+}
+
+.dataset-browser__rows {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+}
+
+.dataset-browser__details .cds--accordion__content {
+  padding-inline-end: 0;
+}
+
+.dataset-schema {
+  margin: 0 0 1rem;
+}
+
+.dataset-schema__heading {
+  margin-bottom: 1rem;
+}
+
+.dataset-schema__heading h2 {
+  margin: 0 0 0.35rem;
+  font-weight: 500;
+}
+
+.dataset-schema__heading p,
+.dataset-schema__grain {
+  margin: 0;
+  color: #525252;
+  line-height: 1.5;
+}
+
+.dataset-schema__relations {
+  border-top: 1px solid #c6c6c6;
+}
+
+.dataset-schema__relation-title,
+.dataset-schema__relation-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dataset-schema__relation-title {
+  width: 100%;
+  padding-right: 1rem;
+}
+
+.dataset-schema__relation-title > span {
+  flex: none;
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.dataset-schema__relation-title code,
+.dataset-schema td code {
+  overflow-wrap: anywhere;
+}
+
+.dataset-schema__grain {
+  font-size: 0.875rem;
+}
+
+.dataset-schema__relation-details {
+  padding-block: 0.5rem 1rem;
+}
+
+.dataset-schema__relation-meta {
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.dataset-schema__table-wrap {
+  overflow-x: auto;
+}
+
+.dataset-browser table,
+.dataset-schema table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.dataset-browser caption,
+.dataset-schema caption {
+  padding: 0.75rem 1rem;
+  color: #525252;
+  text-align: left;
+}
+
+.dataset-browser th,
+.dataset-browser td,
+.dataset-schema th,
+.dataset-schema td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e0e0e0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dataset-browser thead th,
+.dataset-schema thead th {
+  background: #e8e8e8;
+}
+
+.dataset-browser tbody tr:nth-child(even),
+.dataset-schema tbody tr:nth-child(even) {
+  background: #f4f4f4;
+}
+
+.dataset-schema td:last-child {
+  min-width: 16rem;
+  white-space: normal;
+}
+
+.dataset-filters {
+  display: grid;
+  align-items: end;
+  gap: 1rem;
+  grid-template-columns: 1fr 1fr auto;
+  margin: 1.5rem 0 1rem;
+}
+
+.dataset-filters label,
+.profile-selector {
+  display: grid;
+  gap: 0.4rem;
+  color: #525252;
+  font-size: 0.875rem;
+}
+
+.dataset-filters select,
+.dataset-filters input,
+.profile-selector select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem;
+  border: 0;
+  border-bottom: 1px solid #8d8d8d;
+  background: #f4f4f4;
+}
+
+.dataset-pagination {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dataset-browser__message {
+  padding: 0.75rem;
+  border-left: 3px solid #da1e28;
+  background: #fff1f1;
+}
+
+.dataset-browser__empty {
+  padding: 2rem 1rem;
+  border: 1px dashed #8d8d8d;
+  color: #525252;
+  text-align: center;
+}
+
+.reasoning-trace {
+  padding: 1rem;
+  border-left: 3px solid #8a3ffc;
+  background: #f7f2ff;
+}
+
+.reasoning-stages {
+  display: flex;
+  padding: 0;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.reasoning-stages li {
+  padding: 0.4rem 0.6rem;
+  background: #e8daff;
+  font-size: 0.8rem;
+}
+
+.reasoning-models {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.reasoning-models div {
+  padding: 0.5rem 0;
+}
+
+.reasoning-models dt {
+  color: #6f6f6f;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.reasoning-models dd {
+  margin: 0.2rem 0 0;
+}
+
+.reasoning-checks {
+  padding: 0;
+  list-style: none;
+}
+
+.reasoning-checks li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
 }
 
 .section-heading {
@@ -209,6 +575,53 @@ textarea {
   padding-left: 1.25rem;
 }
 
+.diagnostic-candidate {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #c6c6c6;
+}
+
+.diagnostic-candidate__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.diagnostic-candidate__heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.diagnostic-parameters {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.diagnostic-parameters > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) 1fr;
+  gap: 1rem;
+}
+
+.diagnostic-parameters dt,
+.diagnostic-parameters dd {
+  margin: 0;
+}
+
+.diagnostic-attempts > li + li {
+  margin-top: 1rem;
+}
+
+.diagnostic-attempts ul {
+  margin-top: 0.5rem;
+}
+
+.diagnostic-attempts p {
+  margin: 0.25rem 0 0;
+  color: #525252;
+}
+
 .execution-state__heading {
   margin-bottom: 1rem;
 }
@@ -282,12 +695,44 @@ textarea {
     display: block;
   }
 
+  .app-shell--with-query-dock {
+    padding-bottom: calc(26rem + env(safe-area-inset-bottom));
+  }
+
+  .query-card--question {
+    left: 0;
+    width: 100%;
+    max-height: min(26rem, calc(100dvh - 2rem));
+    transform: none;
+  }
+
+  .demo-banner__inner {
+    flex-wrap: wrap;
+  }
+
   .app-shell__intro p + p {
     margin-top: 0.375rem;
   }
 
-  .query-card--question {
+  .query-composer__toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .query-composer__toolbar .cds--btn {
+    width: 100%;
+  }
+
+  .dataset-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dataset-filters {
     grid-template-columns: 1fr;
+  }
+
+  .reasoning-stages {
+    flex-direction: column;
   }
 
   .preview-metadata,
@@ -296,10 +741,51 @@ textarea {
   }
 }
 
+@media (max-height: 36rem) {
+  .query-card--question {
+    max-height: calc(100dvh - 2.75rem);
+  }
+
+  .query-card--question .query-composer__heading {
+    display: none;
+  }
+
+  .query-card--question .query-composer__input .cds--text-area {
+    min-height: 3rem;
+  }
+}
+
 @media (max-width: 28rem) {
   .demo-banner__inner {
-    align-items: flex-start;
-    flex-wrap: wrap;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  .demo-banner .cds--tag {
+    display: none;
+  }
+
+  .demo-banner__message {
+    overflow: hidden;
+    min-width: 0;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .ask-openelis-navigation[data-compact="true"] {
+    max-width: min(11rem, 48vw);
+    min-width: 0;
+    margin-left: auto;
+  }
+
+  .ask-openelis-navigation[data-compact="true"] .ask-openelis-jump {
+    overflow: hidden;
+    max-width: 100%;
+    min-height: 2rem;
+    padding-inline-start: 0.75rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .preview-metadata,

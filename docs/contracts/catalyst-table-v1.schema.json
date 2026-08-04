@@ -46,6 +46,9 @@
     "provenance": {
       "$ref": "#/$defs/provenance"
     },
+    "reasoningTrace": {
+      "$ref": "#/$defs/reasoningTrace"
+    },
     "warnings": {
       "type": "array",
       "items": {
@@ -55,6 +58,31 @@
     }
   },
   "$defs": {
+    "reasoningTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceId", "profileId", "status", "stages", "roleModels", "checks"],
+      "properties": {
+        "traceId": {"type": "string", "minLength": 1},
+        "profileId": {"type": "string", "pattern": "^catalyst-query-"},
+        "status": {"enum": ["passed", "warned", "rejected"]},
+        "stages": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "roleModels": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "status"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "status": {"enum": ["passed", "warned", "failed"]},
+              "message": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
     "preview": {
       "type": "object",
       "additionalProperties": false,
@@ -549,7 +577,9 @@
           "minLength": 1
         },
         "profileId": {
-          "const": "catalyst-query-checked"
+          "type": "string",
+          "pattern": "^catalyst-query-",
+          "minLength": 1
         }
       }
     }

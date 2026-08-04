@@ -1,12 +1,11 @@
 #!/bin/bash
-# Fetch pinned med-agent-hub and apply the Catalyst query-profile patch.
+# Fetch the pinned, unmodified med-agent-hub fallback for standalone Catalyst.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ROOT_DIR}/.med-agent-hub"
 HUB_REPO="${MED_AGENT_HUB_REPO:-https://github.com/pmanko/med-agent-hub.git}"
-HUB_REF="${MED_AGENT_HUB_REF:-7869c629cccfa45731ce580d5c5f44d541279920}"
-HUB_PATCH="${ROOT_DIR}/patches/med-agent-hub/catalyst-query-profile.patch"
+HUB_REF="${MED_AGENT_HUB_REF:-092b5cda7ccbdd7e7206f4edbaf2dda9f360f37c}"
 
 if [ -d "${TARGET_DIR}/.git" ]; then
   echo "med-agent-hub checkout already exists at ${TARGET_DIR}"
@@ -17,16 +16,13 @@ fi
 
 (
   cd "${TARGET_DIR}"
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "ERROR: ${TARGET_DIR} has local changes; refusing to use a modified Hub fallback." >&2
+    echo "Remove the disposable checkout and run this script again." >&2
+    exit 1
+  fi
   git fetch --depth 1 origin "${HUB_REF}"
   git checkout --detach FETCH_HEAD
-
-  if git apply --reverse --check "${HUB_PATCH}" >/dev/null 2>&1; then
-    echo "Catalyst query-profile patch already applied"
-  else
-    git apply --check "${HUB_PATCH}"
-    git apply "${HUB_PATCH}"
-    echo "Applied Catalyst query-profile patch"
-  fi
 )
 
-echo "med-agent-hub bootstrap complete: ${TARGET_DIR}"
+echo "Unmodified med-agent-hub fallback ready at ${TARGET_DIR} (${HUB_REF})"

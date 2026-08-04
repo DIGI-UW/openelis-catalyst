@@ -6,6 +6,18 @@ include:
     env_file: .openelis-docker/.env
 
 services:
+  certs:
+    image: itechuw/certgen@sha256:e27a8194300ba73309e835a4070e9ce531687eb3ee604895de781f3061791635
+
+  db.openelis.org:
+    image: itechuw/openelis-global-2-database@sha256:e801c93a8bedc41c2e502722e38585979fbbaf0e92ee4c248cdde72d9c33ec1e
+
+  oe.openelis.org:
+    image: itechuw/openelis-global-2@sha256:2217d76104051589d99eb808cef22ae692f6ad2d12a0fadc70ecc549162df36f
+
+  fhir.openelis.org:
+    image: itechuw/openelis-global-2-fhir@sha256:667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3
+
   analytics-db:
     image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
     environment:
@@ -118,7 +130,7 @@ services:
       - --model
       - "/models/${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}"
       - --alias
-      - qwen2.5-coder-14b
+      - "${MVP_BUNDLED_MODEL_ID:-qwen2.5-coder-1.5b-instruct-q4_k_m}"
       - --ctx-size
       - "${MVP_MODEL_CONTEXT:-8192}"
       - --parallel
@@ -150,6 +162,7 @@ services:
     command: ["python", "/opt/catalyst/fake-model-router.py"]
     environment:
       MODEL_ROUTER_PORT: "8077"
+      MODEL_ROUTER_MODEL_IDS: "${MVP_FAKE_MODEL_IDS:-gemma-e4b,gemma-4-12b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m}"
     volumes:
       - ./scripts/fake-model-router.py:/opt/catalyst/fake-model-router.py:ro
     expose:
@@ -158,26 +171,32 @@ services:
       - openelis-network
 
   med-agent-hub:
-    build: ./.med-agent-hub
+    build:
+      context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
+      args:
+        HUB_BUILD_REVISION: "${HUB_BUILD_REVISION:-unknown}"
     ports:
       - "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080"
     environment:
-      LLM_BASE_URL: "${MVP_HUB_LLM_BASE_URL:-http://model-router:8077}"
+      LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"
+      LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"
       LLM_API_KEY: "${HUB_LLM_API_KEY:-}"
       LLM_TEMPERATURE: "0"
       TEAM_TRACE_DIR: /tmp/catalyst-trace
       QUERYSTORE_BASE_URL: "${QUERYSTORE_BASE_URL:-}"
       QUERYSTORE_USERNAME: "${QUERYSTORE_USERNAME:-}"
       QUERYSTORE_PASSWORD: "${QUERYSTORE_PASSWORD:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - openelis-network
     healthcheck:
       test:
         [
           "CMD",
-          "curl",
-          "-fsS",
-          "http://localhost:8080/health",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)",
         ]
       interval: 10s
       timeout: 5s
@@ -193,6 +212,7 @@ services:
     environment:
       CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
+      CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID:-catalyst-query-gemma-4-12b-q4}"
       CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"

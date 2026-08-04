@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ANALYTICS = ROOT / "analytics"
 PINNED_DATA_PIPES_COMMIT = "3ea890884d674e2f31257a2da421601f2d75b5e9"
+PINNED_OPENELIS_DOCKER_COMMIT = "f118d0ae778a30028c16be2af549843ec166f655"
 
 
 def load_simple_yaml_section(text, section):
@@ -48,6 +49,13 @@ class BootstrapContractTests(unittest.TestCase):
         self.assertRegex(script, r"rev-parse HEAD")
         self.assertIn(".fhir-data-pipes/", (ROOT / ".gitignore").read_text().splitlines())
 
+    def test_openelis_bootstrap_is_pinned_and_detached(self):
+        script = (ROOT / "scripts/bootstrap-openelis.sh").read_text()
+        self.assertIn(PINNED_OPENELIS_DOCKER_COMMIT, script)
+        self.assertIn("checkout --detach FETCH_HEAD", script)
+        self.assertIn("rev-parse HEAD", script)
+        self.assertNotIn('OPENELIS_DOCKER_REF:-main', script)
+
 
 class DataPipesConfigTests(unittest.TestCase):
     @classmethod
@@ -81,17 +89,22 @@ class DataPipesConfigTests(unittest.TestCase):
         self.assertEqual("postgresql", sink["databaseService"])
         self.assertEqual("org.postgresql.Driver", sink["jdbcDriverClass"])
 
-    def test_minimal_view_definitions_are_single_row_projections(self):
+    def test_view_definitions_are_upstream_defaults_plus_gap_fills(self):
+        # The ingestion layer is the upstream fhir-data-pipes default views
+        # (lossless: forEachOrNull keeps every coding) plus documented
+        # gap-fill views for resources upstream ships none for. Curation
+        # (single-row grains, coding pivots) lives in analytics/sql only.
         expected = {
-            "observation_flat_v1.json": ("Observation", "observation_flat_v1"),
-            "service_request_flat_v1.json": (
+            "patient_flat_view.json": ("Patient", "patient_flat"),
+            "observation_flat_view.json": ("Observation", "observation_flat"),
+            "service_request_flat_view.json": (
                 "ServiceRequest",
-                "service_request_flat_v1",
+                "service_request_flat",
             ),
-            "specimen_flat_v1.json": ("Specimen", "specimen_flat_v1"),
-            "diagnostic_report_flat_v1.json": (
+            "specimen_flat_view.json": ("Specimen", "specimen_flat"),
+            "diagnostic_report_flat_view.json": (
                 "DiagnosticReport",
-                "diagnostic_report_flat_v1",
+                "diagnostic_report_flat",
             ),
         }
         views_dir = ANALYTICS / "config/views"
@@ -106,16 +119,50 @@ class DataPipesConfigTests(unittest.TestCase):
                 )
                 self.assertEqual(resource, view["resource"])
                 self.assertEqual(name, view["name"])
-                self.assertEqual("active", view["status"])
                 self.assertEqual(["4.0"], view["fhirVersion"])
-                self.assertEqual(1, len(view["select"]))
-                self.assertNotIn("forEach", view["select"][0])
-                self.assertNotIn("forEachOrNull", view["select"][0])
                 columns = view["select"][0]["column"]
                 names = [column["name"] for column in columns]
                 self.assertEqual(len(names), len(set(names)))
                 self.assertEqual("getResourceKey()", columns[0]["path"])
                 self.assertEqual("id", columns[0]["name"])
+
+    def test_observation_extensions_survive_upstream_sync(self):
+        # The observation view is the upstream default PLUS three additive
+        # columns lab_result_fact_v1 depends on. An upstream sync that
+        # clobbers them would silently null fact-view columns; fail here
+        # instead.
+        view = json.loads(
+            (ANALYTICS / "config/views/observation_flat_view.json").read_text()
+        )
+        scalar_columns = {
+            column["name"]: column for column in view["select"][0]["column"]
+        }
+        self.assertIn("issued", scalar_columns)
+        self.assertEqual("instant", scalar_columns["issued"]["type"])
+        self.assertEqual(
+            "basedOn.first().getReferenceKey(ServiceRequest)",
+            scalar_columns["service_request_id"]["path"],
+        )
+        self.assertEqual(
+            "specimen.first().getReferenceKey(Specimen)",
+            scalar_columns["specimen_id"]["path"],
+        )
+        # Losslessness: every coding is kept as rows, never picked at ingest.
+        unnests = [
+            block.get("forEachOrNull")
+            for block in view["select"][1:]
+        ]
+        self.assertIn("code.coding", unnests)
+
+    def test_specimen_gap_fill_feeds_turnaround_calculation(self):
+        view = json.loads(
+            (ANALYTICS / "config/views/specimen_flat_view.json").read_text()
+        )
+        scalar_columns = {
+            column["name"]: column for column in view["select"][0]["column"]
+        }
+        self.assertEqual("receivedTime", scalar_columns["received_at"]["path"])
+        self.assertEqual("dateTime", scalar_columns["received_at"]["type"])
 
 
 class SeedContractTests(unittest.TestCase):
@@ -123,6 +170,9 @@ class SeedContractTests(unittest.TestCase):
     def setUpClass(cls):
         cls.seed = (
             ANALYTICS / "openelis/seed-openelis-3.2.1.sql"
+        ).read_text()
+        cls.cohort_seed = (
+            ANALYTICS / "openelis/seed-catalyst-cohort-v1.sql"
         ).read_text()
         cls.backfill = (ANALYTICS / "openelis/backfill-hapi.sh").read_text()
         cls.runner = (ROOT / "scripts/mvp-seed.sh").read_text()
@@ -151,11 +201,40 @@ class SeedContractTests(unittest.TestCase):
         self.assertEqual(["1200", "450", "80"], value_rows)
         self.assertEqual(3, len(set(re.findall(r"'CATVL\d{4}'", self.seed))))
 
+    def test_cohort_seed_supplies_exportable_test_terminology(self):
+        mappings = {
+            "b50d156e-0f6f-40cd-921c-4e831602a623": "25836-8",
+            "a6718123-8d56-4103-9bbe-26b19306b83d": "24467-3",
+            "614652de-5e04-4fe7-a897-77d976317d2b": "8123-2",
+            "466b3775-e117-4268-92a7-3d3de95d43b3": "718-7",
+            "17ff4ca7-b8b6-44a1-bae0-97f38affc35c": "777-3",
+            "e08bdd35-b7e4-4910-ae73-da5b6447e901": "6690-2",
+            "d7f672c4-52ea-4c26-bdf0-e9527d2ba95f": "2160-0",
+            "3a3661a1-a166-4590-90bc-937912789739": "1742-6",
+            "8410a83b-d09a-475d-a71c-1fcbcca94e58": "2345-7",
+        }
+        for test_guid, loinc in mappings.items():
+            self.assertIn(f"('{test_guid}', '{loinc}')", self.cohort_seed)
+        self.assertIn(
+            "AND NULLIF(btrim(test.loinc), '') IS NULL",
+            self.cohort_seed,
+        )
+        self.assertIn(
+            "Catalyst fixture test lacks an exportable LOINC code",
+            self.cohort_seed,
+        )
+        self.assertIn(
+            "Catalyst fixture test has a conflicting LOINC code",
+            self.cohort_seed,
+        )
+
     def test_backfill_waits_for_every_resource_contract(self):
         self.assertIn("/OEToFhir", self.backfill)
         self.assertIn("checkAll=true", self.backfill)
         self.assertIn("waitForResults=true", self.backfill)
         self.assertIn("HAPI_CLIENT_P12", self.backfill)
+        self.assertIn("if not raw:", self.backfill)
+        self.assertIn("checking HAPI state", self.backfill)
         for resource, count in {
             "Patient": 1,
             "Observation": 3,
@@ -167,6 +246,11 @@ class SeedContractTests(unittest.TestCase):
 
 
 class SemanticContractTests(unittest.TestCase):
+    """Text-shape assertions on the SQL/catalog files only (regex/string
+    checks, no execution). Real SQL semantics — GROUP BY collapse, FILTER
+    pivots, join cardinality — are guarded by
+    tests/analytics/test_fact_view_semantics.py against a live PostgreSQL."""
+
     @classmethod
     def setUpClass(cls):
         cls.sql = (ANALYTICS / "sql/001_analytics_v1.sql").read_text()
@@ -179,21 +263,23 @@ class SemanticContractTests(unittest.TestCase):
 
     def test_lab_result_fact_has_one_observation_grain(self):
         normalized = " ".join(self.sql.lower().split())
-        self.assertIn(
-            "create or replace view analytics.lab_result_fact_v1 as", normalized
-        )
+        self.assertIn("create view analytics.lab_result_fact_v1 as", normalized)
         fact_sql = normalized.split(
-            "create or replace view analytics.lab_result_fact_v1 as", 1
+            "create view analytics.lab_result_fact_v1 as", 1
         )[1]
-        self.assertIn("from public.observation_flat_v1 as observation", fact_sql)
+        # Built over the lossless default projection: the per-coding cross
+        # product must be collapsed per observation, with the LOINC coding
+        # pivoted (never coding.first()-picked at ingest).
+        self.assertIn("from public.observation_flat as o", fact_sql)
+        self.assertIn("group by o.id", fact_sql)
+        self.assertIn("filter (where o.code_sys = 'http://loinc.org')", fact_sql)
         self.assertIn(
-            "left join public.specimen_flat_v1 as specimen "
-            "on specimen.id = observation.specimen_id",
+            "left join ( select distinct id, received_at from public.specimen_flat )",
             fact_sql,
         )
         self.assertNotIn("select *", fact_sql)
-        self.assertIn("observation.id as observation_id", fact_sql)
-        self.assertIn("specimen.received_at as specimen_received_at", fact_sql)
+        self.assertIn("o.id as observation_id", fact_sql)
+        self.assertIn("s.received_at as specimen_received_at", fact_sql)
         self.assertIn("as receipt_to_release_minutes", fact_sql)
 
     def test_freshness_and_run_metadata_are_structured(self):
@@ -222,20 +308,24 @@ class SemanticContractTests(unittest.TestCase):
         )
 
     def test_catalog_matches_documented_analytics_contract(self):
+        # The catalog is GENERATED (DB comments + analytics/catalog-overlay.json
+        # via the harness generator); only gateway-consumed sections may exist.
         self.assertEqual("catalyst.analytics.catalog.v1", self.catalog["contractVersion"])
         self.assertEqual("analytics-catalog-v1", self.catalog["catalogVersion"])
         self.assertEqual("demo", self.catalog["deploymentMode"])
         self.assertEqual("postgresql", self.catalog["dialect"])
+        self.assertIn("GENERATED", self.catalog["description"])
         self.assertEqual(1, len(self.catalog["views"]))
 
         view = self.catalog["views"][0]
         self.assertEqual("analytics.lab_result_fact_v1", view["name"])
         self.assertEqual("1", view["version"])
         self.assertTrue(view["approved"])
-        self.assertTrue(view["demoDataOnly"])
-        for field in (
-            "grain",
-            "columns",
+        self.assertTrue(view["grain"])
+        self.assertTrue(view["grain"].startswith("Exactly one row per FHIR Observation"))
+        # Sections Catalog.load never reads must not exist: inert prose in the
+        # catalog silently rots (the guidance never reaches the model).
+        for inert in (
             "allowedFilters",
             "allowedGroupings",
             "terminology",
@@ -243,21 +333,37 @@ class SemanticContractTests(unittest.TestCase):
             "examples",
             "requiredConstraints",
         ):
-            self.assertTrue(view[field], field)
+            self.assertNotIn(inert, view)
 
         self.assertEqual(
             [
+                "observation_id",
+                "patient_id",
+                "service_request_id",
+                "specimen_id",
+                "result_status",
+                "observed_at",
+                "issued_at",
+                "test_code_system",
+                "test_code",
+                "test_name",
                 "result_value",
                 "result_unit",
-                "issued_at",
+                "result_unit_system",
+                "result_unit_code",
+                "specimen_received_at",
                 "receipt_to_release_minutes",
-                "observed_at",
             ],
             [column["name"] for column in view["columns"]],
         )
-        self.assertEqual(
-            "analytics.pipeline_run_v1", self.catalog["freshness"]["relation"]
-        )
+        self.assertTrue(all(column["nullable"] for column in view["columns"]))
+        self.assertTrue(all(column["description"] for column in view["columns"]))
+        self.assertEqual("result_unit", view["columns"][10]["unitColumn"])
+        dimensions = view["semanticDimensions"]
+        self.assertEqual("test_name", dimensions[0]["field"])
+        self.assertEqual(9, len(dimensions[0]["values"]))
+        self.assertNotIn("synthetic", json.dumps(view).lower())
+        self.assertNotIn("demo-only", json.dumps(view).lower())
 
 
 class ShellContractTests(unittest.TestCase):

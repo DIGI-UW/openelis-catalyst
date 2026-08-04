@@ -7,6 +7,7 @@ interface ExecutionStateProps {
   message: string;
   kind?: "info" | "warning" | "error" | "success";
   running?: boolean;
+  loadingDescription?: string;
   details?: ReactNode;
   actionLabel?: string;
   onAction?: () => void;
@@ -17,6 +18,7 @@ export const ExecutionState = ({
   message,
   kind = "info",
   running = false,
+  loadingDescription = "Generating answer",
   details,
   actionLabel,
   onAction,
@@ -30,7 +32,7 @@ export const ExecutionState = ({
       {running && (
         <InlineLoading
           className="execution-state__loading"
-          description="Polling for results"
+          description={loadingDescription}
           status="active"
         />
       )}

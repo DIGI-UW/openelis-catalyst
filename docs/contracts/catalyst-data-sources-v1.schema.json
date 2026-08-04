@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-data-sources-v1.schema.json",
+  "title": "Catalyst data-source discovery response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "defaultDataSourceId", "dataSources"],
+  "properties": {
+    "contractVersion": {"const": "catalyst.data-sources.v1"},
+    "defaultDataSourceId": {"type": "string", "minLength": 1},
+    "dataSources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "available"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "label": {"type": "string", "minLength": 1},
+          "available": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

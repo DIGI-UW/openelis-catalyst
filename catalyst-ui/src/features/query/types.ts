@@ -21,7 +21,7 @@ export type LogicalType =
 export interface BoundParameter {
   name: string;
   type: ParameterType;
-  source: "question";
+  source: "question" | "human";
   value: unknown;
 }
 
@@ -49,8 +49,8 @@ export interface CatalystPreview {
   sql: string;
   parameters: BoundParameter[];
   expectedColumns: Column[];
+  reasoningTrace?: ReasoningTrace;
   createdAt: string;
-  expiresAt: string;
   state: "awaiting_acceptance";
 }
 
@@ -60,10 +60,51 @@ export interface ValidationCheck {
   message?: string;
 }
 
+export interface ReasoningTrace {
+  traceId: string;
+  profileId: string;
+  status: "passed" | "warned" | "rejected";
+  stages: string[];
+  roleModels: Record<string, string>;
+  checks: ValidationCheck[];
+}
+
 export interface QueryProvenance {
-  profileId: "catalyst-query-checked";
+  profileId: string;
   traceId: string;
   contextSourceIds: string[];
+}
+
+export interface GeneratedQueryCandidate {
+  status: "ready" | "needs_clarification" | "unsupported" | "rejected";
+  target?: QueryTarget;
+  sql?: string;
+  parameters?: BoundParameter[];
+  expectedColumns?: Column[];
+  clarification?: string;
+  message?: string;
+}
+
+export interface DiagnosticFinding {
+  code: string;
+  stage: string;
+  severity: "warning" | "error";
+  path: string;
+  message: string;
+  evidence?: string;
+  suggestedAction?: string;
+}
+
+export interface DiagnosticCandidate {
+  executable: false;
+  candidate?: GeneratedQueryCandidate;
+  rawOutput?: string;
+  attempts?: Array<{
+    attempt: number;
+    status: "passed" | "failed";
+    finding_codes: string[];
+    findings: DiagnosticFinding[];
+  }>;
 }
 
 export interface CatalystQueryOutcome {
@@ -73,6 +114,7 @@ export interface CatalystQueryOutcome {
   question: string;
   clarification?: string;
   message?: string;
+  diagnosticCandidate?: DiagnosticCandidate;
   validation: {
     status: "warned" | "rejected";
     checks: ValidationCheck[];
@@ -93,6 +135,14 @@ export interface CatalystPolicyOutcome {
   catalystTraceId: string;
 }
 
+export type JsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export type TaggedCell =
   | { type: "null" }
   | { type: "string"; value: string }
@@ -100,7 +150,12 @@ export type TaggedCell =
   | { type: "decimal"; value: string }
   | { type: "boolean"; value: boolean }
   | { type: "date"; value: string }
-  | { type: "date-time"; value: string };
+  | { type: "date-time"; value: string }
+  | { type: "time"; value: string }
+  | { type: "json"; value: JsonValue }
+  | { type: "array"; value: JsonValue[] }
+  | { type: "binary"; value: string }
+  | { type: "interval"; value: string };
 
 export interface CatalystTable {
   contractVersion: "catalyst.table.v1";
@@ -145,9 +200,459 @@ export interface CatalystTable {
   provenance: {
     catalystTraceId: string;
     hubTraceId: string;
-    profileId: "catalyst-query-checked";
+    profileId: string;
   };
+  reasoningTrace?: ReasoningTrace;
   warnings: string[];
+}
+
+export interface QueryProfile {
+  id: string;
+  label: string;
+  available: boolean;
+  revisionCapable?: boolean;
+  requiredModels: string[];
+  roleModels: Record<string, string>;
+  stages: string[];
+  unavailableReasons: string[];
+  provenance?: Record<string, unknown>;
+}
+
+export interface QueryOptions {
+  contractVersion: "catalyst.query-options.v1";
+  defaultProfileId: string;
+  profiles: QueryProfile[];
+}
+
+export interface DataSource {
+  id: string;
+  label: string;
+  available: boolean;
+}
+
+export interface DataSourcesResponse {
+  contractVersion: "catalyst.data-sources.v1";
+  defaultDataSourceId: string;
+  dataSources: DataSource[];
+}
+
+export interface DatasetTestSummary {
+  testName: string;
+  unit: string | null;
+  results: number;
+  patients: number;
+  minimum: string | null;
+  median: string | null;
+  maximum: string | null;
+}
+
+export interface DatasetOverview {
+  contractVersion: "catalyst.dataset-overview.v1";
+  datasetId: string | null;
+  dataSource?: string | null;
+  pipelineRunId?: string | null;
+  synthetic: boolean | null;
+  patients: number;
+  results: number;
+  testTypes: number;
+  firstObservedAt: string | null;
+  lastObservedAt: string | null;
+  tests: DatasetTestSummary[];
+  exampleQuestions: string[];
+}
+
+export interface DatasetRow {
+  observationId: string;
+  patientId: string;
+  testName: string;
+  value: string | null;
+  unit: string | null;
+  observedAt: string | null;
+  issuedAt: string | null;
+  turnaroundMinutes: string | null;
+}
+
+export interface DatasetRows {
+  contractVersion: "catalyst.dataset-rows.v1";
+  total: number;
+  limit: number;
+  offset: number;
+  rows: DatasetRow[];
+}
+
+export interface WorkbenchEditorCatalogColumn {
+  name: string;
+  logicalType: string;
+  nullable: boolean;
+  description: string;
+  unitColumn?: string;
+}
+
+export interface WorkbenchEditorCatalogView {
+  name: string;
+  qualifiedName: string;
+  grain: string;
+  columns: WorkbenchEditorCatalogColumn[];
+}
+
+export interface WorkbenchEditorCatalogSchema {
+  name: string;
+  views: WorkbenchEditorCatalogView[];
+}
+
+export interface WorkbenchEditorCatalog {
+  contractVersion: "catalyst.workbench.editor-catalog.v1";
+  catalogVersion: string;
+  schemaVersion: string;
+  dialect: "postgresql";
+  schemas: WorkbenchEditorCatalogSchema[];
+}
+
+export interface WorkbenchFinding {
+  contractVersion: "catalyst.workbench.finding.v1";
+  findingId: string;
+  ruleCode: string;
+  severity: "error" | "warning" | "info";
+  stage: string;
+  message: string;
+  path: string;
+  astUnit: unknown;
+  span: unknown;
+  evidence: unknown;
+  suggestedAction: string | null;
+  repairability: "none" | "manual" | "deterministic" | "model";
+  validatorRevision: string;
+}
+
+export interface WorkbenchValidation {
+  contractVersion: "catalyst.workbench.validation.v1";
+  queryDigest: string;
+  validatorRevision: string;
+  validatorDigest: string;
+  status: "invalid" | "warning" | "valid";
+  advisory: true;
+  checks: Array<{
+    name: string;
+    status: "passed" | "warned" | "failed";
+    findingIds: string[];
+  }>;
+  findings: WorkbenchFinding[];
+  durationMs: number;
+  validationId: string;
+  sessionId: string;
+  versionId: string;
+  ordinal: number;
+  createdAt: string;
+}
+
+export interface WorkbenchQueryVersion {
+  contractVersion: "catalyst.workbench.query-version.v1";
+  versionId: string;
+  sessionId: string;
+  parentVersionId: string | null;
+  ordinal: number;
+  authorType: "model" | "human" | "deterministic_repair" | "model_repair";
+  sql: string;
+  parameters: BoundParameter[];
+  expectedColumns: Column[];
+  queryDigest: string;
+  provenance: Record<string, unknown>;
+  sourceFindingIds: string[];
+  repairProposalId: string | null;
+  createdAt: string;
+}
+
+export interface WorkbenchDatabaseDiagnostic {
+  sqlstate: string | null;
+  severity: string | null;
+  message: string;
+  detail: string | null;
+  hint: string | null;
+  position: number | null;
+}
+
+export interface WorkbenchExecution {
+  contractVersion: "catalyst.workbench.execution.v1";
+  queryDigest: string;
+  idempotencyKey: string;
+  validationStatus: "not_run" | "invalid" | "warning" | "valid";
+  query: {
+    sql: string;
+    parameters: BoundParameter[];
+  };
+  statementTimeoutMs: number;
+  maxRows: number;
+  replayed: boolean;
+  status: "succeeded" | "failed";
+  result?: {
+    columns: Array<{
+      ordinal: number;
+      name: string;
+      databaseType: string;
+      typeOid: number | null;
+      logicalType: string;
+    }>;
+    rows: TaggedCell[][];
+    rowCount: {
+      returned: number;
+      truncated: boolean;
+      truncationReason: string | null;
+    };
+    warnings?: string[];
+  };
+  databaseDiagnostic?: WorkbenchDatabaseDiagnostic;
+  durationMs: number;
+  executionId: string;
+  sessionId: string;
+  versionId: string;
+  ordinal: number;
+  completedAt: string;
+}
+
+export interface WorkbenchSession {
+  contractVersion: "catalyst.workbench.session.v1";
+  sessionId: string;
+  question: string;
+  profileId: string;
+  dataSourceId?: string | null;
+  datasetId: string;
+  datasetVersion: string;
+  catalogVersion: string;
+  currentVersionId: string | null;
+  draftSeed?: {
+    status: "unresolved";
+    source: "raw_model_output";
+    sql: string;
+    parameters: BoundParameter[];
+    unresolvedPaths: string[];
+  } | null;
+  browserState: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  versions: WorkbenchQueryVersion[];
+  currentVersion: WorkbenchQueryVersion | null;
+  validations: WorkbenchValidation[];
+  latestValidation: WorkbenchValidation | null;
+  executions: WorkbenchExecution[];
+}
+
+export interface WorkbenchVersionDraft {
+  parentVersionId?: string;
+  parentQueryDigest?: string;
+  sql: string;
+  parameters: BoundParameter[];
+  expectedColumns?: Column[];
+  dataSourceId?: string;
+}
+
+export interface WorkbenchVersionRef {
+  versionId: string;
+  queryDigest: string;
+}
+
+export interface WorkbenchEditorSnapshot {
+  contractVersion: "catalyst.workbench.editor-snapshot.v1";
+  sql: string;
+  parameters: BoundParameter[];
+  expectedColumns: Column[];
+  editorDigest: string;
+}
+
+export interface WorkbenchTurnRequest {
+  contractVersion: "catalyst.workbench.turn.request.v1";
+  instruction: string;
+  profileId: string;
+  dataSourceId?: string;
+  observedBase: WorkbenchVersionRef | null;
+  editorSnapshot: WorkbenchEditorSnapshot;
+}
+
+export interface WorkbenchPromptReference {
+  promptId?: string;
+  version?: string;
+  promptRef?: string;
+  promptDigest?: string;
+  text?: string;
+}
+
+export interface WorkbenchRoleSnapshot {
+  role?: "writer" | "reviewer";
+  providerId?: string;
+  modelClass?: string;
+  modelId: string;
+  config?: Record<string, JsonValue>;
+  systemPrompt?: WorkbenchPromptReference;
+}
+
+export interface WorkbenchProfileSnapshot {
+  profileId?: string;
+  profileName: string | null;
+  profileDigest?: string;
+  writer: WorkbenchRoleSnapshot | null;
+  reviewer: WorkbenchRoleSnapshot | null;
+  omissions?: string[];
+}
+
+export interface WorkbenchGenerationEvidenceRef {
+  contractVersion?: "catalyst.workbench.generation-evidence-ref.v1";
+  evidenceId: string;
+  evidenceDigest: string;
+  detailPath: string;
+}
+
+export interface WorkbenchTurnOutputVersion extends WorkbenchVersionRef {
+  parentVersionId: string | null;
+  role: "writer" | "reviewer";
+  authorType: "model" | "model_repair";
+  contractValid: true;
+  validationId: string | null;
+  selected: boolean;
+  generationEvidenceRef?: WorkbenchGenerationEvidenceRef;
+}
+
+export interface WorkbenchTurnFailure {
+  stage: string;
+  code: string;
+  message: string;
+  evidenceAvailable?: boolean;
+  rawEvidenceRef?: string | null;
+  diagnostic?: Record<string, JsonValue>;
+}
+
+export interface WorkbenchTurn {
+  contractVersion: "catalyst.workbench.turn.v1";
+  sessionId: string;
+  turnId: string;
+  ordinal: number;
+  kind: "initial" | "followup";
+  origin: "recorded" | "synthesized_legacy";
+  dataSourceId?: string | null;
+  instruction: string;
+  instructionDigest: string;
+  profileSnapshot: WorkbenchProfileSnapshot;
+  observedBase: WorkbenchVersionRef | null;
+  editorSnapshot: Record<string, unknown> | null;
+  snapshotClassification:
+    | "not_applicable"
+    | "reused"
+    | "promoted_human"
+    | "unresolved";
+  unresolvedPaths: string[];
+  effectiveBaseVersion: WorkbenchVersionRef | null;
+  manualVersion: WorkbenchVersionRef | null;
+  revisionContext: Record<string, unknown> | null;
+  hubRequestDigest: string | null;
+  catalystTraceId: string | null;
+  hubTraceId: string | null;
+  generationEvidenceRef: WorkbenchGenerationEvidenceRef;
+  recoveryReferences: Record<string, unknown> | null;
+  status: "requested" | "completed" | "failed";
+  outputVersions: WorkbenchTurnOutputVersion[];
+  selectedVersionId: string | null;
+  resultingCurrentVersion: WorkbenchVersionRef | null;
+  events: Array<Record<string, unknown>>;
+  failure: WorkbenchTurnFailure | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchTurnTimeline {
+  contractVersion: "catalyst.workbench.turn.timeline.v1";
+  sessionId: string;
+  currentTurnId: string;
+  currentVersion: WorkbenchVersionRef | null;
+  turns: WorkbenchTurn[];
+}
+
+export interface WorkbenchEvidenceInvocation {
+  invocationId: string;
+  role: "writer" | "reviewer";
+  stage: "initial_generation" | "followup_generation" | "review";
+  attempt: number;
+  providerId: string;
+  modelId: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  requestDigest: string;
+  responseDigest: string | null;
+  failureDigest: string | null;
+  outcome:
+    | "in_progress"
+    | "succeeded"
+    | "transport_failed"
+    | "contract_failed"
+    | "validation_failed"
+    | "timed_out"
+    | "cancelled";
+}
+
+export interface WorkbenchRawArtifact {
+  available: boolean;
+  inspectable: boolean;
+  evidenceRef: string | null;
+  payloadDigest: string | null;
+  contentType: string | null;
+  exactPayload: JsonValue | null;
+  omissionReason: string | null;
+}
+
+export interface WorkbenchCandidateEvidence {
+  candidateId: string;
+  attemptOrdinal: number;
+  role: "writer" | "reviewer";
+  candidateDigest: string | null;
+  disposition:
+    | "selected"
+    | "retained_unselected"
+    | "superseded"
+    | "diagnostic_only"
+    | "approved_writer_without_new_version";
+  versionRef: WorkbenchVersionRef | null;
+  validationRef: Record<string, JsonValue> | null;
+  rawEvidence: WorkbenchRawArtifact;
+}
+
+export interface WorkbenchGenerationEvidence {
+  contractVersion: "catalyst.workbench.generation-evidence.v1";
+  evidenceId: string;
+  evidenceDigest?: string;
+  sessionId: string;
+  turnId: string;
+  turnKind?: "initial" | "followup";
+  origin?: "recorded" | "synthesized_legacy";
+  status?: "requested" | "completed" | "failed";
+  instruction?: string;
+  profile?: {
+    profileId?: string;
+    profileRef?: string;
+    profileDigest?: string;
+    detail?: {
+      profileName?: string;
+      writer?: WorkbenchRoleSnapshot;
+      reviewer?: WorkbenchRoleSnapshot;
+    } | null;
+  } | null;
+  history?: {
+    included?: Array<Record<string, JsonValue>>;
+    omitted?: Array<Record<string, JsonValue>>;
+  } | null;
+  hubRequest?: WorkbenchRawArtifact | null;
+  hubResponse?: WorkbenchRawArtifact | null;
+  invocations: WorkbenchEvidenceInvocation[];
+  totalInvocationDurationMs?: number | null;
+  candidates?: WorkbenchCandidateEvidence[];
+  finalSelection?: {
+    status?: "requested" | "completed" | "failed";
+    selectedVersion?: WorkbenchVersionRef | null;
+    failure?: Record<string, JsonValue> | null;
+  };
+  omissions?: string[];
+  prohibitedClasses?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CatalystExecutionOutcome {
@@ -155,11 +660,10 @@ export interface CatalystExecutionOutcome {
   deploymentMode: DeploymentMode;
   previewId: string;
   idempotencyKey: string;
-  status: "in_progress" | "not_found" | "expired" | "conflict" | "failed";
+  status: "in_progress" | "not_found" | "conflict" | "failed";
   errorCode:
     | "execution_in_progress"
     | "execution_not_found"
-    | "preview_expired"
     | "preview_consumed"
     | "idempotency_conflict"
     | "execution_failed";

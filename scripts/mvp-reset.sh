@@ -10,11 +10,21 @@ if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
 fi
 
-docker compose \
-  --env-file "${ENV_FILE}" \
-  -f "${ROOT_DIR}/docker-compose.mvp.yml" \
-  --profile fake \
-  down --volumes --remove-orphans
+compose=(
+  docker compose
+  --env-file "${ENV_FILE}"
+  -f "${ROOT_DIR}/docker-compose.mvp.yml"
+)
+compose_override_file="${MVP_COMPOSE_OVERRIDE_FILE:-}"
+if [ -n "${compose_override_file}" ]; then
+  if [ ! -f "${compose_override_file}" ]; then
+    echo "ERROR: compose override file does not exist: ${compose_override_file}" >&2
+    exit 1
+  fi
+  compose+=(-f "${compose_override_file}")
+fi
+
+"${compose[@]}" --profile fake down --volumes --remove-orphans
 
 if [ -d "${OE_DB_DATA_DIR}" ]; then
   docker run --rm \

@@ -1,0 +1,70 @@
+{
+  "comment": "The ONLY hand-maintained catalog input for the OpenELIS source. Everything else (columns, types, descriptions, grain) is introspected from the analytics database by the harness's scripts/generate-catalyst-source-catalog.py: descriptions come from COMMENT ON COLUMN, grain from COMMENT ON VIEW (see analytics/sql/001_analytics_v1.sql). Canonical semantic values are validated against the actual data at generation time. catalogVersion stays 'analytics-catalog-v1' so the T094/MVP suite gates, gateway config, and provenance chain remain valid.",
+  "catalogVersion": "analytics-catalog-v1",
+  "dataSource": "openelis-fhir-postgresql",
+  "dialect": "postgresql",
+  "schemaVersion": "analytics-v1",
+  "approvedViews": [
+    { "name": "analytics.lab_result_fact_v1", "version": "1" }
+  ],
+  "unitColumns": {
+    "analytics.lab_result_fact_v1.result_value": "result_unit"
+  },
+  "semanticDimensions": {
+    "analytics.lab_result_fact_v1": [
+      {
+        "field": "test_name",
+        "semanticType": "analyte",
+        "values": [
+          {
+            "canonical": "Viral Load",
+            "aliases": ["viral load", "HIV viral load"]
+          },
+          {
+            "canonical": "CD4 absolute count",
+            "aliases": ["CD4 absolute count", "CD4 count"]
+          },
+          {
+            "canonical": "CD4 percent  (%)",
+            "aliases": ["CD4 percent", "CD4 percentage", "CD4%"]
+          },
+          {
+            "canonical": "Hemoglobin",
+            "aliases": ["hemoglobin", "haemoglobin"]
+          },
+          {
+            "canonical": "Platelets",
+            "aliases": ["platelets", "platelet count"]
+          },
+          {
+            "canonical": "White Blood Cells Count (WBC)",
+            "aliases": ["white blood cell count", "white blood cells count", "WBC"]
+          },
+          {
+            "canonical": "Creatinine",
+            "aliases": ["creatinine"]
+          },
+          {
+            "canonical": "GPT/ALAT",
+            "aliases": ["GPT/ALAT", "ALT", "alanine aminotransferase"]
+          },
+          {
+            "canonical": "Glucose",
+            "aliases": ["glucose"]
+          }
+        ]
+      }
+    ]
+  },
+  "datasetBrowser": {
+    "factView": "analytics.lab_result_fact_v1",
+    "identityColumn": "observation_id",
+    "subjectColumn": "patient_id",
+    "categoryColumn": "test_name",
+    "observedAtColumn": "observed_at",
+    "valueColumn": "result_value",
+    "unitColumn": "result_unit",
+    "issuedAtColumn": "issued_at",
+    "durationColumn": "receipt_to_release_minutes"
+  }
+}

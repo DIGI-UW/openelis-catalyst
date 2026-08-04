@@ -5,92 +5,195 @@
   "dataSource": "openelis-fhir-postgresql",
   "dialect": "postgresql",
   "schemaVersion": "analytics-v1",
-  "description": "Narrow demo-only analytics vocabulary over OHS FHIR Data Pipes projections.",
-  "freshness": {
-    "relation": "analytics.pipeline_run_v1",
-    "contract": "catalyst.analytics.pipeline-run.v1",
-    "sourceWatermarkColumn": "source_watermark",
-    "runIdColumn": "pipeline_run_id",
-    "completionStateColumn": "completion_state",
-    "observedAtColumn": "observed_at",
-    "updateBehavior": "An operator-triggered FULL FHIR_SEARCH run recreates the sink projections; only succeeded runs with a source watermark are current."
-  },
+  "description": "GENERATED FILE - do not edit. Derived from the analytics database (view/column comments) plus catalog-overlay.json by scripts/generate-catalyst-source-catalog.py.",
   "views": [
     {
       "name": "analytics.lab_result_fact_v1",
       "version": "1",
       "approved": true,
-      "demoDataOnly": true,
-      "grain": "Exactly one row per FHIR Observation, with at most one Specimen matched by resource key.",
-      "sourceRelations": [
-        "public.observation_flat_v1",
-        "public.specimen_flat_v1"
-      ],
+      "grain": "Exactly one row per FHIR Observation, with at most one Specimen matched by resource key. Built over the lossless default projections: the per-coding cross product is collapsed per observation and the LOINC coding pivoted into the test_* columns.",
       "columns": [
         {
-          "name": "result_value",
-          "logicalType": "decimal",
-          "nullable": true,
-          "unitColumn": "result_unit",
-          "description": "Numeric FHIR Quantity value; do not aggregate across unlike units."
-        },
-        {
-          "name": "result_unit",
+          "name": "observation_id",
           "logicalType": "string",
           "nullable": true,
-          "description": "FHIR Quantity display unit; the seed uses copies/mL."
+          "description": "FHIR Observation resource identifier and stable row identity for the laboratory result."
+        },
+        {
+          "name": "patient_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Patient resource identifier referenced by the observation."
+        },
+        {
+          "name": "service_request_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR ServiceRequest resource identifier referenced by the observation."
+        },
+        {
+          "name": "specimen_id",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Specimen resource identifier referenced by the observation."
+        },
+        {
+          "name": "result_status",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Observation status for the laboratory result."
+        },
+        {
+          "name": "observed_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Observation effective date and time used to place the result clinically."
         },
         {
           "name": "issued_at",
           "logicalType": "timestamp",
           "nullable": true,
-          "description": "FHIR Observation.issued instant."
+          "description": "FHIR Observation issued instant."
+        },
+        {
+          "name": "test_code_system",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Coding-system URI associated with the observation test code."
+        },
+        {
+          "name": "test_code",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "OpenELIS/FHIR test code for the observation."
+        },
+        {
+          "name": "test_name",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "OpenELIS test display name. A question naming an analyte must constrain this field rather than assume the view contains only that analyte."
+        },
+        {
+          "name": "result_value",
+          "logicalType": "decimal",
+          "nullable": true,
+          "description": "Numeric FHIR Quantity value; do not aggregate across unlike units.",
+          "unitColumn": "result_unit"
+        },
+        {
+          "name": "result_unit",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "FHIR Quantity display unit."
+        },
+        {
+          "name": "result_unit_system",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Coding-system URI associated with the FHIR Quantity unit."
+        },
+        {
+          "name": "result_unit_code",
+          "logicalType": "string",
+          "nullable": true,
+          "description": "Machine-readable FHIR Quantity unit code."
+        },
+        {
+          "name": "specimen_received_at",
+          "logicalType": "timestamp",
+          "nullable": true,
+          "description": "FHIR Specimen received date and time when a matching specimen is available."
         },
         {
           "name": "receipt_to_release_minutes",
           "logicalType": "decimal",
           "nullable": true,
           "description": "Elapsed minutes from Specimen.receivedTime to Observation.issued."
-        },
-        {
-          "name": "observed_at",
-          "logicalType": "timestamp",
-          "nullable": true,
-          "description": "FHIR Observation.effectiveDateTime used for the required date constraint."
         }
       ],
-      "allowedFilters": [
-        "observed_at",
-        "result_unit"
-      ],
-      "allowedGroupings": [
-        "result_unit"
-      ],
-      "requiredConstraints": {
-        "dateColumn": "observed_at",
-        "maxDateRangeDays": 366,
-        "maxResultRows": 1000
-      },
-      "terminology": [
-        "This first catalog is intentionally limited to the synthetic Viral Load demo fixture.",
-        "The seed resolves the OpenELIS test by stable GUID b50d156e-0f6f-40cd-921c-4e831602a623 and expects copies/mL."
-      ],
-      "freshness": {
-        "relation": "analytics.pipeline_run_v1",
-        "mode": "latest-succeeded-run",
-        "updateBehavior": "Operator-triggered FULL FHIR_SEARCH after explicit HAPI backfill; query provenance carries run ID, source watermark, completion state, and observed lag."
-      },
-      "examples": [
+      "semanticDimensions": [
         {
-          "question": "Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time.",
-          "sql": "SELECT result_value, result_unit, issued_at, receipt_to_release_minutes FROM analytics.lab_result_fact_v1 WHERE observed_at >= :start_at ORDER BY observed_at",
-          "parameters": {
-            "start_at": {
-              "logicalType": "date"
+          "field": "test_name",
+          "semanticType": "analyte",
+          "values": [
+            {
+              "canonical": "Viral Load",
+              "aliases": [
+                "viral load",
+                "HIV viral load"
+              ]
+            },
+            {
+              "canonical": "CD4 absolute count",
+              "aliases": [
+                "CD4 absolute count",
+                "CD4 count"
+              ]
+            },
+            {
+              "canonical": "CD4 percent  (%)",
+              "aliases": [
+                "CD4 percent",
+                "CD4 percentage",
+                "CD4%"
+              ]
+            },
+            {
+              "canonical": "Hemoglobin",
+              "aliases": [
+                "hemoglobin",
+                "haemoglobin"
+              ]
+            },
+            {
+              "canonical": "Platelets",
+              "aliases": [
+                "platelets",
+                "platelet count"
+              ]
+            },
+            {
+              "canonical": "White Blood Cells Count (WBC)",
+              "aliases": [
+                "white blood cell count",
+                "white blood cells count",
+                "WBC"
+              ]
+            },
+            {
+              "canonical": "Creatinine",
+              "aliases": [
+                "creatinine"
+              ]
+            },
+            {
+              "canonical": "GPT/ALAT",
+              "aliases": [
+                "GPT/ALAT",
+                "ALT",
+                "alanine aminotransferase"
+              ]
+            },
+            {
+              "canonical": "Glucose",
+              "aliases": [
+                "glucose"
+              ]
             }
-          }
+          ]
         }
       ]
     }
-  ]
+  ],
+  "datasetBrowser": {
+    "factView": "analytics.lab_result_fact_v1",
+    "identityColumn": "observation_id",
+    "subjectColumn": "patient_id",
+    "categoryColumn": "test_name",
+    "observedAtColumn": "observed_at",
+    "valueColumn": "result_value",
+    "unitColumn": "result_unit",
+    "issuedAtColumn": "issued_at",
+    "durationColumn": "receipt_to_release_minutes"
+  }
 }

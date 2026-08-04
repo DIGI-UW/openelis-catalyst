@@ -5,12 +5,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8000}"
 QUESTION="${PLAYWRIGHT_QUERY:-Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time}"
+PROFILE_ID="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-gemma-e4b}}"
 LOG_DIR="${ROOT_DIR}/logs"
 
 mkdir -p "${LOG_DIR}"
 
 question_payload="$(
-  QUESTION="${QUESTION}" python3 - <<'PY'
+  QUESTION="${QUESTION}" PROFILE_ID="${PROFILE_ID}" python3 - <<'PY'
 import json
 import os
 
@@ -18,6 +19,7 @@ print(json.dumps({
     "contractVersion": "catalyst.question.request.v1",
     "deploymentMode": "demo",
     "question": os.environ["QUESTION"],
+    "profileId": os.environ["PROFILE_ID"],
 }))
 PY
 )"
@@ -81,7 +83,7 @@ table="$(
 )"
 printf '%s\n' "${table}" > "${LOG_DIR}/mvp-live-table.json"
 
-TABLE_JSON="${table}" python3 - <<'PY'
+TABLE_JSON="${table}" EXPECTED_PROFILE_ID="${PROFILE_ID}" python3 - <<'PY'
 import json
 import os
 from decimal import Decimal
@@ -107,7 +109,7 @@ assert {
     Decimal(row[tat_index]["value"]) for row in payload["table"]["rows"]
 } == {Decimal("60")}
 assert payload["source"]["freshness"]["completionState"] == "complete", payload
-assert payload["provenance"]["profileId"] == "catalyst-query-checked", payload
+assert payload["provenance"]["profileId"] == os.environ["EXPECTED_PROFILE_ID"], payload
 assert payload["provenance"]["catalystTraceId"], payload
 assert payload["provenance"]["hubTraceId"], payload
 print(

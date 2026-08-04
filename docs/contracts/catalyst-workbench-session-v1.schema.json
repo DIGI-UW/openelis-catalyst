@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-workbench-session-v1.schema.json",
+  "title": "Catalyst manual workbench session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "sessionId",
+    "question",
+    "profileId",
+    "datasetId",
+    "datasetVersion",
+    "catalogVersion",
+    "currentVersionId",
+    "browserState",
+    "provenance",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "versions",
+    "currentVersion",
+    "validations",
+    "latestValidation",
+    "executions"
+  ],
+  "properties": {
+    "contractVersion": {"const": "catalyst.workbench.session.v1"},
+    "sessionId": {"type": "string", "format": "uuid"},
+    "question": {"type": "string", "minLength": 1},
+    "profileId": {"type": "string", "minLength": 1},
+    "dataSourceId": {"type": "string", "minLength": 1},
+    "datasetId": {"type": "string", "minLength": 1},
+    "datasetVersion": {"type": "string", "minLength": 1},
+    "catalogVersion": {"type": "string", "minLength": 1},
+    "currentVersionId": {"type": ["string", "null"]},
+    "draftSeed": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/draftSeed"}
+      ]
+    },
+    "browserState": {"type": "object"},
+    "provenance": {"type": "object"},
+    "status": {"type": "string", "minLength": 1},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "updatedAt": {"type": "string", "format": "date-time"},
+    "versions": {"type": "array", "items": {"type": "object"}},
+    "currentVersion": {"type": ["object", "null"]},
+    "validations": {"type": "array", "items": {"type": "object"}},
+    "latestValidation": {"type": ["object", "null"]},
+    "executions": {"type": "array", "items": {"type": "object"}}
+  },
+  "$defs": {
+    "draftSeed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "sql", "parameters", "unresolvedPaths"],
+      "properties": {
+        "status": {"const": "unresolved"},
+        "source": {"const": "raw_model_output"},
+        "sql": {"type": "string", "minLength": 1},
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "source", "value"],
+            "properties": {
+              "name": {"type": "string"},
+              "type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "number",
+                  "boolean",
+                  "date",
+                  "date-time",
+                  "string-list",
+                  "integer-list"
+                ]
+              },
+              "source": {"enum": ["question", "human"]},
+              "value": {}
+            }
+          }
+        },
+        "unresolvedPaths": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

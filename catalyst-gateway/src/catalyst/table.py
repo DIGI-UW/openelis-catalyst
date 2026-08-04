@@ -40,13 +40,19 @@ def build_table(
     total = None if result.truncated else returned
     warnings: list[str] = []
     if result.truncated:
-        warnings.append(
-            f"Result was truncated to the configured limit of {max_rows} rows."
-        )
+        if result.truncation_reason == "query_limit_reached":
+            warnings.append(
+                "Result reached the SQL row limit; additional matching rows may "
+                "exist. Refine the question to narrow the result."
+            )
+        else:
+            warnings.append(
+                f"Result was truncated to the configured limit of {max_rows} rows."
+            )
     if freshness.get("completionState") == "partial":
         warnings.append("Analytics source freshness is partial.")
 
-    return {
+    table = {
         "contractVersion": "catalyst.table.v1",
         "deploymentMode": "demo",
         "question": preview["question"],
@@ -84,10 +90,13 @@ def build_table(
         "provenance": {
             "catalystTraceId": catalyst_trace_id,
             "hubTraceId": query["provenance"]["traceId"],
-            "profileId": "catalyst-query-checked",
+            "profileId": query["provenance"]["profileId"],
         },
         "warnings": warnings,
     }
+    if "reasoningTrace" in preview:
+        table["reasoningTrace"] = deepcopy(preview["reasoningTrace"])
+    return table
 
 
 def _tag_row(

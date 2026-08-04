@@ -1,21 +1,19 @@
 import asyncio
-import json
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from src import gateway
 from src.catalyst.analytics import AnalyticsResult, PostgresAnalyticsAdapter
-from src.catalyst.catalog import Catalog
+from src.catalyst.catalog import Catalog, DatasetBrowserProfile
 from src.catalyst.contracts import ContractError, ContractRegistry
 from src.catalyst.digest import canonical_sha256
-from src.catalyst.hub import HubClient, HubError
+from src.catalyst.hub import HubError
 from src.catalyst.policy import (
     QueryInvariantError,
     SqlPolicy,
@@ -30,11 +28,27 @@ from src.config import load_config
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
 
+# The OpenELIS dataset-browser mapping, mirroring what its shipped catalog
+# declares. The adapter composes every dataset query from a profile like this
+# one, so a source's own column names never leak into another source's SQL.
+OPENELIS_DATASET_BROWSER = DatasetBrowserProfile(
+    fact_view="analytics.lab_result_fact_v1",
+    identity_column="observation_id",
+    subject_column="patient_id",
+    category_column="test_name",
+    observed_at_column="observed_at",
+    value_column="result_value",
+    unit_column="result_unit",
+    issued_at_column="issued_at",
+    duration_column="receipt_to_release_minutes",
+)
+
 
 def catalog() -> Catalog:
     return Catalog(
         data_source="openelis-demo",
         catalog_version="2026.07",
+        schema_version="analytics-v1",
         dialect="postgresql",
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
@@ -111,7 +125,7 @@ def ready_query(question: str = "Count tests since July 1") -> dict:
             "checks": [{"name": "review", "status": "passed"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-checked",
+            "profileId": "catalyst-query-gemma-4-12b-q4",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -129,7 +143,7 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
             "checks": [{"name": "scope", "status": "warned"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-checked",
+            "profileId": "catalyst-query-gemma-4-12b-q4",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -138,6 +152,37 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
         query["clarification"] = "Which date range?"
     else:
         query["message"] = f"Question is {status}"
+    if status == "rejected":
+        generated = ready_query(question)
+        query["diagnosticCandidate"] = {
+            "executable": False,
+            "candidate": {
+                field: deepcopy(generated[field])
+                for field in (
+                    "status",
+                    "target",
+                    "sql",
+                    "parameters",
+                    "expectedColumns",
+                )
+            },
+            "attempts": [
+                {
+                    "attempt": 1,
+                    "status": "failed",
+                    "finding_codes": ["policy.unbound_predicate_literal"],
+                    "findings": [
+                        {
+                            "code": "policy.unbound_predicate_literal",
+                            "stage": "query_lint",
+                            "severity": "error",
+                            "path": "$.sql",
+                            "message": "A predicate literal was not bound.",
+                        }
+                    ],
+                }
+            ],
+        }
     return query
 
 
@@ -165,6 +210,29 @@ class FakeHub:
             raise self.error
         assert self.response is not None
         return deepcopy(self.response)
+
+    async def list_query_profiles(self) -> list[dict]:
+        if self.error:
+            raise self.error
+        return [
+            {
+                "id": "catalyst-query-gemma-4-12b-q4",
+                "label": "Catalyst governed query — Gemma 4 12B",
+                "available": self.error is None,
+                "required_models": ["gemma-4-12b-q4"],
+                "role_models": {
+                    "query_generate": "gemma-4-12b-q4",
+                    "query_review": "gemma-4-12b-q4",
+                },
+                "stages": [
+                    "context",
+                    "query_generate",
+                    "query_review",
+                    "query_finalize",
+                ],
+                "outputContracts": ["catalyst.query.v1"],
+            }
+        ]
 
     async def readiness(self) -> dict:
         return {
@@ -205,6 +273,29 @@ class FakeAnalytics:
     async def readiness(self) -> dict:
         return {"ready": self.error is None, "dataSource": "openelis-demo"}
 
+    async def dataset_overview(self) -> dict:
+        return {
+            "contractVersion": "catalyst.dataset-overview.v1",
+            "datasetId": "test-cohort",
+            "synthetic": True,
+            "patients": 2,
+            "results": 4,
+            "testTypes": 1,
+            "firstObservedAt": "2026-01-01T00:00:00Z",
+            "lastObservedAt": "2026-02-01T00:00:00Z",
+            "tests": [],
+            "exampleQuestions": [],
+        }
+
+    async def dataset_rows(self, **kwargs) -> dict:
+        return {
+            "contractVersion": "catalyst.dataset-rows.v1",
+            "total": 0,
+            "limit": kwargs["limit"],
+            "offset": kwargs["offset"],
+            "rows": [],
+        }
+
 
 def make_service(
     tmp_path: Path,
@@ -213,7 +304,6 @@ def make_service(
     hub: FakeHub | None = None,
     analytics: FakeAnalytics | None = None,
     clock: Clock | None = None,
-    ttl_seconds: int = 60,
     execution_lease_seconds: int = 60,
 ) -> tuple[CatalystService, FakeHub, FakeAnalytics, ContractRegistry]:
     registry = ContractRegistry.load(CONTRACTS)
@@ -233,7 +323,6 @@ def make_service(
         sql_policy=SqlPolicy(max_rows=2),
         max_rows=2,
         statement_timeout_ms=500,
-        preview_ttl_seconds=ttl_seconds,
     )
     return service, actual_hub, actual_analytics, registry
 
@@ -248,20 +337,180 @@ def execute_body(preview: dict, key: str = "idem-1") -> dict:
     }
 
 
-def test_loads_and_checks_all_nine_normative_schemas():
+def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
+    tmp_path: Path,
+):
+    class RuntimeAnalytics(FakeAnalytics):
+        async def discover_relations(self) -> list[dict]:
+            return [
+                {
+                    "name": "public.patient_flat_v1",
+                    "relationType": "table",
+                    "grain": "one row per FHIR Patient",
+                    "fields": [
+                        {
+                            "name": "patient_id",
+                            "type": "string",
+                            "databaseType": "uuid",
+                            "description": "FHIR Patient identifier",
+                            "nullable": False,
+                        }
+                    ],
+                }
+            ]
+
+    class RuntimeHub(FakeHub):
+        async def generate_query(self, request: dict) -> dict:
+            self.requests.append(deepcopy(request))
+            target = request["catalystQuery"]["target"]
+            context_id = request["catalystQuery"]["catalog"]["contextSourceId"]
+            return {
+                "contractVersion": "catalyst.query.v1",
+                "deploymentMode": "demo",
+                "status": "ready",
+                "question": request["messages"][0]["content"],
+                "target": {
+                    **target,
+                    "approvedViews": ["public.patient_flat_v1"],
+                },
+                "sql": "SELECT patient_id FROM public.patient_flat_v1 LIMIT 2",
+                "parameters": [],
+                "expectedColumns": [
+                    {
+                        "name": "patient_id",
+                        "logicalType": "string",
+                        "nullable": False,
+                    }
+                ],
+                "validation": {"status": "passed", "checks": []},
+                "provenance": {
+                    "profileId": "catalyst-query-gemma-4-12b-q4",
+                    "traceId": "hub-runtime-schema",
+                    "contextSourceIds": [context_id],
+                },
+            }
+
+    hub = RuntimeHub()
+    service, _, _, _ = make_service(
+        tmp_path,
+        hub=hub,
+        analytics=RuntimeAnalytics(
+            AnalyticsResult(
+                column_names=["patient_id"],
+                rows=[("patient-1",)],
+                truncated=False,
+            )
+        ),
+    )
+
+    with TestClient(gateway.create_app(catalyst_service=service)) as client:
+        editor = client.get("/v1/catalyst/workbench/catalog")
+        preview = client.post(
+            "/v1/catalyst/queries",
+            json={
+                "contractVersion": "catalyst.question.request.v1",
+                "deploymentMode": "demo",
+                "question": "List patients",
+            },
+        )
+        assert preview.status_code == 201, preview.text
+        execution = client.post(
+            f"/v1/catalyst/previews/{preview.json()['previewId']}/execute",
+            json=execute_body(preview.json(), "runtime-schema-execution"),
+        )
+
+    assert editor.status_code == 200, editor.text
+    editor_body = editor.json()
+    assert editor_body["catalogVersion"].startswith("2026.07+schema.")
+    assert editor_body["schemas"] == [
+        {
+            "name": "public",
+            "views": [
+                {
+                    "name": "patient_flat_v1",
+                    "qualifiedName": "public.patient_flat_v1",
+                    "grain": "one row per FHIR Patient",
+                    "relationType": "table",
+                    "columns": [
+                        {
+                            "name": "patient_id",
+                            "logicalType": "string",
+                            "databaseType": "uuid",
+                            "description": "FHIR Patient identifier",
+                            "nullable": False,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    assert execution.status_code == 200, execution.text
+    assert preview.json()["target"]["approvedViews"] == ["public.patient_flat_v1"]
+    request = hub.requests[0]["catalystQuery"]
+    assert request["target"]["catalogVersion"] == editor_body["catalogVersion"]
+    assert [view["name"] for view in request["catalog"]["views"]] == [
+        "public.patient_flat_v1"
+    ]
+
+
+def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 9
+    assert len(registry.schemas) == 24
     assert set(registry.schemas) == {
+        "catalyst-data-sources-v1.schema.json",
         "catalyst-execute-request-v1.schema.json",
         "catalyst-execution-outcome-v1.schema.json",
         "catalyst-policy-outcome-v1.schema.json",
         "catalyst-preview-v1.schema.json",
         "catalyst-query-completion-v1.schema.json",
         "catalyst-query-request-v1.schema.json",
+        "catalyst-query-request-v2.schema.json",
+        "catalyst-query-revision-context-v1.schema.json",
         "catalyst-query-v1.schema.json",
         "catalyst-question-request-v1.schema.json",
         "catalyst-table-v1.schema.json",
+        "catalyst-workbench-execute-request-v1.schema.json",
+        "catalyst-workbench-editor-catalog-v1.schema.json",
+        "catalyst-workbench-editor-snapshot-v1.schema.json",
+        "catalyst-workbench-editor-snapshot-record-v1.schema.json",
+        "catalyst-workbench-finding-v1.schema.json",
+        "catalyst-workbench-generation-evidence-v1.schema.json",
+        "catalyst-workbench-session-request-v1.schema.json",
+        "catalyst-workbench-session-v1.schema.json",
+        "catalyst-workbench-turn-request-v1.schema.json",
+        "catalyst-workbench-turn-timeline-v1.schema.json",
+        "catalyst-workbench-turn-v1.schema.json",
+        "catalyst-workbench-version-request-v1.schema.json",
     }
+    registry.validate(
+        "catalyst-workbench-editor-catalog-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.editor-catalog.v1",
+            "catalogVersion": "analytics-catalog-v1",
+            "schemaVersion": "analytics-v1",
+            "dialect": "postgresql",
+            "schemas": [
+                {
+                    "name": "analytics",
+                    "views": [
+                        {
+                            "name": "lab_result_fact_v1",
+                            "qualifiedName": "analytics.lab_result_fact_v1",
+                            "grain": "one row per laboratory result",
+                            "columns": [
+                                {
+                                    "name": "observed_at",
+                                    "logicalType": "date-time",
+                                    "description": "Observation effective time",
+                                    "nullable": True,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
     registry.validate(
         "catalyst-question-request-v1.schema.json",
         {
@@ -279,187 +528,82 @@ def test_loads_and_checks_all_nine_normative_schemas():
                 "question": "",
             },
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("models_body", "code"),
-    [
-        ({"not_data": []}, "profile_incompatible"),
-        ({"data": []}, "profile_unavailable"),
-        (
-            {
-                "data": [
-                    {
-                        "id": "catalyst-query-checked",
-                        "available": False,
-                        "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                    }
-                ]
-            },
-            "profile_unavailable",
-        ),
-        (
-            {
-                "data": [
-                    {
-                        "id": "catalyst-query-checked",
-                        "available": True,
-                        "capabilities": {"outputContracts": ["other.v1"]},
-                    }
-                ]
-            },
-            "profile_incompatible",
-        ),
-    ],
-)
-async def test_hub_discovery_fails_closed(models_body: dict, code: str):
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=models_body)
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
+    registry.validate(
+        "catalyst-workbench-finding-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.finding.v1",
+            "findingId": "finding-" + "0" * 24,
+            "ruleCode": "gateway_sql_policy.relation_not_found",
+            "severity": "error",
+            "stage": "gateway_sql_policy",
+            "message": "The relation is not in the readable PostgreSQL schema.",
+            "path": "sql",
+            "astUnit": None,
+            "span": None,
+            "evidence": {"relation": "analytics.not_a_view"},
+            "suggestedAction": "Refresh the schema and use an available relation.",
+            "repairability": "manual",
+            "validatorRevision": "catalyst.workbench.validator.v1",
+        },
     )
-    with pytest.raises(HubError) as error:
-        await client.discover_query_profile()
-    assert error.value.code == code
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_hub_discovery_and_completion_are_strict():
-    sent = {}
-    query = ready_query()
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-checked",
-                            "available": True,
-                            "capabilities": {
-                                "outputContracts": ["catalyst.query.v1"],
-                                "modelRouter": True,
-                            },
-                        }
-                    ]
-                },
-            )
-        sent.update(json.loads(request.content))
-        return httpx.Response(
-            200,
-            json={
-                "id": "completion-1",
-                "object": "chat.completion",
-                "model": "catalyst-query-checked",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": json.dumps(query),
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
+    registry.validate(
+        "catalyst-workbench-session-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": "Count tests",
+            "profileId": "catalyst-query-checked",
+        },
+    )
+    registry.validate(
+        "catalyst-workbench-session-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.session.v1",
+            "sessionId": "8a9e8d3e-9e93-4151-bf3d-6fca75430caa",
+            "question": "Count tests",
+            "profileId": "catalyst-query-checked",
+            "datasetId": "openelis-catalyst-demo",
+            "datasetVersion": "v1",
+            "catalogVersion": "v1",
+            "currentVersionId": None,
+            "draftSeed": {
+                "status": "unresolved",
+                "source": "raw_model_output",
+                "sql": "SELECT 1",
+                "parameters": [],
+                "unresolvedPaths": [],
             },
-        )
-
-    registry = ContractRegistry.load(CONTRACTS)
-    client = HubClient(
-        "http://hub",
-        registry,
-        transport=httpx.MockTransport(handler),
+            "browserState": {},
+            "provenance": {},
+            "status": "active",
+            "createdAt": "2026-07-17T00:00:00Z",
+            "updatedAt": "2026-07-17T00:00:00Z",
+            "versions": [],
+            "currentVersion": None,
+            "validations": [],
+            "latestValidation": None,
+            "executions": [],
+        },
     )
-    request = build_query_request(
-        "Count tests since July 1",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
+    registry.validate(
+        "catalyst-workbench-version-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": "version-1",
+            "parentQueryDigest": "0" * 64,
+            "sql": "SELECT 1",
+            "parameters": [],
+        },
     )
-    result = await client.generate_query(request)
-    assert result == query
-    assert sent["model"] == "catalyst-query-checked"
-    assert sent["stream"] is False
-    assert sent["catalystQuery"]["requiredOutputContract"] == "catalyst.query.v1"
-    assert "dsn" not in json.dumps(sent).lower()
-    await client.aclose()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("response", "code"),
-    [
-        (
-            {
-                "id": "x",
-                "object": "chat.completion",
-                "model": "wrong-profile",
-                "choices": [],
-            },
-            "hub_invalid_response",
-        ),
-        (
-            {
-                "id": "x",
-                "object": "chat.completion",
-                "model": "catalyst-query-checked",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "```json\n{}\n```",
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
-            "hub_invalid_response",
-        ),
-    ],
-)
-async def test_hub_rejects_invalid_completion(response: dict, code: str):
-    async def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/models":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": "catalyst-query-checked",
-                            "available": True,
-                            "capabilities": {"outputContracts": ["catalyst.query.v1"]},
-                        }
-                    ]
-                },
-            )
-        return httpx.Response(200, json=response)
-
-    client = HubClient(
-        "http://hub",
-        ContractRegistry.load(CONTRACTS),
-        transport=httpx.MockTransport(handler),
+    registry.validate(
+        "catalyst-workbench-execute-request-v1.schema.json",
+        {
+            "contractVersion": "catalyst.workbench.execute.request.v1",
+            "versionId": "version-1",
+            "queryDigest": "0" * 64,
+            "idempotencyKey": "manual-1",
+        },
     )
-    request = build_query_request(
-        "Question",
-        catalog(),
-        max_rows=2,
-        statement_timeout_ms=500,
-        request_id="request-1",
-        trace_id="trace-1",
-    )
-    with pytest.raises(HubError) as error:
-        await client.generate_query(request)
-    assert error.value.code == code
-    await client.aclose()
 
 
 @pytest.mark.parametrize(
@@ -475,10 +619,6 @@ async def test_hub_rejects_invalid_completion(response: dict, code: str):
             "target_mismatch",
         ),
         (lambda q: q["target"].update(dialect="duckdb"), "target_mismatch"),
-        (
-            lambda q: q["target"].update(approvedViews=["private.results"]),
-            "unapproved_view",
-        ),
         (
             lambda q: q["parameters"].append(deepcopy(q["parameters"][0])),
             "duplicate_parameter",
@@ -517,6 +657,21 @@ def test_runtime_query_invariants_are_strict(mutator, violation: str):
     assert violation in {item.code for item in error.value.violations}
 
 
+def test_runtime_invariants_do_not_treat_model_relation_names_as_a_whitelist():
+    request = build_query_request(
+        "Count tests since July 1",
+        catalog(),
+        max_rows=2,
+        statement_timeout_ms=500,
+        request_id="request-1",
+        trace_id="trace-1",
+    )
+    query = ready_query()
+    query["target"]["approvedViews"] = ["public.patient_flat_v1"]
+
+    validate_query_invariants(query, request)
+
+
 @pytest.mark.parametrize(
     ("sql", "code"),
     [
@@ -525,11 +680,7 @@ def test_runtime_query_invariants_are_strict(mutator, violation: str):
             "SELECT * FROM analytics.lab_results; SELECT 1",
             "multiple_statements",
         ),
-        ("SELECT * FROM private.results", "unapproved_view"),
-        (
-            "SELECT * FROM analytics.lab_results WHERE test_name = 'HIV'",
-            "unbound_literal",
-        ),
+        ("SELECT * FROM private.results", "relation_not_found"),
         ("SELECT * FROM analytics.lab_results LIMIT 3", "row_limit_exceeded"),
         (
             "SELECT * INTO analytics.copy FROM analytics.lab_results",
@@ -543,7 +694,7 @@ def test_sql_policy_rejects_unsafe_postgresql(sql: str, code: str):
     query["parameters"] = []
     violations = SqlPolicy(max_rows=2).evaluate(
         query,
-        approved_views={"analytics.lab_results"},
+        available_relations={"analytics.lab_results"},
     )
     assert code in {item.code for item in violations}
 
@@ -551,8 +702,67 @@ def test_sql_policy_rejects_unsafe_postgresql(sql: str, code: str):
 def test_sql_policy_accepts_one_parameterized_select():
     violations = SqlPolicy(max_rows=2).evaluate(
         ready_query(),
-        approved_views={"analytics.lab_results"},
+        available_relations={"analytics.lab_results"},
     )
+    assert violations == []
+
+
+def test_sql_policy_only_accepts_unqualified_relations_visible_on_search_path():
+    query = ready_query()
+    query["sql"] = "SELECT * FROM lab_results"
+    query["parameters"] = []
+
+    missing = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results"},
+    )
+    visible = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results", "lab_results"},
+    )
+
+    assert {item.code for item in missing} == {"relation_not_found"}
+    assert visible == []
+
+
+def test_sql_policy_does_not_hide_qualified_relation_matching_cte_name():
+    query = ready_query()
+    query["sql"] = "WITH x AS (SELECT * FROM private.x) SELECT * FROM x"
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"public.x"},
+    )
+
+    assert {item.code for item in violations} == {"relation_not_found"}
+
+
+def test_sql_policy_does_not_use_relations_as_a_security_whitelist():
+    query = ready_query()
+    query["sql"] = "SELECT * FROM any_schema.any_relation"
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(query)
+
+    assert violations == []
+
+
+def test_sql_policy_allows_cte_rank_filter_literal_for_manual_iteration():
+    query = ready_query()
+    query["sql"] = (
+        "WITH ranked AS ("
+        "SELECT *, ROW_NUMBER() OVER (PARTITION BY test_name "
+        "ORDER BY result_date DESC) AS rn FROM analytics.lab_results"
+        ") SELECT * FROM ranked WHERE rn = 1"
+    )
+    query["parameters"] = []
+
+    violations = SqlPolicy(max_rows=2).evaluate(
+        query,
+        available_relations={"analytics.lab_results"},
+    )
+
     assert violations == []
 
 
@@ -570,10 +780,10 @@ def test_rfc8785_sha256_vectors(value: dict, expected: str):
     assert canonical_sha256(value) == expected
 
 
-def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
+def test_preview_store_is_transactional_idempotent_and_does_not_expire(tmp_path: Path):
     clock = Clock()
     store = PreviewStore(tmp_path / "state.sqlite3", now=clock)
-    preview = store.create_preview(ready_query(), ttl_seconds=5)
+    preview = store.create_preview(ready_query())
 
     claim = store.begin_execution(
         preview["previewId"],
@@ -610,15 +820,14 @@ def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
     assert replay.status_code == 200
     assert replay.body == table
 
-    expiring = store.create_preview(ready_query(), ttl_seconds=5)
-    clock.advance(6)
-    expired = store.begin_execution(
-        expiring["previewId"],
-        expiring["queryDigest"],
-        "expiry-key",
+    delayed = store.create_preview(ready_query())
+    clock.advance(60 * 60 * 24 * 365)
+    accepted = store.begin_execution(
+        delayed["previewId"],
+        delayed["queryDigest"],
+        "delayed-key",
     )
-    assert expired.status_code == 410
-    assert expired.body["status"] == "expired"
+    assert accepted.action == "execute"
 
     missing = store.begin_execution("unknown", "digest", "key")
     assert missing.status_code == 404
@@ -628,7 +837,7 @@ def test_preview_store_is_transactional_idempotent_and_expiring(tmp_path: Path):
 
 def test_preview_store_replays_failure_and_poll_does_not_execute(tmp_path: Path):
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(ready_query(), ttl_seconds=30)
+    preview = store.create_preview(ready_query())
     claim = store.begin_execution(preview["previewId"], preview["queryDigest"], "key")
     assert claim.action == "execute"
     failed = store.finish_failure(preview["previewId"], "key", "database down")
@@ -649,7 +858,7 @@ def test_preview_store_terminates_a_stale_execution_lease(tmp_path: Path):
         now=clock,
         execution_lease_seconds=5,
     )
-    preview = store.create_preview(ready_query(), ttl_seconds=30)
+    preview = store.create_preview(ready_query())
     store.begin_execution(preview["previewId"], preview["queryDigest"], "lease-key")
 
     clock.advance(6)
@@ -677,7 +886,7 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
         {"name": "at", "logicalType": "date-time", "nullable": True},
     ]
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(query, ttl_seconds=30)
+    preview = store.create_preview(query)
     result = AnalyticsResult(
         column_names=["text", "count", "ratio", "flag", "day", "at"],
         rows=[
@@ -691,6 +900,7 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
             )
         ],
         truncated=True,
+        truncation_reason="query_limit_reached",
     )
     table = build_table(
         preview=preview,
@@ -720,6 +930,10 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
     }
     assert table["source"]["freshness"]["pipelineRunId"] == "pipeline-42"
     assert table["provenance"]["hubTraceId"] == "hub-trace-1"
+    assert table["warnings"] == [
+        "Result reached the SQL row limit; additional matching rows may exist. "
+        "Refine the question to narrow the result."
+    ]
 
     empty = build_table(
         preview=preview,
@@ -751,7 +965,7 @@ def test_table_builder_tags_types_empty_and_truncated(tmp_path: Path):
 def test_table_builder_rejects_row_shape_and_type(tmp_path: Path, rows: list):
     query = ready_query()
     store = PreviewStore(tmp_path / "state.sqlite3")
-    preview = store.create_preview(query, ttl_seconds=30)
+    preview = store.create_preview(query)
     with pytest.raises(TableError):
         build_table(
             preview=preview,
@@ -832,6 +1046,180 @@ async def test_postgres_adapter_uses_read_only_timeout_limit_and_driver_bindings
     assert calls[2][1] == {"start_date": date(2026, 7, 1)}
     assert result.rows == [("HIV", 2), ("TB", 1)]
     assert result.truncated is True
+    assert result.truncation_reason == "configured_limit"
+
+
+@pytest.mark.asyncio
+async def test_postgres_adapter_marks_a_reached_sql_limit_as_inexact():
+    class Cursor:
+        description = [SimpleNamespace(name="patient_id")]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            return None
+
+        def fetchmany(self, _count):
+            return [("patient-1",), ("patient-2",)]
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: Connection(),
+    )
+    result = await adapter.execute(
+        sql="SELECT patient_id FROM analytics.lab_results LIMIT 2",
+        parameters=[],
+        max_rows=2,
+        statement_timeout_ms=500,
+    )
+
+    assert result.rows == [("patient-1",), ("patient-2",)]
+    assert result.truncated is True
+    assert result.truncation_reason == "query_limit_reached"
+
+
+@pytest.mark.asyncio
+async def test_dataset_rows_include_stable_observation_identity_and_ordering():
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+        def fetchone(self):
+            return (1,)
+
+        def fetchall(self):
+            return [
+                (
+                    "observation-1",
+                    "patient-1",
+                    "Viral Load",
+                    Decimal("9000"),
+                    "copies/ml",
+                    datetime(2026, 4, 27, 9, tzinfo=timezone.utc),
+                    datetime(2026, 4, 27, 11, tzinfo=timezone.utc),
+                    Decimal("120"),
+                )
+            ]
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: Connection(),
+        dataset_browser=OPENELIS_DATASET_BROWSER,
+    )
+
+    result = await adapter.dataset_rows(
+        test_name="Viral Load",
+        patient_id=None,
+        limit=25,
+        offset=0,
+    )
+
+    row_query, bindings = calls[2]
+    assert "SELECT observation_id, patient_id" in row_query
+    assert "ORDER BY observed_at DESC NULLS LAST, observation_id" in row_query
+    assert bindings == {
+        "limit": 25,
+        "offset": 0,
+        "test_name": "Viral Load",
+    }
+    assert result["rows"] == [
+        {
+            "observationId": "observation-1",
+            "patientId": "patient-1",
+            "testName": "Viral Load",
+            "value": "9000",
+            "unit": "copies/ml",
+            "observedAt": "2026-04-27T09:00:00Z",
+            "issuedAt": "2026-04-27T11:00:00Z",
+            "turnaroundMinutes": "120",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataset_overview_uses_live_pipeline_identity_without_claiming_classification():
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+        def fetchone(self):
+            return (
+                96,
+                1152,
+                9,
+                datetime(2025, 7, 15, 9, tzinfo=timezone.utc),
+                datetime(2026, 4, 27, 9, tzinfo=timezone.utc),
+                "full-20260717T120000Z",
+            )
+
+        def fetchall(self):
+            return []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        data_source_id="openelis-fhir-postgresql",
+        connect=lambda *args, **kwargs: Connection(),
+        dataset_browser=OPENELIS_DATASET_BROWSER,
+    )
+
+    overview = await adapter.dataset_overview()
+
+    assert "FROM analytics.pipeline_freshness_v1" in calls[1][0]
+    assert overview["datasetId"] == "full-20260717T120000Z"
+    assert overview["dataSource"] == "openelis-fhir-postgresql"
+    assert overview["pipelineRunId"] == "full-20260717T120000Z"
+    assert overview["synthetic"] is None
+    assert overview["exampleQuestions"] == []
 
 
 @pytest.mark.parametrize(
@@ -861,6 +1249,9 @@ def test_query_route_returns_every_non_ready_contract_status(
     assert response.status_code == expected_status
     registry.validate("catalyst-query-v1.schema.json", response.json())
     assert response.json()["status"] == status
+    if status == "rejected":
+        assert response.json()["diagnosticCandidate"]["executable"] is False
+        assert response.json()["diagnosticCandidate"]["candidate"]["sql"]
 
 
 def test_query_route_builds_ready_preview(tmp_path: Path):
@@ -880,7 +1271,76 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
     registry.validate("catalyst-preview-v1.schema.json", preview)
     assert preview["state"] == "awaiting_acceptance"
     assert preview["question"] == question
+    assert preview["reasoningTrace"] == {
+        "traceId": "hub-trace-1",
+        "profileId": "catalyst-query-gemma-4-12b-q4",
+        "status": "passed",
+        "stages": [
+            "context",
+            "query_generate",
+            "query_review",
+            "query_finalize",
+        ],
+        "roleModels": {
+            "query_generate": "gemma-4-12b-q4",
+            "query_review": "gemma-4-12b-q4",
+        },
+        "checks": [{"name": "review", "status": "passed"}],
+    }
     assert hub.requests[0]["messages"] == [{"role": "user", "content": question}]
+
+
+def test_query_route_rejects_sql_policy_violation_from_hub(tmp_path: Path):
+    destructive = ready_query(question="Show test results")
+    destructive["sql"] = "DELETE FROM analytics.lab_results"
+    destructive["parameters"] = []
+    service, hub, _, registry = make_service(tmp_path, destructive)
+    client = TestClient(gateway.create_app(catalyst_service=service))
+
+    response = client.post(
+        "/v1/catalyst/queries",
+        json={
+            "contractVersion": "catalyst.question.request.v1",
+            "deploymentMode": "demo",
+            "question": "Show test results",
+        },
+    )
+
+    assert response.status_code == 422
+    registry.validate("catalyst-policy-outcome-v1.schema.json", response.json())
+    assert len(hub.requests) == 1
+    assert response.json()["violations"] == [
+        {
+            "code": "operation_not_allowed",
+            "message": "Only a read-only SELECT statement is allowed.",
+        }
+    ]
+
+
+def test_dataset_routes_expose_overview_and_bounded_rows(tmp_path: Path):
+    service, _, _, _ = make_service(tmp_path)
+    client = TestClient(gateway.create_app(catalyst_service=service))
+
+    overview = client.get("/v1/catalyst/dataset")
+    assert overview.status_code == 200
+    assert overview.json()["contractVersion"] == "catalyst.dataset-overview.v1"
+    assert overview.json()["patients"] == 2
+
+    rows = client.get(
+        "/v1/catalyst/dataset/rows",
+        params={"testName": "Viral Load", "limit": 25, "offset": 0},
+    )
+    assert rows.status_code == 200
+    assert rows.json() == {
+        "contractVersion": "catalyst.dataset-rows.v1",
+        "total": 0,
+        "limit": 25,
+        "offset": 0,
+        "rows": [],
+    }
+
+    invalid = client.get("/v1/catalyst/dataset/rows", params={"limit": 101})
+    assert invalid.status_code == 422
 
 
 def test_query_route_maps_invalid_policy_and_hub_failures(tmp_path: Path):
@@ -963,9 +1423,9 @@ def test_execute_route_success_replay_conflict_and_poll(tmp_path: Path):
     registry.validate("catalyst-execution-outcome-v1.schema.json", conflict.json())
 
 
-def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path):
+def test_execute_route_in_progress_not_found_delayed_and_bad_path(tmp_path: Path):
     clock = Clock()
-    service, _, _, registry = make_service(tmp_path, clock=clock, ttl_seconds=1)
+    service, _, _, registry = make_service(tmp_path, clock=clock)
     client = TestClient(gateway.create_app(catalyst_service=service))
     missing = client.get(
         "/v1/catalyst/executions/missing",
@@ -974,7 +1434,7 @@ def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path)
     assert missing.status_code == 404
     registry.validate("catalyst-execution-outcome-v1.schema.json", missing.json())
 
-    preview = service.store.create_preview(ready_query(), ttl_seconds=10)
+    preview = service.store.create_preview(ready_query())
     service.store.begin_execution(
         preview["previewId"], preview["queryDigest"], "active"
     )
@@ -985,14 +1445,13 @@ def test_execute_route_in_progress_not_found_expiry_and_bad_path(tmp_path: Path)
     assert active.status_code == 202
     assert active.json()["status"] == "in_progress"
 
-    expiring = service.store.create_preview(ready_query(), ttl_seconds=1)
-    clock.advance(2)
-    expired = client.post(
-        f"/v1/catalyst/previews/{expiring['previewId']}/execute",
-        json=execute_body(expiring, "expired"),
+    delayed = service.store.create_preview(ready_query())
+    clock.advance(60 * 60 * 24 * 365)
+    accepted = client.post(
+        f"/v1/catalyst/previews/{delayed['previewId']}/execute",
+        json=execute_body(delayed, "delayed"),
     )
-    assert expired.status_code == 410
-    assert expired.json()["status"] == "expired"
+    assert accepted.status_code == 200
 
     mismatch = execute_body(preview, "mismatch")
     mismatch["previewId"] = "other"
@@ -1007,7 +1466,7 @@ def test_execute_route_stores_and_replays_execution_failure(tmp_path: Path):
     analytics = FakeAnalytics(error=RuntimeError("database unavailable"))
     service, _, _, registry = make_service(tmp_path, analytics=analytics)
     client = TestClient(gateway.create_app(catalyst_service=service))
-    preview = service.store.create_preview(ready_query(), ttl_seconds=30)
+    preview = service.store.create_preview(ready_query())
     body = execute_body(preview, "failure")
     response = client.post(
         f"/v1/catalyst/previews/{preview['previewId']}/execute",
@@ -1031,7 +1490,7 @@ def test_execute_route_stores_and_replays_execution_failure(tmp_path: Path):
 async def test_execute_cancellation_is_reraised_and_stored(tmp_path: Path):
     analytics = FakeAnalytics(error=asyncio.CancelledError())
     service, _, _, registry = make_service(tmp_path, analytics=analytics)
-    preview = service.store.create_preview(ready_query(), ttl_seconds=30)
+    preview = service.store.create_preview(ready_query())
     body = execute_body(preview, "cancelled")
 
     with pytest.raises(asyncio.CancelledError):

@@ -1,6 +1,7 @@
 import { ArrowRight } from "@carbon/icons-react";
-import { Button, Form, Stack, TextArea } from "@carbon/react";
-import type { FormEvent } from "react";
+import { Button, Form, TextArea } from "@carbon/react";
+import { type FormEvent } from "react";
+import type { QueryProfile } from "../types";
 
 interface QuestionFormProps {
   question: string;
@@ -8,7 +9,27 @@ interface QuestionFormProps {
   disabled?: boolean;
   onQuestionChange: (question: string) => void;
   onSubmit: (question: string) => void;
+  profiles?: QueryProfile[];
+  selectedProfileId?: string;
+  onProfileChange?: (profileId: string) => void;
 }
+
+const profileOptionLabel = (profile: QueryProfile) => {
+  const modelAliases = Array.from(
+    new Set(
+      Object.entries(profile.roleModels)
+        .sort(([leftRole], [rightRole]) =>
+          leftRole < rightRole ? -1 : leftRole > rightRole ? 1 : 0,
+        )
+        .map(([, modelAlias]) => modelAlias.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return modelAliases.length > 0
+    ? `${profile.label} — ${modelAliases.join(", ")}`
+    : profile.label;
+};
 
 export const QuestionForm = ({
   question,
@@ -16,8 +37,12 @@ export const QuestionForm = ({
   disabled = false,
   onQuestionChange,
   onSubmit,
+  profiles = [],
+  selectedProfileId,
+  onProfileChange,
 }: QuestionFormProps) => {
   const normalizedQuestion = question.trim();
+  const availableProfiles = profiles.filter((profile) => profile.available);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -26,35 +51,64 @@ export const QuestionForm = ({
   };
 
   return (
-    <section className="query-card query-card--question" aria-labelledby="question-title">
-      <div className="section-heading">
-        <p className="eyebrow">Natural language to governed data</p>
-        <h1 id="question-title">Ask OpenELIS data</h1>
-        <p>
-          Catalyst prepares a read-only query for review. Nothing runs until you
-          explicitly accept the preview.
-        </p>
+    <section
+      id="ask-openelis"
+      className="query-card query-card--question"
+      aria-labelledby="question-title"
+    >
+      <div className="section-heading query-composer__heading">
+        <h1 id="question-title" tabIndex={-1}>
+          Ask OpenELIS
+        </h1>
       </div>
-      <Form onSubmit={handleSubmit}>
-        <Stack gap={6}>
-          <TextArea
-            id="catalyst-question"
-            labelText="Question"
-            helperText="Ask for a table using demo analytics data."
-            placeholder="For example: Show recent viral load results"
-            value={question}
-            rows={3}
-            disabled={busy || disabled}
-            onChange={(event) => onQuestionChange(event.currentTarget.value)}
-          />
-          <Button
-            type="submit"
-            renderIcon={ArrowRight}
-            disabled={!normalizedQuestion || busy || disabled}
-          >
-            {busy ? "Generating preview…" : "Generate preview"}
-          </Button>
-        </Stack>
+      <Form className="query-composer-form" onSubmit={handleSubmit}>
+        <div className="query-composer">
+          <div className="query-composer__input">
+            <TextArea
+              id="catalyst-question"
+              labelText="Question"
+              placeholder="Describe the laboratory data you want to explore"
+              value={question}
+              rows={4}
+              disabled={busy || disabled}
+              onChange={(event) => onQuestionChange(event.currentTarget.value)}
+            />
+          </div>
+          <div className="query-composer__toolbar">
+            {availableProfiles.length > 0 && (
+              <label className="profile-selector" htmlFor="catalyst-profile">
+                <span>Model profile</span>
+                <select
+                  id="catalyst-profile"
+                  value={selectedProfileId}
+                  disabled={busy || disabled}
+                  onChange={(event) => onProfileChange?.(event.currentTarget.value)}
+                >
+                  {availableProfiles.map((profile) => (
+                    <option
+                      key={profile.id}
+                      value={profile.id}
+                    >
+                      {profileOptionLabel(profile)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {profiles.length > 0 && availableProfiles.length === 0 && (
+              <p className="query-composer__availability" role="status">
+                No configured model profile is currently available.
+              </p>
+            )}
+            <Button
+              type="submit"
+              renderIcon={ArrowRight}
+              disabled={!normalizedQuestion || busy || disabled}
+            >
+              {busy ? "Generating query…" : "Generate query"}
+            </Button>
+          </div>
+        </div>
       </Form>
     </section>
   );

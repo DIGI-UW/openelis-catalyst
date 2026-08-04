@@ -1,0 +1,169 @@
+name: catalyst-demo
+
+# Minimal demo stack: no OpenELIS/OpenMRS EMR containers, no fhir-data-pipes
+# ingestion. analytics-db is seeded from a pg_dump snapshot of an already-
+# validated local demo stack instead of live FHIR ETL. catalyst-gateway and
+# catalyst-ui have no runtime dependency on the EMR layer, only on
+# analytics-db + a static catalog JSON + the model router, so this is the
+# full real query path minus the (not-needed-at-runtime) ingestion machinery.
+
+services:
+  analytics-db:
+    image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: catalyst_analytics
+      POSTGRES_USER: catalyst_analytics_writer
+      POSTGRES_PASSWORD: demo-only-change-me
+    volumes:
+      - analytics-db-data:/var/lib/postgresql/data
+      - ./analytics/sql/000_analytics_roles.sql:/docker-entrypoint-initdb.d/000_analytics_roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -d catalyst_analytics -U catalyst_analytics_writer"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  model-router:
+    image: ghcr.io/ggml-org/llama.cpp@sha256:6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4
+    restart: unless-stopped
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8077"
+      - --model
+      - "/models/gemma-4-12b-it-Q4_K_M.gguf"
+      - --alias
+      - "gemma-4-12b-q4"
+      - --ctx-size
+      - "24576"
+      - --parallel
+      - "1"
+      - --jinja
+      - --temp
+      - "0"
+      - --seed
+      - "42"
+      - --dry-multiplier
+      - "0.8"
+      - --dry-base
+      - "1.75"
+      - --dry-allowed-length
+      - "8"
+      - --dry-penalty-last-n
+      - "-1"
+      - --reasoning-budget
+      - "0"
+    volumes:
+      - ./models:/models:ro
+    expose:
+      - "8077"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8077/v1/models"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  med-agent-hub:
+    restart: unless-stopped
+    # The hub is a separate repo, so it builds from a source checkout. Default
+    # assumes a sibling clone next to this one (github.com/pmanko/med-agent-hub);
+    # set MED_AGENT_HUB_CONTEXT to point elsewhere, e.g. a superproject that
+    # vendors it as a submodule.
+    #
+    # HUB_BUILD_REVISION is required, not cosmetic: the hub validates it at
+    # startup and refuses to run on the Dockerfile's "unknown" default, so an
+    # image built without it builds cleanly and then exits 1. There is no
+    # sensible default to invent here — the value has to name the commit this
+    # context is actually checked out at.
+    build:
+      context: ${MED_AGENT_HUB_CONTEXT:-../med-agent-hub}
+      args:
+        HUB_BUILD_REVISION: ${MED_AGENT_HUB_REVISION:?set to the 40-character commit SHA of the med-agent-hub checkout, e.g. $(git -C ../med-agent-hub rev-parse HEAD)}
+    environment:
+      LLM_BASE_URL: "http://model-router:8077"
+      LLM_PROVIDER: "llama.cpp"
+      LLM_TEMPERATURE: "0"
+      LLM_REQUEST_TIMEOUT_SECONDS: "1800"
+      TEAM_TRACE_DIR: /tmp/catalyst-trace
+    depends_on:
+      model-router:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  catalyst-gateway:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: catalyst-gateway/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
+      MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
+      CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
+      CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
+      # No CATALYST_DATA_SOURCES_PATH here: unset means "just the built-in
+      # OpenELIS source", which is what makes this stack bootable from a bare
+      # clone. Register additional sources by layering
+      # docker-compose.demo.extra-sources.yml on top.
+      CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
+      CATALYST_QUERY_MAX_ROWS: "100"
+      CATALYST_STATEMENT_TIMEOUT_MS: "10000"
+      CATALYST_EXECUTION_LEASE_SECONDS: "60"
+      CATALYST_HUB_TIMEOUT_SECONDS: "1800"
+    volumes:
+      - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
+      - ./docs/contracts:/docs/contracts:ro
+      - gateway-state:/app/state
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      med-agent-hub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  catalyst-ui:
+    restart: unless-stopped
+    build: ./catalyst-ui
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      catalyst-gateway:
+        condition: service_healthy
+
+  # Single edge for all host-facing traffic; catalyst-gateway and catalyst-ui
+  # are reached only through here. CATALYST_SITE unset => ":80" (local, plain
+  # HTTP, any Host header); set to a domain => automatic Let's Encrypt TLS.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      CATALYST_SITE: ${CATALYST_SITE:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - catalyst-ui
+
+volumes:
+  analytics-db-data:
+  gateway-state:
+  caddy-data:
+  caddy-config:

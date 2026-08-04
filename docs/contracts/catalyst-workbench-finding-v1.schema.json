@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-workbench-finding-v1.schema.json",
+  "title": "Catalyst manual workbench advisory finding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "findingId",
+    "ruleCode",
+    "severity",
+    "stage",
+    "message",
+    "path",
+    "astUnit",
+    "span",
+    "evidence",
+    "suggestedAction",
+    "repairability",
+    "validatorRevision"
+  ],
+  "properties": {
+    "contractVersion": {"const": "catalyst.workbench.finding.v1"},
+    "findingId": {"type": "string", "pattern": "^finding-[a-f0-9]{24}$"},
+    "ruleCode": {"type": "string", "minLength": 1},
+    "severity": {"enum": ["error", "warning", "info"]},
+    "stage": {"type": "string", "minLength": 1},
+    "message": {"type": "string", "minLength": 1},
+    "path": {"type": "string"},
+    "astUnit": {},
+    "span": {},
+    "evidence": {},
+    "suggestedAction": {"type": ["string", "null"]},
+    "repairability": {"enum": ["none", "manual", "deterministic", "model"]},
+    "validatorRevision": {"type": "string", "minLength": 1}
+  }
+}

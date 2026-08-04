@@ -1,16 +1,17 @@
 # Catalyst
 
-Catalyst is the OpenELIS reporting integration service. Its target architecture
-uses med-agent-hub for all LLM profile, model-team, prompt, review and grounding
-behavior while Catalyst owns trusted data integration, deterministic query
-policy, execution and table output.
+Catalyst is the OpenELIS reporting integration service. For governed query
+generation, Catalyst owns the profile registry, prompts, role-to-model mapping,
+writer/reviewer workflow, deterministic validation, execution, and table
+output. It uses med-agent-hub as the shared local model-provider boundary
+through a generic, single-role generation API.
 
 The current target is a local demo using demo data and local LLMs. Production
 security and real clinical data are future roadmap work.
 
 The first product milestone is:
 
-> Natural-language question → reviewed query → table output
+> Natural-language question → governed query → table output
 
 ## Canonical documentation
 
@@ -28,18 +29,26 @@ capabilities are retained, reassigned, superseded or deferred.
 
 ```text
 OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
-  → Catalyst → med-agent-hub profile → local read-only demo execution → table
+  → Catalyst query engine → med-agent-hub role executor → local model router
+  → Catalyst local read-only demo execution → table
   → optional med-agent-hub report profile
 ```
 
-The query-to-table MVP implements that path with:
+The query-to-table sandbox implements that path with:
 
-- a pinned synthetic OpenELIS viral-load fixture;
+- a pinned synthetic multi-analyte OpenELIS cohort;
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- a hub-owned `catalyst-query-checked` generation/review profile;
-- deterministic Catalyst SQL policy, expiring preview acceptance, read-only
-  execution, typed table contracts, and provenance;
+- Gateway-owned Gemma and Qwen generation/review profiles selectable in the UI,
+  with SQL roles fixed at temperature zero and DRY repetition penalty zero;
+- writer → deterministic lint/correction → optional reviewer → deterministic
+  re-lint orchestration in Gateway, with exact role/model/prompt/configuration
+  evidence;
+- deterministic Catalyst SQL policy, explicit preview acceptance, read-only
+  execution, typed table contracts, and declared/effective model provenance;
+- a switchable second data source (OpenMRS HIV/ART) alongside OpenELIS —
+  its own analytics database and catalog, targetable per turn within one
+  session (`GET /v1/catalyst/data-sources`);
 - a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
 
 The original `/v1/chat/completions` and Router/Agent/MCP code remain available
@@ -96,15 +105,57 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The first live run downloads and verifies the local Qwen2.5-Coder 1.5B GGUF.
+The recommended configuration connects the containerized Hub to the existing
+host llama.cpp router at `http://host.docker.internal:8077`. Its external
+verification profile is the Gateway-owned
+`catalyst-query-gemma-4-12b-qwen2.5-14b-checked`: Gemma 4 12B writes and Qwen
+2.5 14B reviews. Both exact model IDs must be served. The product default
+remains the CPU-oriented, writer-only `catalyst-query-gemma-4-12b-q4`; choose
+the cross-family profile in the UI for the recommended external lane.
 Open the sidecar at `http://localhost:3000`.
+
+To use a different OpenAI-compatible server, set its root without a trailing
+`/v1` together with the exact model and Gateway profile IDs:
+
+```bash
+export MVP_MODEL_BACKEND=external
+export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
+export MVP_EXTERNAL_MODEL_ID=my-exact-model-id
+export MVP_EXTERNAL_PROFILE_ID=my-gateway-profile-id
+# For a multi-model profile, map every exact role model for this backend:
+export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","query_review":"reviewer-id"}'
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
+
+The profile ID must exist in
+`catalyst-gateway/src/catalyst/query_profiles.py`; each configured role model
+must be advertised by the selected router. Gateway reads Hub's versioned,
+credential-free router catalog and advertises a profile as available only when
+every exact writer and reviewer alias is present. The UI omits unavailable
+profiles, and Gateway rejects an unavailable selection before creating a
+session or invoking a model. A backend can still change after discovery, so
+generation/backend failure remains a supported residual path.
+
+An optional bundled fallback selects the writer-only
+`catalyst-query-qwen-coder-1.5b` profile, downloads Qwen2.5-Coder 1.5B, and
+advertises its truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
+
+```bash
+export MVP_MODEL_BACKEND=local
+./scripts/mvp-up.sh
+./scripts/mvp-seed.sh
+./scripts/mvp-health.sh
+```
 
 Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
 
 Deterministic fake-backend mode:
 
 ```bash
-MVP_FAKE_BACKEND=true ./scripts/mvp-up.sh
+export MVP_MODEL_BACKEND=fake
+./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
 ./scripts/mvp-health.sh
 ```
@@ -150,6 +201,8 @@ npx playwright test --project=demo-video e2e/query-to-table.spec.ts
 The seeded MVP and its local golden scenarios are engineering evidence, not
 clinical validation.
 
-The MVP exit criteria now pass. The next evaluation phase should move to the
-[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness).
-That external update is intentionally deferred.
+The automated component and mocked-browser gates pass. Live G2.8c acceptance
+with the Gemma 4 12B writer, Qwen 2.5 14B reviewer, and an independent
+PostgreSQL result comparison remains pending. The
+[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness)
+is now the active umbrella integration and experiment path.

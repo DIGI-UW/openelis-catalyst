@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openelis-global.org/catalyst/contracts/catalyst-workbench-execute-request-v1.schema.json",
+  "title": "Catalyst manual workbench execution request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "versionId", "queryDigest", "idempotencyKey"],
+  "properties": {
+    "contractVersion": {"const": "catalyst.workbench.execute.request.v1"},
+    "versionId": {"type": "string", "minLength": 1},
+    "queryDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 200}
+  }
+}

@@ -1,0 +1,27 @@
+# Optional overlay: register data sources beyond the built-in OpenELIS one.
+#
+# The base demo stack boots single-source so it works from a bare clone. A
+# second source needs three things that live outside this repo — its own
+# analytics database, a generated catalog describing that database, and a
+# registry entry pointing at both — so it is layered on rather than assumed.
+#
+#   CATALYST_EXTRA_SOURCES_DIR   directory holding data-sources.json plus the
+#                                catalog files it references
+#
+#   docker compose -f docker-compose.demo.yml \
+#                  -f docker-compose.demo.extra-sources.yml up -d
+#
+# data-sources.json declares each source's id, label, analyticsDsn, and
+# catalogPath, where catalogPath is the path *inside* the container — i.e.
+# under /app/config, which is where this overlay mounts the directory.
+#
+# Each catalog must declare a datasetBrowser profile naming its fact view and
+# which columns carry the subject, category, value, unit, and timestamps;
+# without it that source is queryable but its dataset cannot be browsed.
+
+services:
+  catalyst-gateway:
+    environment:
+      CATALYST_DATA_SOURCES_PATH: "/app/config/extra/data-sources.json"
+    volumes:
+      - ${CATALYST_EXTRA_SOURCES_DIR:?set CATALYST_EXTRA_SOURCES_DIR to the directory holding data-sources.json}:/app/config/extra:ro

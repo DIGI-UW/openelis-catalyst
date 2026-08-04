@@ -14,6 +14,9 @@
 # Local demo model files
 .models/
 
+# tdd-guard local judge state (machine-local, not evidence)
+.claude/tdd-guard/data/
+
 # Logs
 logs/
 *.log

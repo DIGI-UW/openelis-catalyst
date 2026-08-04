@@ -1,6 +1,7 @@
 {
   "resourceType": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/ViewDefinition",
-  "name": "specimen_flat_v1",
+  "text": "Gap-fill for the upstream default set (which ships no Specimen view); receivedTime feeds lab_result_fact_v1.receipt_to_release_minutes.",
+  "name": "specimen_flat",
   "status": "active",
   "resource": "Specimen",
   "fhirVersion": [
@@ -26,18 +27,6 @@
           "name": "specimen_status"
         },
         {
-          "path": "type.coding.first().system",
-          "name": "specimen_type_system"
-        },
-        {
-          "path": "type.coding.first().code",
-          "name": "specimen_type_code"
-        },
-        {
-          "path": "type.coding.first().display",
-          "name": "specimen_type_name"
-        },
-        {
           "path": "collection.collected.ofType(dateTime)",
           "name": "collected_at",
           "type": "dateTime"
@@ -46,6 +35,23 @@
           "path": "receivedTime",
           "name": "received_at",
           "type": "dateTime"
+        }
+      ]
+    },
+    {
+      "forEachOrNull": "type.coding",
+      "column": [
+        {
+          "path": "code",
+          "name": "type_code"
+        },
+        {
+          "path": "system",
+          "name": "type_sys"
+        },
+        {
+          "path": "display",
+          "name": "type_display"
         }
       ]
     }

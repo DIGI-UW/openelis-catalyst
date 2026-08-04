@@ -1,0 +1,39 @@
+{
+	# Caddy auto-enables TLS when the site address is a domain name; for a
+	# port-only address like `:80` it stays plain HTTP. So local bring-up
+	# (CATALYST_SITE unset -> ":80") gets no TLS, and a cloud deployment
+	# (CATALYST_SITE="catalyst.example.org") gets a Let's Encrypt cert
+	# automatically.
+	admin off
+	email {$CATALYST_ACME_EMAIL:nobody@example.com}
+	log {
+		output stderr
+		format console
+	}
+}
+
+# Demo reverse proxy.
+# All host-facing HTTP traffic comes through this server; catalyst-gateway and
+# catalyst-ui are not directly exposed. Routing is path-based, so the API and
+# the SPA share one origin (no CORS) while remaining independently
+# restartable — rebuilding the UI must not take the API down with it.
+{$CATALYST_SITE::80} {
+	# Gateway API. Routed at the edge rather than through the UI container so
+	# the two lifecycles stay independent, and so the long-request timeout
+	# lives next to the route it protects: a generated query can occupy the
+	# model for as long as CATALYST_HUB_TIMEOUT_SECONDS, and any proxy in
+	# front with a shorter read timeout returns 504 before the answer lands.
+	handle /v1/catalyst/* {
+		reverse_proxy catalyst-gateway:8000 {
+			transport http {
+				read_timeout 1800s
+				write_timeout 1800s
+			}
+		}
+	}
+
+	# Everything else is the SPA (static assets + client-side routes).
+	handle {
+		reverse_proxy catalyst-ui:8080
+	}
+}

@@ -26,24 +26,30 @@ Production security is future R5 work.
 
 The repository currently contains:
 
-- an OpenAI-compatible Gateway;
-- Catalyst-local A2A Router, Catalyst, Schema and SQLGen agent prototypes;
-- direct Catalyst-local LM Studio and Gemini clients;
-- a standalone MCP server with mock schema context and SQL allowlist checks;
-- component tests for the prototype;
-- compose wiring that co-locates OpenELIS, Catalyst and med-agent-hub.
+- a Gateway with governed-preview compatibility APIs and an append-only
+  iterative workbench API;
+- a runtime PostgreSQL catalog shared by schema guidance, SQL completion,
+  Gateway model context and deterministic validation;
+- one canonical SQL editor, manual query versions, validation, explicit
+  execution, typed results, compact turn history and contextual follow-ups;
+- Gateway-owned selectable profiles, prompts, writer/reviewer orchestration,
+  deterministic lint/re-lint, and exact model/configuration provenance;
+- med-agent-hub as a generic single-role provider/router boundary through
+  `POST /v1/hub/generate`;
+- a pinned OpenELIS → HAPI FHIR → FHIR Data Pipes → PostgreSQL demo assembly;
+- a second, independently switchable data source (OpenMRS HIV/ART, its own
+  analytics database and catalog) alongside OpenELIS, targetable per turn
+  within one source-agnostic session;
+- Gateway, analytics/assembly, UI and browser tests.
 
 It does not yet contain:
 
-- a Catalyst client for med-agent-hub;
-- the required `catalyst-query-checked` hub profile;
-- OHS FHIR Data Pipes analytics views;
-- a real approved-view catalog;
-- query execution and table output;
 - a table-to-report evidence adapter;
-- a Clinical AI Validation Harness adapter.
+- production authentication/authorization and deployment hardening;
+- complete comparative Harness experiments and report scoring.
 
-The existing agent code is a migration baseline, not the target topology.
+The original Catalyst-local agent code remains compatibility scaffolding, not
+the target topology.
 
 ## R0 — Local specification baseline
 
@@ -55,8 +61,8 @@ architecture documentation.
 ### Deliverables
 
 - Canonical product specification.
-- Canonical med-agent-hub client contract.
-- Normative local question, hub request, completion, query, preview,
+- Canonical med-agent-hub integration contract.
+- Normative local question, engine request, legacy completion, query, preview,
   execute-request, execution-outcome, policy-outcome, and table JSON Schemas.
 - This roadmap.
 - Concise repository and component documentation linked to the canonical docs.
@@ -66,77 +72,84 @@ architecture documentation.
 
 ### Exit criteria
 
-- Local documentation contains no claim that Catalyst should own the final
-  model/team orchestration.
+- Local documentation consistently assigns governed-query profiles, prompts,
+  role composition, and orchestration to Gateway and generic role execution to
+  Hub.
 - Planned profiles are clearly distinguished from profiles available today.
 - OGC-70 functionality is classified as retained, reassigned, superseded, or
   deferred.
-- The Clinical AI Validation Harness is documented as a deferred post-MVP
-  goal, with no implied external update.
-- Catalyst-local model scorecards are retired because hub profiles own model
-  composition; local golden queries remain engineering fixtures until the
-  deferred harness transition.
+- The Clinical AI Validation Harness is documented as the umbrella assembly and
+  experiment boundary.
+- Standalone scorecard documents remain retired; Gateway profile changes are
+  evaluated through local golden engineering fixtures and cross-model
+  experiments in the harness.
 
-## R1 — med-agent-hub client foundation
+## R1 — Generic med-agent-hub execution foundation
 
-**Status:** Complete for the local demo
+**Status:** Complete for the local governed-query demo
 
-**Goal:** Replace Catalyst-local inference ownership with a small, reliable hub
-client while preserving the current public Gateway boundary.
+**Goal:** Keep Catalyst query semantics and orchestration in Gateway while
+using Hub as the shared provider/router and structured-output transport
+boundary.
 
 ### Test-first slices
 
-1. Profile discovery
-   - Failing tests for unavailable hub, malformed model discovery, and missing
-     required profile.
-   - Implement `GET /v1/models` discovery and readiness reporting.
-2. Blocking profile call
-   - Failing contract tests for request mapping, timeout, cancellation,
-     structured hub errors, and trace propagation.
-   - Implement `POST /v1/chat/completions` client behavior.
-3. Staged profile call
-   - Failing parser tests for hub SSE event order, heartbeats, terminal errors,
-     cancellation, and `done`.
-   - Implement transparent staged-event relay.
-4. Configuration cleanup
-   - Failing config tests proving Catalyst no longer requires provider or model
-     credentials.
-   - Remove Catalyst-local Gemini/LM Studio selection from the target path.
+1. Gateway query profiles
+   - Test Gemma and bundled Qwen writer-only, same-model checked, full-weight
+     writer, and cross-family reviewed profile discovery with exact
+     prompt/model/configuration evidence.
+   - Serve them through `GET /v1/catalyst/query-options`.
+2. Generic role call
+   - Test request mapping, structured-output pass-through, timeout,
+     cancellation, malformed content, and backend failures.
+   - Implement one `POST /v1/hub/generate` call per writer/reviewer invocation.
+3. Gateway orchestration
+   - Test writer → deterministic lint/correction → optional reviewer →
+     deterministic re-lint and final evidence.
+   - Keep catalog semantics, output contracts, and workflow out of Hub.
+4. Configuration and readiness
+   - Prove Catalyst requires no model-provider credentials.
+   - Report Hub health and derive live profile availability from Hub's
+     versioned, credential-free router catalog.
 
 ### Ownership rule
 
-Catalyst may select an approved profile ID. It must not select the profile's
-internal model roles, prompts, stages, sampling settings, or validation policy.
+Catalyst owns the governed-query profile ID and its roles, prompts, stages,
+sampling settings, response formats, and validation policy. Hub owns
+provider/router connectivity and executes only the single role call requested
+by Catalyst.
 
 ### Exit criteria
 
-- Catalyst health distinguishes process health, hub health and required-profile
-  readiness.
-- The hub is the only inference and model-orchestration service on the target
-  path.
-- Existing Gateway callers receive stable errors when the hub or profile is
-  unavailable.
+- Catalyst health distinguishes process health, Hub transport health,
+  router-inventory reachability, and whether any configured profile has every
+  required role model.
+- Hub is the only provider/router integration service on the target path;
+  Gateway is the only Catalyst query orchestrator.
+- Existing Gateway callers receive stable errors when Hub, a Gateway profile,
+  or a requested model is unavailable.
 - Catalyst uses the configured hub; the demo stack verifies that the hub uses
   the local model router.
-- Unit, contract and live hub-client smoke tests pass.
+- Unit, contract and live generic-Hub smoke tests pass.
 
 ## R2 — Analytics data and query contract
 
 **Status:** Complete for the seeded OpenELIS demo
 
-**Goal:** Give the hub query profile a narrow, versioned analytics vocabulary
-over OHS FHIR Data Pipes.
+**Goal:** Give the Gateway query engine a versioned analytics vocabulary over
+OHS FHIR Data Pipes that matches the relations readable by the configured
+database role.
 
 ### Test-first slices
 
 1. Prove OpenELIS FHIR data can be transformed into the selected analytics
    engine with deterministic seeded fixtures.
-2. Define the first approved semantic-layer view over Data Pipes projections
-   and assert its grain, types, terminology and expected rows.
+2. Define the first semantic-layer view over Data Pipes projections and assert
+   its grain, types, terminology and expected rows.
 3. Add views one at a time for result facts, volumes, positivity, turnaround
    time and pending work.
-4. Publish a machine-readable catalog and validate examples against the live
-   views.
+4. Publish semantic metadata and combine it with runtime discovery of every
+   role-readable relation; validate examples against the live database.
 5. Verify incremental refresh and expose source freshness.
 
 ### Design gates
@@ -146,42 +159,47 @@ over OHS FHIR Data Pipes.
   cross-resource semantic marts.
 - Confirm that MVP fixtures and views contain demo data only.
 - Define mandatory date and result-size constraints.
-- Reject raw FHIR structures and base `clinlims` tables as query-profile
-  context unless a later spec explicitly approves them.
+- Include raw FHIR structures or base `clinlims` tables only when the configured
+  database role can select them; database grants remain the query boundary.
 
 ### Exit criteria
 
-- Every approved view has versioned metadata and seeded expected results.
-- The catalog is compact enough for the hub context budget.
+- Every governed semantic view has versioned metadata and seeded expected
+  results, and the runtime catalog reports every relation the role can select.
+- The catalog is compact enough for the configured model context budget.
 - Freshness includes source watermark, pipeline run, completion state and lag.
-- Read-only execution credentials cannot access unapproved schemas.
+- Read-only execution credentials cannot access schemas that have not been
+  granted to that role.
 
 ## R3 — Query-to-table MVP
 
-**Status:** Complete — validated with deterministic tests, live local LLM,
-Playwright video, and manual browser proof
+**Status:** MVP implementation and final live multi-model acceptance complete
 
 **Goal:** Deliver the first useful product slice:
 natural-language question → governed query → table.
 
 ### External dependency
 
-med-agent-hub must ship and advertise `catalyst-query-checked`. The profile must
-return `catalyst.query.v1` and own query planning, generation, review and repair
-complexity. Existing clinical answer profiles do not satisfy this dependency.
+med-agent-hub must provide the generic `POST /v1/hub/generate` executor and
+reach a local router serving the exact models required by the selected
+Gateway profile. Gateway owns query planning, generation, deterministic
+lint/correction, optional review, and `catalyst.query.v1` finalization.
+Contextual follow-up through the reviewed path additionally requires a Gateway
+profile with a reviewer role. Hub clinical-answer profiles do not satisfy this
+query dependency.
 
 ### Test-first slices
 
 1. Query contract
    - Add failing fixtures for valid, ambiguous, unsupported, unsafe and
      out-of-scope questions.
-   - Validate the normative Catalyst question, hub request,
-     completion-envelope, and response JSON Schemas independently of prose.
+   - Validate the normative Catalyst question, engine request, role output, and
+     finalized response JSON Schemas independently of prose.
    - Add API contract tests for ready preview, clarification, unsupported,
-     hub rejection, Catalyst policy rejection, and hub-failure responses.
+     model rejection, Catalyst policy rejection, and Hub-failure responses.
 2. Deterministic policy
-   - Add failing tests for DDL/DML, multi-statement SQL, unapproved views,
-     dialect mismatch, unbound values and excessive limits.
+   - Add failing tests for DDL/DML, multi-statement SQL, relations outside the
+     runtime role-readable catalog, dialect mismatch and excessive limits.
    - Implement AST-based validation for the selected dialect as defense in
      depth.
 3. Execution
@@ -197,41 +215,76 @@ complexity. Existing clinical answer profiles do not satisfy this dependency.
    - Add an end-to-end test for question → query preview → acceptance → table.
    - Validate the normative preview and execute-request schemas.
    - Bind preview ID/digest to the exact displayed question, target, SQL,
-     parameters, expected columns, expiry and one-time execution. The target
+     parameters, expected columns and one-time execution. The target
      includes the catalog version.
-   - Ensure altered, consumed or expired previews cannot execute.
+   - Ensure altered or consumed previews cannot execute. Saved previews do not
+     expire.
    - Test execute and polling status codes, same-key replay, active polling,
-     unknown IDs, conflict, expiry, and failure outcomes.
+     unknown IDs, conflict, and failure outcomes.
 6. Demo-mode boundary
-   - Add full-stack smoke assertions that hub `LLM_BASE_URL` resolves to the
+   - Add full-stack smoke assertions that Hub `LLM_BASE_URL` resolves to the
      local model router and the analytics source uses seeded demo data.
-   - Catalyst verifies hub/profile readiness; hub and compose own model-router
-     configuration.
+   - Catalyst verifies Hub health and Gateway-profile presence; Hub and Compose
+     own model-router connection configuration.
    - Label all UI and API responses as demo behavior without production
      security claims.
 
 ### MVP exit criteria
 
-- Required hub profile discovery succeeds.
-- The profile advertises `catalyst.query.v1`, and its OpenAI-compatible
-  completion content validates against the normative local JSON Schema.
+- Gateway profile discovery succeeds with exact writer/reviewer evidence, and
+  Hub generic generation is reachable.
+- Every role output validates against its configured structured-output schema,
+  and Gateway's finalized `catalyst.query.v1` validates against the normative
+  local JSON Schema.
 - Golden questions return the expected seeded results, not merely plausible
   SQL.
 - Disallowed and out-of-scope queries are rejected deterministically.
-- Preview acceptance is expiring, one-time and revalidated at execution.
+- Preview acceptance is non-expiring, one-time and revalidated at execution.
 - Empty, partial, truncated and failed results are distinguishable.
 - Table output includes freshness, schema, query, profile and trace provenance.
 - The deployed path uses demo data and local LLMs only.
 - No result rows are sent to an external model provider.
 - The full path runs through the deployed Catalyst and hub services.
 
-Reaching these criteria is the trigger to begin the deferred Clinical AI
-Validation Harness transition.
+The umbrella Clinical AI Validation Harness owns the sibling Catalyst/Hub pins
+and real-path experiment runner. The 2026-08-04 user checkpoint accepted the
+final-pin 12/12 real-model matrix, PostgreSQL/gold comparisons, bounded failure
+and recovery, keyboard-only path, and actual 200% browser zoom. Local evidence
+is generated by `mvp-health.sh`, `test_mvp_live.sh`,
+`test_data_pipes_incremental.sh`, and the notebook Playwright project. The
+Playwright path now also enforces unobscured keyboard focus and the accepted
+200%-equivalent reflow boundary.
 
-The trigger has been reached. Harness repository changes remain deferred by
-project decision; local MVP evidence is generated by `mvp-health.sh`,
-`test_mvp_live.sh`, `test_data_pipes_incremental.sh`, and the live
-`demo-video` Playwright project.
+## R3.1 — Iterative query notebook
+
+**Status:** Implemented and accepted for the manual MVP
+
+The linear notebook extends R3 without adding chat or branching:
+
+1. Record initial and follow-up turns in the append-only event ledger.
+2. Keep one active SQL editor; save contract-valid dirty buffers as human
+   versions and retain unresolved buffers only as snapshots.
+3. Validate and Run the exact active version, preserving version-labelled stale
+   results.
+4. Generate one complete successor from the exact editor snapshot and current
+   instruction, using at most five prior follow-up instructions.
+5. When the selected profile declares a reviewer, invoke it after the writer
+   and deterministic lint, re-lint its complete correction, and preserve
+   writer/reviewer evidence. The recommended GPU lane uses a different-family
+   Qwen reviewer.
+6. Restore sessions, versions, executions and compact history without model
+   calls.
+
+The previously reviewed stack produced and executed a complete contextual
+successor that preserved the base query and added only descending observed-date
+ordering.
+Both Gemma 4 12B writer and Qwen 2.5 14B reviewer invocations recorded
+temperature zero and DRY multiplier zero; an independent PostgreSQL check
+confirmed the matching row count and data range. That evidence predates the
+Gateway-owned orchestration refactor and is retained as history, not acceptance
+of the current pins. Exit still requires a current-pin rerun, the full
+scenario/accessibility matrix, user checkpoint, and a record of any output
+nondeterminism under the same sampling configuration.
 
 ## R4 — Evidence-linked narrative with grounding states
 
@@ -298,24 +351,26 @@ This remains a local demo using demo data and local LLMs.
   separately.
 - Upgrade and rollback preserve profile and contract compatibility.
 
-## Deferred goal — Clinical AI Validation Harness transition
+## Clinical AI Validation Harness transition
 
-**Trigger:** Reached; external work intentionally deferred.
+**Status:** Umbrella pin and initial real-path runner implemented; comparative
+experiments continue in the harness roadmap.
 
-No harness repository changes are part of R0–R3. When the trigger is met, the
-next planning cycle should update the
+The
 [Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness)
-instead of growing a second evaluation framework here.
+owns the sibling Catalyst and Hub pins. Catalyst keeps only component tests and
+local smoke evidence; cross-model experiments belong in the harness.
 
-### Intended work
+### Current implementation and next work
 
-- Implement the real adapter path:
+- Maintain the implemented real adapter path:
   `Harness → Catalyst ↔ med-agent-hub`, with Catalyst separately executing
   against the analytics source.
 - Migrate or deduplicate the local golden-query corpus.
 - Add query-to-table scenarios, including absent data, ambiguity, unsafe
   requests and temporal filters.
-- Record component SHAs, data/view versions, hub profile IDs and trace IDs.
+- Record component SHAs, data/view versions, Gateway query-profile IDs,
+  role-model evidence, and trace IDs (plus Hub report-profile IDs after R4).
 - Score structured-query correctness and result-table correctness separately.
 - Add report grounding, abstention, safety and temporal scoring when R4 is
   available.
@@ -323,17 +378,17 @@ instead of growing a second evaluation framework here.
   reports.
 - Make harness evidence the release gate for later profile or model changes.
 
-Until that transition, local golden queries are MVP engineering fixtures, not
-claims of clinical validation.
+The initial suite is engineering evidence, not a claim of clinical validation.
+Broader notebook scenarios and comparative experiments remain future work.
 
 ## Dependency summary
 
 ```text
 R0 local specs
-  → R1 hub client
+  → R1 generic Hub execution
   → R2 analytics contract
   → R3 query-to-table MVP
-       ├→ deferred harness transition
+       ├→ R3.1 iterative query notebook → harness experiments
        ├→ R4 evidence-linked narrative
        └→ R5 future production security and supported deployment
 ```

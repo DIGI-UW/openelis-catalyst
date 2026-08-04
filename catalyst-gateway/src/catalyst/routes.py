@@ -41,6 +41,42 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
             return payload
         return _json_response(await service.submit_question(payload))
 
+    @app.get("/v1/catalyst/data-sources")
+    async def data_sources() -> JSONResponse:
+        return _json_response(service.data_sources())
+
+    @app.get("/v1/catalyst/query-options")
+    async def query_options() -> JSONResponse:
+        return _json_response(await service.query_options())
+
+    @app.get("/v1/catalyst/dataset")
+    async def dataset_overview(
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
+    ) -> JSONResponse:
+        return _json_response(await service.dataset_overview(data_source_id))
+
+    @app.get("/v1/catalyst/dataset/rows")
+    async def dataset_rows(
+        test_name: str | None = Query(default=None, alias="testName", min_length=1),
+        patient_id: str | None = Query(default=None, alias="patientId", min_length=1),
+        limit: int = Query(default=25, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
+    ) -> JSONResponse:
+        return _json_response(
+            await service.dataset_rows(
+                test_name=test_name,
+                patient_id=patient_id,
+                limit=limit,
+                offset=offset,
+                data_source_id=data_source_id,
+            )
+        )
+
     @app.post("/v1/catalyst/previews/{preview_id}/execute")
     async def execute_preview(preview_id: str, request: Request) -> JSONResponse:
         payload = await _request_object(request)
@@ -54,3 +90,88 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         idempotency_key: str = Query(alias="idempotencyKey", min_length=1),
     ) -> JSONResponse:
         return _json_response(service.poll_execution(preview_id, idempotency_key))
+
+    @app.get("/v1/catalyst/workbench/catalog")
+    async def get_workbench_editor_catalog(
+        data_source_id: str | None = Query(
+            default=None, alias="dataSourceId", min_length=1
+        ),
+    ) -> JSONResponse:
+        return _json_response(await service.workbench_editor_catalog(data_source_id))
+
+    @app.post("/v1/catalyst/workbench/sessions")
+    async def create_workbench_session(request: Request) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(await service.create_workbench_session(payload))
+
+    @app.get("/v1/catalyst/workbench/sessions/{session_id}")
+    async def get_workbench_session(session_id: str) -> JSONResponse:
+        return _json_response(service.get_workbench_session(session_id))
+
+    @app.get("/v1/catalyst/workbench/sessions/{session_id}/turns")
+    async def get_workbench_turns(session_id: str) -> JSONResponse:
+        return _json_response(service.get_workbench_turns(session_id))
+
+    @app.post("/v1/catalyst/workbench/sessions/{session_id}/turns")
+    async def create_workbench_turn(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(await service.create_workbench_turn(session_id, payload))
+
+    @app.get(
+        "/v1/catalyst/workbench/sessions/{session_id}/turns/"
+        "{turn_id}/generation-evidence"
+    )
+    async def get_workbench_generation_evidence(
+        session_id: str,
+        turn_id: str,
+    ) -> JSONResponse:
+        return _json_response(
+            service.get_workbench_generation_evidence(session_id, turn_id)
+        )
+
+    @app.post("/v1/catalyst/workbench/sessions/{session_id}/versions")
+    async def create_workbench_version(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(
+            await service.create_workbench_version(session_id, payload)
+        )
+
+    @app.post("/v1/catalyst/workbench/versions/{version_id}/validate")
+    async def validate_workbench_version(version_id: str) -> JSONResponse:
+        return _json_response(await service.validate_workbench_version(version_id))
+
+    @app.post("/v1/catalyst/workbench/versions/{version_id}/execute")
+    async def execute_workbench_version(
+        version_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(
+            await service.execute_workbench_version(version_id, payload)
+        )
+
+    @app.patch("/v1/catalyst/workbench/sessions/{session_id}/browser-state")
+    async def update_workbench_browser_state(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(
+            service.update_workbench_browser_state(session_id, payload)
+        )
