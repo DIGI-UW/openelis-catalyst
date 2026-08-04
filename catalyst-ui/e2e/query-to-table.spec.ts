@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   BoundParameter,
   WorkbenchExecution,
@@ -650,6 +650,64 @@ const installDeterministicApi = async (
   return calls;
 };
 
+const tabTo = async (
+  page: Page,
+  target: Locator,
+  label: string,
+  maxTabs = 20,
+): Promise<void> => {
+  for (let index = 0; index < maxTabs; index += 1) {
+    await page.keyboard.press("Tab");
+    if (await target.evaluate((element) => {
+      const view = globalThis as unknown as {
+        document: { activeElement: typeof element | null };
+      };
+      return element === view.document.activeElement;
+    })) {
+      const state = await target.evaluate((element) => {
+        const view = globalThis as unknown as {
+          innerWidth: number;
+          innerHeight: number;
+          document: {
+            elementFromPoint: (
+              x: number,
+              y: number,
+            ) => typeof element | null;
+          };
+        };
+        const rect = element.getBoundingClientRect();
+        const x = Math.min(
+          view.innerWidth - 1,
+          Math.max(0, rect.left + rect.width / 2),
+        );
+        const y = Math.min(
+          view.innerHeight - 1,
+          Math.max(0, rect.top + rect.height / 2),
+        );
+        const hit = view.document.elementFromPoint(x, y);
+        return {
+          focusVisible: element.matches(":focus-visible"),
+          fullyInViewport:
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= view.innerHeight &&
+            rect.right <= view.innerWidth,
+          unobscured: Boolean(
+            hit && (element.contains(hit) || hit.contains(element)),
+          ),
+        };
+      });
+      expect(state, `${label} keyboard-focus state`).toEqual({
+        focusVisible: true,
+        fullyInViewport: true,
+        unobscured: true,
+      });
+      return;
+    }
+  }
+  throw new Error(`${label} was not reachable within ${maxTabs} Tab presses`);
+};
+
 test.setTimeout(480_000);
 
 test("question to iterative notebook to validated typed results", async ({
@@ -868,4 +926,48 @@ test("question to iterative notebook to validated typed results", async ({
       "document.documentElement.scrollWidth <= window.innerWidth",
     ),
   ).toBe(true);
+
+  if (useMockApi) {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.getByRole("button", { name: "Expand" }).click();
+    await page.getByRole("button", { name: "Minimize" }).focus();
+
+    const keyboardTargets: Array<[Locator, string]> = [
+      [
+        page.getByRole("textbox", { name: "Follow-up instruction" }),
+        "follow-up instruction",
+      ],
+      [page.getByRole("combobox", { name: "Model profile" }), "model profile"],
+      [
+        page.getByRole("button", { name: "Generate next query" }),
+        "generate next query",
+      ],
+      [page.getByRole("button", { name: "New session" }), "new session"],
+      [page.getByRole("textbox", { name: "SQL query" }), "SQL editor"],
+      [page.getByRole("button", { name: "Wrap lines" }), "wrap lines"],
+      [page.getByRole("button", { name: "Format SQL" }), "format SQL"],
+      [page.getByRole("button", { name: "Clear draft" }), "clear draft"],
+      [page.getByRole("button", { name: "Validate query" }), "validate query"],
+      [page.getByRole("button", { name: "Run query" }), "run query"],
+    ];
+    for (const [target, label] of keyboardTargets) {
+      await tabTo(page, target, label);
+    }
+
+    // A 1280 CSS-pixel desktop at 200% browser zoom reflows to a 640 CSS-pixel
+    // layout viewport. The manual acceptance used actual browser zoom; this
+    // deterministic regression preserves the equivalent layout boundary.
+    await page.setViewportSize({ width: 640, height: 720 });
+    await expect.poll(
+      () => page.evaluate<boolean>(
+        "document.documentElement.scrollWidth <= window.innerWidth",
+      ),
+    ).toBe(true);
+    await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
+      .toBeVisible();
+    await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Validate query" }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
+  }
 });

@@ -92,6 +92,14 @@ input {
   padding-bottom: calc(25rem + env(safe-area-inset-bottom));
 }
 
+:root:has(.turn-composer[data-minimized="false"]) {
+  scroll-padding-block-end: calc(23rem + env(safe-area-inset-bottom));
+}
+
+:root:has(.turn-composer[data-minimized="true"]) {
+  scroll-padding-block-end: calc(8rem + env(safe-area-inset-bottom));
+}
+
 .app-shell--with-query-dock:has(.turn-composer[data-minimized="true"]) {
   padding-bottom: calc(8rem + env(safe-area-inset-bottom));
 }

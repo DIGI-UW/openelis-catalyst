@@ -1,10 +1,10 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook implemented; live acceptance and production hardening pending
+**Status:** Iterative query notebook MVP accepted; production hardening pending
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
-**Last updated:** 2026-07-29
+**Last updated:** 2026-08-04
 
 ## Product statement
 
@@ -558,11 +558,14 @@ MVP requires an end-to-end deployment that demonstrates:
 12. Independent PostgreSQL comparison for live acceptance, with model
     nondeterminism recorded rather than treated as test determinism.
 
-The deterministic component and mocked-browser gates pass. Final live
-multi-model acceptance remains a release checkpoint and must record any failed
-model candidate as evidence; syntactic validity alone is not correctness. An
-optional report demonstration does not substitute for table/notebook
-acceptance.
+The deterministic component, mocked-browser, real-model, independent
+PostgreSQL, keyboard-only, narrow-layout, and actual 200%-browser-zoom gates
+passed on the accepted MVP candidate. Failed model candidates and
+temperature-zero output differences remain retained evidence; syntactic
+validity alone is not correctness. The deterministic Playwright notebook path
+now preserves the accepted keyboard focus order and 200%-equivalent reflow
+boundary. An optional report demonstration does not substitute for
+table/notebook acceptance.
 
 ## Relationship to OGC-70
 
