@@ -146,7 +146,10 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
         dashboard_asset = json.loads(archive.read(dashboard_member))
     assert "masked_encrypted_extra" not in database
     chart_meta = dashboard_asset["position"]["CHART-0"]["meta"]
-    assert chart_meta["uuid"] == publication["manifest"]["assetUuids"]["chartsByVersion"][widget["versionId"]]
+    assert (
+        chart_meta["uuid"]
+        == publication["manifest"]["assetUuids"]["chartsByVersion"][widget["versionId"]]
+    )
     assert chart_meta["chartId"] == 0
     assert any(name.endswith("/metadata.yaml") for name in names)
     assert any("/databases/" in name for name in names)

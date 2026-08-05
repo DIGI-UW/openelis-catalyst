@@ -64,9 +64,9 @@ def _default_catalyst_service() -> CatalystService:
         )
     return CatalystService(
         contracts=contracts,
-        # Orchestration now runs in-process (the gateway owns the governed-query
-        # engine); the hub is called only as a generic model executor from inside
-        # the engine. LocalHub implements the same interface the service expects.
+        # The gateway owns governed-query orchestration and asks Hub to execute
+        # the named writer/reviewer roles from its configured query profile.
+        # LocalHub implements the same interface the service expects.
         hub=LocalHub(hub_base_url=config.hub_base_url),
         store=PreviewStore(
             config.preview_store_path,
