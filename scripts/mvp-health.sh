@@ -35,6 +35,7 @@ data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
 hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
+superset_port_override="${SUPERSET_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -118,6 +119,9 @@ if [ -n "${openelis_https_port_override}" ]; then
 fi
 if [ -n "${hapi_https_port_override}" ]; then
   export HAPI_HTTPS_PORT="${hapi_https_port_override}"
+fi
+if [ -n "${superset_port_override}" ]; then
+  export SUPERSET_PORT="${superset_port_override}"
 fi
 
 compose=(
@@ -432,6 +436,19 @@ check_ui() {
     "http://localhost:${CATALYST_UI_PORT:-3000}/health" >/dev/null
 }
 
+check_superset() {
+  SUPERSET_URL="http://localhost:${SUPERSET_PORT:-8088}" python3 - <<'PY'
+import json
+import os
+import urllib.request
+
+with urllib.request.urlopen(os.environ["SUPERSET_URL"] + "/health", timeout=5) as response:
+    health = json.load(response)
+if health.get("status") != "OK":
+    raise SystemExit(json.dumps(health))
+PY
+}
+
 wait_for "OpenELIS deployment pin" check_openelis_deployment_pin
 wait_for "OpenELIS database" check_openelis_db
 wait_for "OpenELIS application" check_openelis_app
@@ -443,6 +460,7 @@ wait_for "hub router configuration" check_hub_router_config
 wait_for "hub query profile" check_hub_profile
 wait_for "Catalyst gateway" check_gateway
 wait_for "Catalyst UI" check_ui
+wait_for "Superset renderer" check_superset
 
 pipeline_json="$(
   analytics_psql --command="
@@ -491,6 +509,7 @@ ROLE_MODELS_JSON="${role_models_json}" \
 PROFILE_ID="${profile_id}" \
 MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
 MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
+SUPERSET_IMAGE="apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef" \
 python3 - <<'PY'
 import datetime
 import json
@@ -541,6 +560,11 @@ payload = {
     "catalog": {
         "contractVersion": "catalyst.analytics.catalog.v1",
         "catalogVersion": "analytics-catalog-v1",
+    },
+    "superset": {
+        "version": "6.1.0",
+        "image": os.environ["SUPERSET_IMAGE"],
+        "metadataStore": "superset-metadata-db",
     },
     "pipelineRun": json.loads(os.environ["PIPELINE_JSON"]),
 }

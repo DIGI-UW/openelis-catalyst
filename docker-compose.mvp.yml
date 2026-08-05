@@ -41,6 +41,98 @@ services:
       timeout: 5s
       retries: 30
 
+  superset-metadata-db:
+    image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    environment:
+      POSTGRES_DB: "${SUPERSET_METADATA_DB:-catalyst_superset_metadata}"
+      POSTGRES_USER: "${SUPERSET_METADATA_USER:-catalyst_superset}"
+      POSTGRES_PASSWORD: "${SUPERSET_METADATA_PASSWORD:-demo-superset-metadata-change-me}"
+    volumes:
+      - superset-metadata-data:/var/lib/postgresql/data
+    networks:
+      - openelis-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -q -d ${SUPERSET_METADATA_DB:-catalyst_superset_metadata} -U ${SUPERSET_METADATA_USER:-catalyst_superset}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  superset-init:
+    image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    command: ["/bin/bash", "/opt/catalyst/superset-init.sh"]
+    environment: &superset-environment
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+      SUPERSET_SECRET_KEY: "${SUPERSET_SECRET_KEY:-catalyst-local-demo-secret-key-change-before-shared-use}"
+      CATALYST_SUPERSET_METADATA_DSN: "postgresql+psycopg2://${SUPERSET_METADATA_USER:-catalyst_superset}:${SUPERSET_METADATA_PASSWORD:-demo-superset-metadata-change-me}@superset-metadata-db:5432/${SUPERSET_METADATA_DB:-catalyst_superset_metadata}"
+      SUPERSET_ADMIN_USERNAME: "${SUPERSET_ADMIN_USERNAME:-admin}"
+      SUPERSET_ADMIN_PASSWORD: "${SUPERSET_ADMIN_PASSWORD:-admin}"
+      SUPERSET_ADMIN_EMAIL: "${SUPERSET_ADMIN_EMAIL:-admin@catalyst.local}"
+    volumes:
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ./scripts/superset-init.sh:/opt/catalyst/superset-init.sh:ro
+      - superset-home:/app/superset_home
+    networks:
+      - openelis-network
+    depends_on:
+      superset-metadata-db:
+        condition: service_healthy
+    restart: "no"
+
+  superset:
+    image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    command: ["/app/docker/entrypoints/run-server.sh"]
+    environment: *superset-environment
+    ports:
+      - "127.0.0.1:${SUPERSET_PORT:-8088}:8088"
+    volumes:
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - superset-home:/app/superset_home
+    networks:
+      - openelis-network
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  superset-importer:
+    profiles:
+      - superset-import
+    image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    entrypoint: ["/app/.venv/bin/python", "/opt/catalyst/superset-import.py"]
+    command: ["status"]
+    environment:
+      <<: *superset-environment
+      CATALYST_ANALYTICS_DATABASE_URI: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
+      CATALYST_SUPERSET_OUTBOX: /opt/catalyst/outbox
+      CATALYST_SUPERSET_RECEIPTS: /opt/catalyst/receipts
+      CATALYST_SUPERSET_PUBLIC_URL: "http://localhost:${SUPERSET_PORT:-8088}"
+      CATALYST_CONTRACTS_DIR: /docs/contracts
+    volumes:
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ./scripts/superset-import.py:/opt/catalyst/superset-import.py:ro
+      - ./scripts/superset-import-state.py:/opt/catalyst/superset-import-state.py:ro
+      - ./docs/contracts:/docs/contracts:ro
+      - ./runtime/superset/outbox:/opt/catalyst/outbox:ro
+      - ./runtime/superset/receipts:/opt/catalyst/receipts:rw
+      - superset-home:/app/superset_home
+    networks:
+      - openelis-network
+    depends_on:
+      superset:
+        condition: service_healthy
+      analytics-db:
+        condition: service_healthy
+    restart: "no"
+
   hapi-mtls-proxy:
     image: catalyst/hapi-mtls-proxy:openelis-3.2.1
     build:
@@ -260,3 +352,5 @@ volumes:
   analytics-db-data:
   data-pipes-dwh:
   gateway-state:
+  superset-metadata-data:
+  superset-home:

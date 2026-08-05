@@ -35,6 +35,7 @@ data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
 hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
+superset_port_override="${SUPERSET_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
@@ -130,6 +131,9 @@ fi
 if [ -n "${hapi_https_port_override}" ]; then
   export HAPI_HTTPS_PORT="${hapi_https_port_override}"
 fi
+if [ -n "${superset_port_override}" ]; then
+  export SUPERSET_PORT="${superset_port_override}"
+fi
 
 if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
   exec "${ROOT_DIR}/scripts/mvp-health.sh"
@@ -197,6 +201,11 @@ case "${model_backend}" in
 esac
 
 export MVP_SELECTED_ROUTER_URL="${router_url}"
+mkdir -p \
+  "${ROOT_DIR}/runtime/superset/outbox" \
+  "${ROOT_DIR}/runtime/superset/receipts/attempts" \
+  "${ROOT_DIR}/runtime/superset/receipts/latest" \
+  "${ROOT_DIR}/runtime/superset/receipts/last-verified"
 "${compose_all_profiles[@]}" stop "${stale_model_services[@]}"
 
 "${compose[@]}" up -d --build \
@@ -205,6 +214,9 @@ export MVP_SELECTED_ROUTER_URL="${router_url}"
   oe.openelis.org \
   fhir.openelis.org \
   analytics-db \
+  superset-metadata-db \
+  superset-init \
+  superset \
   fhir-data-pipes \
   "${model_services[@]}" \
   med-agent-hub \
@@ -214,3 +226,4 @@ export MVP_SELECTED_ROUTER_URL="${router_url}"
 echo "MVP services started."
 echo "Seed and validate: MVP_MODEL_BACKEND=${model_backend} ./scripts/mvp-seed.sh"
 echo "Catalyst UI: http://localhost:${CATALYST_UI_PORT:-3000}"
+echo "Superset: http://localhost:${SUPERSET_PORT:-8088}"

@@ -11,6 +11,10 @@ COMPOSE = ROOT / "docker-compose.mvp.yml"
 EXTERNAL_REVIEWED_PROFILE_ID = "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
 BUNDLED_WRITER_PROFILE_ID = "catalyst-query-qwen-coder-1.5b"
 BUNDLED_WRITER_MODEL_ID = "qwen2.5-coder-1.5b-instruct-q4_k_m"
+SUPERSET_IMAGE = (
+    "apache/superset:6.1.0-dev@sha256:"
+    "5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
+)
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -124,6 +128,7 @@ class MvpComposeContractTests(unittest.TestCase):
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
                 "HAPI_HTTPS_PORT",
+                "SUPERSET_PORT",
             ),
             "mvp-seed.sh": (
                 "GATEWAY_PORT",
@@ -142,6 +147,7 @@ class MvpComposeContractTests(unittest.TestCase):
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
                 "HAPI_HTTPS_PORT",
+                "SUPERSET_PORT",
             ),
         }
         for script_name, variables in expected.items():
@@ -376,6 +382,48 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("!docs/contracts/**", dockerignore)
         self.assertIn("!analytics/catalog/**", dockerignore)
 
+    def test_superset_runtime_is_digest_pinned_initialized_and_persistent(self):
+        for service in (
+            "superset-metadata-db",
+            "superset-init",
+            "superset",
+            "superset-importer",
+        ):
+            self.assertRegex(self.compose, rf"(?m)^  {service}:")
+        self.assertGreaterEqual(self.compose.count(f"image: {SUPERSET_IMAGE}"), 3)
+        self.assertIn("catalyst_superset_metadata", self.compose)
+        init_script = (ROOT / "scripts/superset-init.sh").read_text()
+        self.assertIn("superset db upgrade", init_script)
+        self.assertIn("superset init", init_script)
+        self.assertIn("service_completed_successfully", self.compose)
+        self.assertIn("superset-metadata-data:/var/lib/postgresql/data", self.compose)
+        self.assertIn("superset-home:/app/superset_home", self.compose)
+        self.assertIn('127.0.0.1:${SUPERSET_PORT:-8088}:8088', self.compose)
+        self.assertIn("/health", self.compose)
+
+    def test_superset_runtime_separates_read_only_input_and_writable_receipts(self):
+        gitignore = (ROOT / ".gitignore").read_text()
+        config = (ROOT / "superset/superset_config.py").read_text()
+        self.assertIn("/runtime/superset/", gitignore)
+        self.assertIn("CATALYST_SUPERSET_METADATA_DSN", config)
+        self.assertIn("SQLALCHEMY_DATABASE_URI", config)
+        self.assertNotIn("catalyst_readonly", config)
+        self.assertIn("./runtime/superset/outbox:/opt/catalyst/outbox:ro", self.compose)
+        self.assertIn(
+            "./runtime/superset/receipts:/opt/catalyst/receipts:rw", self.compose
+        )
+        self.assertIn(
+            "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics",
+            self.compose,
+        )
+        self.assertNotIn("set-database-uri", self.compose)
+
+    def test_superset_init_and_operator_scripts_are_executable_and_parse(self):
+        for name in ("superset-init.sh", "mvp-superset.sh"):
+            script = ROOT / "scripts" / name
+            self.assertTrue(os.access(script, os.X_OK))
+            subprocess.run(["bash", "-n", script], check=True)
+
 
 class MvpScriptContractTests(unittest.TestCase):
     _MODEL_OVERRIDE_KEYS = (
@@ -559,6 +607,7 @@ class MvpScriptContractTests(unittest.TestCase):
             "hub query profile",
             "Catalyst gateway",
             "Catalyst UI",
+            "Superset renderer",
             "mvp-provenance.json",
         ):
             self.assertIn(marker, script)
