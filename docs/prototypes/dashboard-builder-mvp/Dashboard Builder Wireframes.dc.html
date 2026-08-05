@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&amp;family=Caveat:wght@600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f0eee9;font-family:'Patrick Hand',system-ui,sans-serif;color:#222}
+a{color:#2a78d6;text-decoration:none}a:hover{text-decoration:underline}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 15px/1.2 system-ui,sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 13px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.65)}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}
+.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}
+.wf{padding:18px;display:flex;gap:14px;align-items:stretch}
+.fr{width:290px;background:#fffdf8;border:1.5px solid #555;border-radius:3px;display:flex;flex-direction:column;flex:none}
+.fr-t{font-family:'Caveat',cursive;font-size:17px;font-weight:600;padding:6px 10px 2px;color:#333;border-bottom:1.5px dashed #bbb}
+.fr-b{padding:10px;display:flex;flex-direction:column;gap:8px;flex:1}
+.arrow{align-self:center;font-size:26px;color:#888;flex:none}
+.bar{height:8px;background:#ddd;border-radius:2px}
+.box{border:1.5px dashed #999;border-radius:3px;padding:8px;background:#fff}
+.chip{display:inline-block;border:1.5px solid #777;border-radius:12px;padding:1px 10px;font-size:13px;background:#fff}
+.chip-on{background:#dbe9fb;border-color:#2a78d6;color:#1a4f9c}
+.btn{display:inline-block;border:1.5px solid #333;background:#333;color:#fff;padding:2px 12px;font-size:13px;border-radius:2px}
+.btn-o{display:inline-block;border:1.5px solid #333;background:#fff;color:#333;padding:2px 12px;font-size:13px;border-radius:2px}
+.lbl{font-size:12px;color:#777;line-height:1.2}
+.note{font-size:13.5px;line-height:1.35;color:#444;max-width:930px;margin:0}
+.tag{display:inline-block;font-size:11.5px;border:1px solid #b08fd8;color:#6b3fa8;border-radius:10px;padding:0 8px;background:#f3ecfb}
+.thumb{flex:1;border:1.5px solid #999;border-radius:3px;background:#fff;padding:5px;display:flex;flex-direction:column;gap:4px;align-items:center}
+.thumb-on{border:2px solid #2a78d6;background:#f2f7fe}
+</style>
+</helmet>
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Preview panel + separate dataset / widget saves (on <a class="dv-oid" href="#3a">3a</a>)</span></div>
+<p class="note" style="margin-bottom:20px">Your read is right: a panel gives the two saves somewhere to live without putting buttons in chat bubbles. The chat stays the conversation; the panel is the object being built. Three ways to wire tile → panel below. One constraint worth naming: Superset needs a registered dataset before a chart can reference it, so <b>save dataset</b> is genuinely upstream of <b>save widget</b> — the options differ in whether the user feels that or not.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="4a">
+<div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a><b>One docked panel, two sections</b> — tile focuses the panel; dataset section on top, widget below it</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:400px"><div class="fr-t">1 · Chat left, panel right</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:58px;display:flex;flex-direction:column;gap:4px"><span class="chip chip-on">Ask</span><span class="chip">Datasets</span><span class="chip">Widgets</span><span class="chip">Dash</span></div>
+      <div style="width:118px;display:flex;flex-direction:column;gap:5px">
+        <div class="lbl">chat</div>
+        <div class="box" style="padding:4px"><span class="lbl">"monthly viral load 2026"</span></div>
+        <div class="box" style="padding:4px;border-color:#2a78d6;background:#f2f7fe">
+          <span class="lbl" style="color:#1a4f9c">tile ▸ 1,486 rows · 4 cols</span>
+          <div class="bar" style="margin-top:3px"></div><div class="bar" style="margin-top:2px;width:70%"></div>
+          <span class="lbl" style="color:#2a78d6">open in panel</span>
+        </div>
+        <div class="box" style="padding:4px"><span class="lbl">"show it as a monthly trend"</span></div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;border-left:1.5px dashed #bbb;padding-left:6px">
+        <div class="lbl">preview panel (docked)</div>
+        <div class="box" style="padding:5px">
+          <div class="lbl">DATASET</div>
+          <div style="font-size:13px;border-bottom:1.5px dashed #bbb">Monthly viral load, 2026</div>
+          <div class="lbl" style="margin-top:3px">4 cols · <span style="color:#2a78d6">SQL ▸</span></div>
+          <div class="bar" style="margin-top:4px;background:#bbb"></div><div class="bar" style="margin-top:2px"></div><div class="bar" style="margin-top:2px;width:80%"></div>
+          <div style="margin-top:6px"><span class="btn">Save dataset</span></div>
+        </div>
+        <div class="box" style="padding:5px;opacity:.55">
+          <div class="lbl">WIDGET</div>
+          <div class="lbl">save the dataset first</div>
+        </div>
+      </div>
+    </div>
+    <div class="lbl">panel is always there; it just fills in as the conversation goes</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:250px"><div class="fr-t">2 · Widget section unlocks</div><div class="fr-b">
+    <div class="box" style="padding:5px;background:#f6f6f6">
+      <div class="lbl">DATASET · <span style="color:#20713a">saved ✓</span></div>
+      <div style="font-size:13px">Monthly viral load, 2026</div>
+      <div class="lbl"><span style="color:#2a78d6">in Datasets library ↗</span></div>
+    </div>
+    <div class="box" style="padding:5px">
+      <div class="lbl">WIDGET</div>
+      <svg width="100%" height="40" viewBox="0 0 200 40" preserveAspectRatio="none"><path d="M4 33 Q40 12 80 20 T196 6" fill="none" stroke="#2a78d6" stroke-width="2"/></svg>
+      <div class="lbl">line · suggested · change it in chat</div>
+      <div style="margin-top:6px"><span class="btn">Save widget</span></div>
+      <div class="lbl" style="margin-top:4px">then: add to dashboard ▾</div>
+    </div>
+    <div class="lbl">two saves, visibly sequential, same panel</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:230px"><div class="fr-t">3 · Both saved</div><div class="fr-b">
+    <div class="box" style="padding:5px;background:#f6f6f6"><div class="lbl">DATASET · <span style="color:#20713a">saved ✓</span></div></div>
+    <div class="box" style="padding:5px;background:#f6f6f6"><div class="lbl">WIDGET · <span style="color:#20713a">saved ✓</span></div><div class="lbl">in Widgets library</div></div>
+    <div class="box" style="padding:5px"><div class="lbl">add to</div><div style="font-size:13px;border-bottom:1.5px dashed #bbb">Lab operations ▾</div><div style="margin-top:6px"><span class="btn">Add to dashboard</span></div></div>
+    <div class="lbl">widget can also just live in the library, unplaced</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ The dependency is legible without a step indicator; one panel to build; chat never holds buttons. − Panel eats horizontal room on a laptop; the greyed widget section is a small dead end before the first save.</p>
+</div>
+
+<div class="dv-opt" id="4b">
+<div class="dv-olabel"><a class="dv-oid" href="#4b">4b</a><b>Two tiles, one panel that swaps</b> — a dataset tile and a widget tile in chat; clicking either loads it into the panel</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:360px"><div class="fr-t">1 · Tiles accumulate in the thread</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:130px;display:flex;flex-direction:column;gap:5px">
+        <div class="box" style="padding:4px;border-color:#2a78d6;background:#f2f7fe">
+          <span class="lbl" style="color:#1a4f9c">DATASET · draft</span>
+          <div class="bar" style="margin-top:3px"></div><div class="bar" style="margin-top:2px;width:72%"></div>
+          <span class="lbl">Monthly viral load</span>
+        </div>
+        <div class="box" style="padding:4px"><span class="lbl">"as a monthly trend, split by test"</span></div>
+        <div class="box" style="padding:4px">
+          <span class="lbl">WIDGET · draft</span>
+          <svg width="100%" height="20" viewBox="0 0 100 20"><path d="M2 16 Q20 5 40 10 T98 3" fill="none" stroke="#2a78d6" stroke-width="1.5"/></svg>
+          <span class="lbl">line</span>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;border-left:1.5px dashed #bbb;padding-left:6px">
+        <div class="lbl">panel shows the <b>selected</b> tile</div>
+        <div class="box" style="padding:5px;flex:1">
+          <div class="lbl">DATASET (selected)</div>
+          <div style="font-size:13px;border-bottom:1.5px dashed #bbb">Monthly viral load, 2026</div>
+          <div class="lbl" style="margin-top:3px">rows preview</div>
+          <div class="bar" style="margin-top:3px;background:#bbb"></div><div class="bar" style="margin-top:2px"></div><div class="bar" style="margin-top:2px"></div>
+          <div class="lbl" style="margin-top:4px"><span style="color:#2a78d6">SQL &amp; provenance ▸</span></div>
+          <div style="margin-top:6px"><span class="btn">Save dataset</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="lbl">tiles stay in history — scroll back and re-open any object</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:250px"><div class="fr-t">2 · Click the widget tile</div><div class="fr-b">
+    <div class="box" style="padding:5px;flex:1">
+      <div class="lbl">WIDGET (selected)</div>
+      <svg width="100%" height="44" viewBox="0 0 200 44" preserveAspectRatio="none"><path d="M4 36 Q40 14 80 22 T196 8" fill="none" stroke="#2a78d6" stroke-width="2"/><path d="M4 39 Q40 30 80 32 T196 22" fill="none" stroke="#bbb" stroke-width="2"/></svg>
+      <div class="lbl">line, split by test_name</div>
+      <div class="lbl">reads: Monthly viral load <span style="color:#20713a">✓ saved</span></div>
+      <div style="margin-top:6px"><span class="btn">Save widget</span> <span class="btn-o">Add to dashboard ▾</span></div>
+    </div>
+    <div class="lbl">each tile owns its own save; panel is just the focused view</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:230px"><div class="fr-t">3 · Ask for another widget</div><div class="fr-b">
+    <div class="box" style="padding:4px"><span class="lbl">"also give me avg turnaround as a KPI"</span></div>
+    <div class="box" style="padding:4px"><span class="lbl">WIDGET · draft</span><div style="font-size:15px;font-weight:600;text-align:center">212m</div></div>
+    <div class="lbl">second widget on the <b>same saved dataset</b> — no new dataset created</div>
+    <div class="box" style="background:#eefaf0;border-color:#3fa860"><span class="lbl" style="color:#20713a">✓ 2 widgets on Lab operations</span></div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Cleanest model when one dataset feeds several widgets — exactly the Superset relationship; history stays re-openable. − Two tile types to learn; user must notice which tile the panel is showing (needs a clear selected state).</p>
+</div>
+
+<div class="dv-opt" id="4c">
+<div class="dv-olabel"><a class="dv-oid" href="#4c">4c</a><b>Panel slides over on demand</b> — chat is full width; the tile expands into an overlay panel, then collapses back</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:300px"><div class="fr-t">1 · Full-width chat, compact tiles</div><div class="fr-b">
+    <div class="box" style="padding:4px"><span class="lbl">"monthly viral load 2026"</span></div>
+    <div class="box" style="padding:5px;border-color:#2a78d6">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="lbl" style="color:#1a4f9c">DATASET · draft · 1,486 rows</span><span class="btn-o" style="padding:0 6px;font-size:11px">Review ▸</span></div>
+      <div class="bar" style="margin-top:4px"></div><div class="bar" style="margin-top:2px;width:70%"></div>
+    </div>
+    <div class="box" style="padding:4px;background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">"I'd show this as a monthly trend line."</span></div>
+    <div class="box" style="padding:5px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="lbl">WIDGET · draft</span><span class="btn-o" style="padding:0 6px;font-size:11px">Review ▸</span></div>
+      <svg width="100%" height="26" viewBox="0 0 180 26"><path d="M3 21 Q34 7 70 13 T177 4" fill="none" stroke="#2a78d6" stroke-width="1.5"/></svg>
+    </div>
+    <div class="lbl">nothing is saved yet; drafts are obvious</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:290px"><div class="fr-t">2 · Review slides in from the right</div><div class="fr-b">
+    <div style="display:flex;gap:5px;flex:1">
+      <div style="width:52px;background:#eee;border:1.5px dashed #ccc;border-radius:2px;display:flex;align-items:center;justify-content:center"><span class="lbl" style="writing-mode:vertical-rl">chat dimmed</span></div>
+      <div class="box" style="flex:1;padding:5px">
+        <div style="display:flex;justify-content:space-between"><span class="lbl">WIDGET</span><span class="lbl">✕</span></div>
+        <svg width="100%" height="48" viewBox="0 0 160 48" preserveAspectRatio="none"><path d="M4 40 Q32 16 64 24 T156 8" fill="none" stroke="#2a78d6" stroke-width="2"/></svg>
+        <div class="lbl">name</div>
+        <div style="font-size:13px;border-bottom:1.5px dashed #bbb">VL trend, monthly</div>
+        <div class="lbl" style="margin-top:4px">reads Monthly viral load <span style="color:#a15c00">· unsaved</span></div>
+        <div style="margin-top:6px"><span class="btn">Save dataset + widget</span></div>
+        <div class="lbl" style="margin-top:3px">or <span style="color:#2a78d6">save dataset only</span></div>
+      </div>
+    </div>
+    <div class="lbl">the panel is where every save lives, and the only place</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:230px"><div class="fr-t">3 · Collapse back to chat</div><div class="fr-b">
+    <div class="box" style="padding:5px;background:#f6f6f6"><div style="display:flex;justify-content:space-between"><span class="lbl">DATASET · <span style="color:#20713a">saved ✓</span></span><span class="lbl" style="color:#2a78d6">Review ▸</span></div></div>
+    <div class="box" style="padding:5px;background:#f6f6f6"><div style="display:flex;justify-content:space-between"><span class="lbl">WIDGET · <span style="color:#20713a">saved ✓</span></span><span class="lbl" style="color:#2a78d6">Review ▸</span></div><div class="lbl">on Lab operations · Open in Superset ↗</div></div>
+    <div class="box" style="padding:4px;min-height:20px"><span class="lbl">keep asking…</span></div>
+    <div class="lbl">tiles become a compact receipt of what exists</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Chat keeps full width on a laptop; review is a deliberate moment; combined save is available for the impatient path. − An overlay to open/close on every save; two saved objects from one button needs careful wording.</p>
+</div>
+
+</div>
+<p class="dv-next">Try next: "<a class="dv-oid" href="#4b">4b</a> but the panel is always docked like <a class="dv-oid" href="#4a">4a</a>" · "should saving the dataset be automatic and invisible?" · "hi-fi <a class="dv-oid" href="#4b">4b</a> in Carbon"</p>
+</section>
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Minimal conversational wizard inside the <a class="dv-oid" href="#2b">2b</a> shell</span></div>
+<p class="note" style="margin-bottom:20px">Kept from <a class="dv-oid" href="#2b">2b</a>: the left rail and the two libraries. Cut for MVP: the column-mapping panel, the "why this suggestion" explainer, size/slot picker, filter mapping table, and the config diff. What remains is one conversation and one button. SQL and provenance still exist — one collapsed link, never in the path. Two grains of minimal below.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a><b>Conversation continues in place</b> — no overlay, no steps; the result just keeps talking</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:330px"><div class="fr-t">1 · Result, then one question</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:66px;display:flex;flex-direction:column;gap:4px"><span class="chip chip-on">Ask</span><span class="chip">Datasets</span><span class="chip">Widgets</span><span class="chip">Dashboards</span></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+        <div class="box" style="padding:4px"><div class="bar" style="background:#bbb;margin-bottom:4px"></div><div class="bar"></div><div class="bar" style="margin-top:4px"></div></div>
+        <div class="lbl"><span style="color:#2a78d6">SQL &amp; provenance ▸</span> (collapsed)</div>
+        <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">"Want this on a dashboard? I'd show it as a <b>monthly trend line</b>."</span></div>
+        <div class="box" style="padding:4px;min-height:20px"><span class="lbl">yes, and split by test type ⏎</span></div>
+      </div>
+    </div>
+    <div class="lbl">the question comes to the user; nothing to configure</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:300px"><div class="fr-t">2 · Widget appears in the thread</div><div class="fr-b">
+    <div class="box" style="padding:6px">
+      <div style="font-size:13px">Viral load trend by test type</div>
+      <svg width="100%" height="46" viewBox="0 0 220 46" preserveAspectRatio="none"><path d="M4 38 Q40 16 80 24 T216 8" fill="none" stroke="#2a78d6" stroke-width="2"/><path d="M4 41 Q40 32 80 34 T216 24" fill="none" stroke="#bbb" stroke-width="2"/></svg>
+      <div class="lbl">line · from "Monthly viral load"</div>
+    </div>
+    <div class="lbl">keep talking to change it</div>
+    <div class="box" style="padding:4px"><span class="lbl">"make it a bar chart instead"</span></div>
+    <div style="display:flex;gap:4px">
+      <div class="thumb" style="max-width:64px"><svg width="40" height="20" viewBox="0 0 40 20"><rect x="3" y="9" width="6" height="9" fill="#bbb"/><rect x="13" y="4" width="6" height="14" fill="#bbb"/><rect x="23" y="11" width="6" height="7" fill="#bbb"/><rect x="33" y="7" width="6" height="11" fill="#bbb"/></svg><span class="lbl">bar</span></div>
+      <div class="thumb" style="max-width:64px"><div style="font-size:14px;font-weight:600">1,486</div><span class="lbl">KPI</span></div>
+      <div class="thumb" style="max-width:64px"><div class="bar" style="width:26px"></div><div class="bar" style="width:26px"></div><span class="lbl">table</span></div>
+    </div>
+    <div class="lbl">chips are a shortcut, not a required step</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:270px"><div class="fr-t">3 · One button</div><div class="fr-b">
+    <div><span class="btn">Add to dashboard ▾</span></div>
+    <div class="box" style="padding:5px;font-size:13px">Lab operations<br><span class="lbl">HIV/ART program</span><br><span class="lbl">+ New dashboard…</span></div>
+    <div class="lbl">Catalyst appends the widget to the config and pushes it — no diff, no slot picker; Superset auto-places it</div>
+    <div class="box" style="background:#eefaf0;border-color:#3fa860"><span class="lbl" style="color:#20713a">✓ Added to Lab operations · <span style="color:#2a78d6">Open in Superset ↗</span> · Undo</span></div>
+    <div class="lbl">Undo is the safety net that replaces the diff</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Fewest decisions: two clicks from result to live dashboard; conversation is the only interface. − No dashboard-level review before pushing (Undo covers the common mistake); layout is whatever Superset chooses.</p>
+</div>
+
+<div class="dv-opt" id="3b">
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a><b>One-card wizard</b> — same conversation, gathered into a small panel so "what am I making" stays visible</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:300px"><div class="fr-t">1 · "Save &amp; visualize" opens a card</div><div class="fr-b">
+    <div class="box" style="padding:4px"><div class="bar" style="background:#bbb;margin-bottom:4px"></div><div class="bar"></div><div class="bar" style="margin-top:4px"></div></div>
+    <div><span class="btn">Save &amp; visualize</span></div>
+    <div class="lbl">one action, no step indicator</div>
+    <div class="box" style="padding:6px">
+      <div class="lbl">dataset name (editable, pre-filled)</div>
+      <div style="font-size:13px;border-bottom:1.5px dashed #bbb">Monthly viral load, 2026</div>
+      <div class="lbl" style="margin-top:5px"><span style="color:#2a78d6">SQL &amp; provenance ▸</span></div>
+    </div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:300px"><div class="fr-t">2 · Talk to the preview</div><div class="fr-b">
+    <div class="box" style="padding:6px">
+      <svg width="100%" height="44" viewBox="0 0 220 44" preserveAspectRatio="none"><path d="M4 36 Q40 14 80 22 T216 8" fill="none" stroke="#2a78d6" stroke-width="2"/></svg>
+      <div class="lbl">monthly trend line · suggested</div>
+    </div>
+    <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">"Monthly trend, one line. Change anything?"</span></div>
+    <div class="box" style="padding:4px;min-height:20px"><span class="lbl">"split it by test type" ⏎</span></div>
+    <div class="lbl">the chart redraws in place; the card is the only thing on screen</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:280px"><div class="fr-t">3 · Same card, last row</div><div class="fr-b">
+    <div class="box" style="padding:6px">
+      <div class="lbl">add to</div>
+      <div style="font-size:13px;border-bottom:1.5px dashed #bbb">Lab operations ▾</div>
+      <div style="margin-top:8px"><span class="btn">Add widget</span> <span class="btn-o">Save dataset only</span></div>
+    </div>
+    <div class="lbl">"Save dataset only" is the escape hatch for people who just wanted the data in the library</div>
+    <div class="box" style="background:#eefaf0;border-color:#3fa860"><span class="lbl" style="color:#20713a">✓ In Lab operations · Open in Superset ↗</span></div>
+    <div class="lbl">dashboard row in the rail flips to "synced just now"</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ The card holds name + chart + destination in one glance, so nothing is saved by accident; still one conversation. − One modal-ish surface to design and dismiss; slightly more friction than <a class="dv-oid" href="#3a">3a</a>.</p>
+</div>
+
+</div>
+<p class="dv-next">Try next: "hi-fi <a class="dv-oid" href="#3a">3a</a> in Carbon on the recreated query screen" · "show the Datasets and Widgets library pages for this version" · "what does first-run look like with no datasets yet?"</p>
+</section>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Merged direction — in-flow wizard + dataset library + widget library; Superset renders the dashboard</span></div>
+<p class="note" style="margin-bottom:20px">Per your call: Catalyst owns <b>dataset → widget → placement</b> and writes the Superset dashboard config (datasets + charts + position_json + native filters) through the API. Superset renders and serves the dashboard; Catalyst never re-implements layout. Open questions this turn tries to answer: where the two libraries live (<a class="dv-oid" href="#2a">2a</a> vs <a class="dv-oid" href="#2b">2b</a>), and what the wizard's display + publish steps actually look like (<a class="dv-oid" href="#2c">2c</a>).</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a><b>Wizard-first</b> — Ask stays the home screen; the libraries are pickers you pull in from either side</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:320px"><div class="fr-t">1 · Ask page + library drawers</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:74px;display:flex;flex-direction:column;gap:4px"><span class="lbl">Datasets ▸</span><div class="box" style="padding:3px"><span class="lbl">Monthly VL</span></div><div class="box" style="padding:3px"><span class="lbl">TAT by test</span></div><div class="box" style="padding:3px"><span class="lbl">CD4 cohort</span></div><span class="lbl" style="color:#2a78d6">reuse ↺</span></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+        <div class="box" style="padding:4px"><div class="bar" style="background:#bbb;margin-bottom:4px"></div><div class="bar"></div><div class="bar" style="margin-top:4px"></div><div class="bar" style="margin-top:4px;width:70%"></div></div>
+        <div class="lbl">result of the governed query</div>
+        <div><span class="btn">Save &amp; visualize ▸</span></div>
+      </div>
+      <div style="width:74px;display:flex;flex-direction:column;gap:4px"><span class="lbl">◂ Widgets</span><div class="box" style="padding:3px;height:22px"><svg width="100%" height="14" viewBox="0 0 40 14"><path d="M2 12 Q12 3 22 8 T38 2" fill="none" stroke="#2a78d6" stroke-width="1.5"/></svg></div><div class="box" style="padding:3px;text-align:center"><span class="lbl">212m KPI</span></div><span class="lbl" style="color:#2a78d6">re-pin ↺</span></div>
+    </div>
+    <div class="lbl">both libraries are collapsible drawers — nothing leaves the page</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">2 · Wizard (3 steps, inline)</div><div class="fr-b">
+    <div style="display:flex;gap:4px"><span class="chip chip-on">1 Dataset</span><span class="chip">2 Display</span><span class="chip">3 Place</span></div>
+    <div class="box" style="padding:5px"><span class="lbl">name</span><div style="font-size:13px">Monthly viral load, 2026</div><span class="lbl">4 columns · governed · params: :since_date</span></div>
+    <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">preview SQL + provenance (collapsed by default — expand to accept)</span></div>
+    <div class="lbl">saving the dataset also registers it in Superset</div>
+    <div><span class="btn">Continue</span> <span class="btn-o">Save dataset only</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Placed, Superset renders</div><div class="fr-b">
+    <div class="box" style="background:#eefaf0;border-color:#3fa860"><span class="lbl" style="color:#20713a">✓ Widget written to "Lab operations" config</span></div>
+    <div class="lbl">read-only mirror of the Superset dashboard</div>
+    <div class="box" style="padding:4px"><div style="display:flex;gap:3px"><div class="bar" style="flex:1;height:20px"></div><div class="bar" style="flex:1;height:20px;background:#dbe9fb"></div></div><div style="display:flex;gap:3px;margin-top:3px"><div class="bar" style="flex:2;height:20px"></div><div class="bar" style="flex:1;height:20px"></div></div></div>
+    <div><span class="btn-o">Open in Superset ↗</span></div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ One screen to learn; reuse is one click away without navigating; smallest build. − Drawers get crowded once there are 30+ datasets; no good place for dashboard-level management (rename, share, delete).</p>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a><b>Library-first shell</b> — left rail: Ask · Datasets · Widgets · Dashboards; the wizard is an overlay launched from anywhere</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:320px"><div class="fr-t">1 · Datasets library (full page)</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:70px;display:flex;flex-direction:column;gap:4px"><span class="chip">Ask</span><span class="chip chip-on">Datasets</span><span class="chip">Widgets</span><span class="chip">Dashboards</span></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+        <div class="box" style="padding:4px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>Monthly viral load</span><span class="tag">governed</span></div><div class="lbl">openelis · 4 cols · 2 widgets · Jul 15</div></div>
+        <div class="box" style="padding:4px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>TAT by test type</span><span class="tag">governed</span></div><div class="lbl">openelis · 6 cols · 1 widget · Jul 12</div></div>
+        <div class="box" style="padding:4px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>CD4 cohort</span><span class="tag">draft</span></div><div class="lbl">openmrs · 5 cols · unpublished</div></div>
+        <div><span class="btn">+ New from question</span></div>
+      </div>
+    </div>
+    <div class="lbl">rows show downstream use, so nothing is deleted blind</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">2 · Widgets library</div><div class="fr-b">
+    <div class="lbl">saved chart configs, reusable across dashboards</div>
+    <div style="display:flex;gap:5px">
+      <div class="thumb"><svg width="52" height="26" viewBox="0 0 52 26"><path d="M2 22 Q14 8 24 14 T50 4" fill="none" stroke="#2a78d6" stroke-width="2"/></svg><span class="lbl">VL trend</span></div>
+      <div class="thumb"><div style="font-size:17px;font-weight:600">212m</div><span class="lbl">Avg TAT</span></div>
+    </div>
+    <div style="display:flex;gap:5px">
+      <div class="thumb"><svg width="52" height="26" viewBox="0 0 52 26"><rect x="4" y="12" width="8" height="12" fill="#bbb"/><rect x="17" y="6" width="8" height="18" fill="#bbb"/><rect x="30" y="15" width="8" height="9" fill="#bbb"/><rect x="43" y="9" width="8" height="15" fill="#bbb"/></svg><span class="lbl">Tests by type</span></div>
+      <div class="thumb"><div class="bar" style="width:40px"></div><div class="bar" style="width:40px"></div><div class="bar" style="width:40px"></div><span class="lbl">Result table</span></div>
+    </div>
+    <div class="lbl">each card: dataset it reads · dashboards it sits on</div>
+    <div><span class="btn-o">Add to dashboard ▾</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Dashboards list</div><div class="fr-b">
+    <div class="box" style="padding:5px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>Lab operations</span><span class="lbl">6 widgets</span></div><div class="lbl">synced to Superset · Jul 15, 14:02</div><div style="display:flex;gap:3px;margin-top:3px"><div class="bar" style="flex:1;height:16px"></div><div class="bar" style="flex:1;height:16px"></div><div class="bar" style="flex:2;height:16px"></div></div></div>
+    <div class="box" style="padding:5px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>HIV/ART program</span><span class="lbl">4 widgets</span></div><div class="lbl" style="color:#a15c00">2 pending changes — not yet pushed</div></div>
+    <div><span class="btn">Push changes to Superset</span></div>
+    <div class="lbl">viewing/editing layout still happens in Superset ↗</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Scales past the demo; downstream-use info makes governance real; a home for pending-vs-synced state. − More screens to build; risk of drifting from the Superset copy of the same objects (needs a sync rule — see <a class="dv-oid" href="#2c">2c</a>).</p>
+</div>
+
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a><b>Wizard steps 2 &amp; 3 in detail</b> — the display question and the config write-back (drops into either shell)</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:330px"><div class="fr-t">Step 2 · "How should this show up?"</div><div class="fr-b">
+    <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">AI read your columns: one date, one count, one category. <b>Suggested: line, split by test type.</b></span></div>
+    <div class="box" style="min-height:22px"><span class="lbl">or say what you want — "just the total as a big number"</span></div>
+    <div class="lbl">MVP widget set (health-data appropriate)</div>
+    <div style="display:flex;gap:4px">
+      <div class="thumb thumb-on"><svg width="44" height="22" viewBox="0 0 44 22"><path d="M2 18 Q12 6 20 12 T42 4" fill="none" stroke="#2a78d6" stroke-width="2"/></svg><span class="lbl">Line ★</span></div>
+      <div class="thumb"><svg width="44" height="22" viewBox="0 0 44 22"><rect x="3" y="10" width="7" height="10" fill="#bbb"/><rect x="14" y="5" width="7" height="15" fill="#bbb"/><rect x="25" y="12" width="7" height="8" fill="#bbb"/><rect x="36" y="8" width="7" height="12" fill="#bbb"/></svg><span class="lbl">Bar</span></div>
+      <div class="thumb"><div style="font-size:15px;font-weight:600">1,486</div><span class="lbl">KPI</span></div>
+      <div class="thumb"><div class="bar" style="width:30px"></div><div class="bar" style="width:30px"></div><span class="lbl">Table</span></div>
+      <div class="thumb"><div style="display:flex;width:34px;height:9px"><div style="flex:3;background:#2a78d6"></div><div style="flex:1;background:#bbb"></div></div><span class="lbl">Share</span></div>
+    </div>
+    <div class="lbl">mapping (pre-filled, editable)</div>
+    <div class="box" style="padding:5px;font-size:13px">x <span class="chip">observed_at ▾</span> · y <span class="chip">count ▾</span><br>split <span class="chip">test_name ▾</span></div>
+    <div class="box" style="height:46px"><svg width="100%" height="36" viewBox="0 0 220 36" preserveAspectRatio="none"><path d="M4 30 Q40 12 80 20 T216 6" fill="none" stroke="#2a78d6" stroke-width="2"/><path d="M4 33 Q40 26 80 28 T216 20" fill="none" stroke="#bbb" stroke-width="2"/></svg></div>
+    <div class="lbl">live preview on real rows · <span style="color:#2a78d6">why this suggestion?</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr" style="width:330px"><div class="fr-t">Step 3 · Place &amp; write config</div><div class="fr-b">
+    <div class="box" style="padding:5px"><span class="lbl">dashboard</span><div style="font-size:13px">Lab operations ▾ &nbsp;<span class="lbl">or + new</span></div></div>
+    <div class="lbl">size &amp; slot (maps to Superset position_json)</div>
+    <div class="box" style="padding:5px"><div style="display:flex;gap:3px"><div class="bar" style="flex:1;height:18px"></div><div class="bar" style="flex:1;height:18px"></div></div><div style="display:flex;gap:3px;margin-top:3px"><div style="flex:2;height:18px;border:2px dashed #2a78d6;background:#f2f7fe"></div><div class="bar" style="flex:1;height:18px"></div></div><div class="lbl" style="margin-top:3px">new widget · <span class="chip chip-on">½ width</span> <span class="chip">full</span> <span class="chip">⅓</span></div></div>
+    <div class="lbl">parameters → native filters</div>
+    <div class="box" style="padding:5px;font-size:13px">:since_date → <span class="chip chip-on">date range filter</span><br>:test_name → <span class="chip chip-on">select filter</span> <span class="chip">fixed value</span></div>
+    <div class="lbl">config diff before writing</div>
+    <div class="box" style="padding:5px;font-family:ui-monospace,monospace;font-size:11px;color:#444">+ dataset  monthly_viral_load<br>+ chart    vl_trend_line<br>~ dashboard lab_operations.position_json<br>+ filter   since_date</div>
+    <div><span class="btn">Write to Superset</span> <span class="btn-o">Cancel</span></div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">The diff is the governance moment for dashboards: nothing changes in Superset until it is shown and accepted, mirroring today's SQL preview → accept. Superset stays the single source of truth for rendering; Catalyst keeps the lineage from question → SQL → dataset → chart → dashboard slot.</p>
+</div>
+
+</div>
+<p class="dv-next">Try next: "go with <a class="dv-oid" href="#2b">2b</a> and hi-fi the Datasets library in Carbon" · "show the wizard as an overlay on the recreated query screen" · "add an empty/first-run state for <a class="dv-oid" href="#2b">2b</a>"</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Structural directions — define dataset → choose display → arrange dashboard (publish to Superset)</span></div>
+<p class="note" style="margin-bottom:20px">Shared assumptions from our research: a dataset = a saved governed query (Superset's own model); the AI's suggestion is an editable starting point, never a locked output; the MVP viz set for lab/health data = <b>table · big-number KPI (+trend) · time-series line · bar (grouped/stacked) · proportion bar</b> (pies deliberately excluded — proportions read better as stacked bars). Query parameters can be promoted to dashboard-level filters. Each option below is a 3-frame storyboard of the same journey.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><b>In-flow wizard</b> — the current page grows a "Save as dataset" step; no new navigation</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr"><div class="fr-t">1 · Ask &amp; run (today's flow)</div><div class="fr-b">
+    <div class="lbl">result table (governed, typed)</div>
+    <div class="box" style="padding:4px"><div class="bar" style="background:#bbb;margin-bottom:4px"></div><div class="bar"></div><div class="bar" style="margin-top:4px"></div><div class="bar" style="margin-top:4px;width:80%"></div></div>
+    <div class="lbl">new affordance appears under every successful result:</div>
+    <div><span class="btn">Save as dataset ▸</span> <span class="btn-o">New query</span></div>
+    <div class="lbl">name + provenance carried over automatically</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">2 · Display step (AI-guided)</div><div class="fr-b">
+    <div class="lbl">"How should this appear on a dashboard?"</div>
+    <div class="box" style="min-height:26px"><span class="lbl">free-text answer, e.g. "trend over time by month"</span></div>
+    <div class="lbl">suggestion from dataset shape · click to switch</div>
+    <div style="display:flex;gap:5px">
+      <div class="thumb thumb-on"><svg width="52" height="26" viewBox="0 0 52 26"><path d="M2 22 Q12 8 20 14 T38 8 T50 4" fill="none" stroke="#2a78d6" stroke-width="2"/></svg><span class="lbl">Line ★</span></div>
+      <div class="thumb"><svg width="52" height="26" viewBox="0 0 52 26"><rect x="4" y="12" width="8" height="12" fill="#bbb"/><rect x="17" y="6" width="8" height="18" fill="#bbb"/><rect x="30" y="15" width="8" height="9" fill="#bbb"/><rect x="43" y="9" width="8" height="15" fill="#bbb"/></svg><span class="lbl">Bar</span></div>
+      <div class="thumb"><div style="font-size:19px;font-weight:600">1,486</div><span class="lbl">KPI</span></div>
+    </div>
+    <div class="lbl">live preview on demo rows ↓</div>
+    <div class="box" style="height:38px"><svg width="100%" height="28" viewBox="0 0 220 28" preserveAspectRatio="none"><path d="M4 24 Q30 10 60 16 T120 8 T216 5" fill="none" stroke="#2a78d6" stroke-width="2"/></svg></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Add to dashboard</div><div class="fr-b">
+    <div class="lbl">dashboard picker (existing or new)</div>
+    <div class="box">Lab operations ▾</div>
+    <div class="lbl">parameter promotion</div>
+    <div class="box"><span class="lbl">:since_date → </span><span class="chip chip-on">dashboard filter</span> <span class="chip">fixed</span></div>
+    <div><span class="btn">Publish widget</span></div>
+    <div class="lbl">→ dataset + chart + dashboard created in Superset via API; link back: "View in Superset ↗"</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Zero new nav; governance flow untouched; shortest path to first widget. − Dashboards have no home in Catalyst (managed/viewed only in Superset); hard to re-edit a widget later.</p>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><b>Library workspace</b> — three top-level areas: Ask · Datasets · Dashboards (Superset's mental model, Catalyst's governance)</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr"><div class="fr-t">1 · Datasets library</div><div class="fr-b">
+    <div class="lbl">top nav</div>
+    <div style="display:flex;gap:5px"><span class="chip">Ask</span><span class="chip chip-on">Datasets</span><span class="chip">Dashboards</span></div>
+    <div class="lbl">every saved governed query becomes a reusable dataset</div>
+    <div class="box" style="padding:5px;font-size:13px">
+      <div style="display:flex;justify-content:space-between"><span>Monthly viral load</span><span class="tag">governed</span></div>
+      <div class="lbl">openelis · 4 cols · run Jul 15</div>
+    </div>
+    <div class="box" style="padding:5px;font-size:13px">
+      <div style="display:flex;justify-content:space-between"><span>TAT by test type</span><span class="tag">governed</span></div>
+      <div class="lbl">openelis · 6 cols · run Jul 12</div>
+    </div>
+    <div><span class="btn">+ New from question</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">2 · Chart builder on a dataset</div><div class="fr-b">
+    <div style="display:flex;gap:6px;flex:1">
+      <div style="width:70px;display:flex;flex-direction:column;gap:4px"><div class="lbl">columns</div><div class="bar"></div><div class="bar" style="width:80%"></div><div class="bar"></div><div class="bar" style="width:60%"></div></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+        <div class="box" style="flex:1;min-height:64px"><svg width="100%" height="52" viewBox="0 0 140 52" preserveAspectRatio="none"><path d="M4 44 Q30 20 60 30 T136 10" fill="none" stroke="#2a78d6" stroke-width="2"/></svg></div>
+        <div class="lbl" style="text-align:center">preview · Run to refresh</div>
+      </div>
+    </div>
+    <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">AI: "monthly counts over time — I suggest a line. Want it split by test type?"</span></div>
+    <div class="box" style="min-height:20px"><span class="lbl">reply to reshape the chart…</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Dashboards area</div><div class="fr-b">
+    <div style="display:flex;gap:5px"><span class="chip">Ask</span><span class="chip">Datasets</span><span class="chip chip-on">Dashboards</span></div>
+    <div class="box" style="padding:5px">
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Lab operations</span><span class="lbl">6 widgets</span></div>
+      <div style="display:flex;gap:3px;margin-top:3px"><div class="bar" style="flex:1;height:16px"></div><div class="bar" style="flex:1;height:16px"></div><div class="bar" style="flex:2;height:16px"></div></div>
+      <div class="lbl" style="margin-top:3px">lives in Superset · <span style="color:#2a78d6">edit layout in Superset ↗</span></div>
+    </div>
+    <div class="box" style="padding:5px">
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>HIV/ART program</span><span class="lbl">4 widgets</span></div>
+      <div style="display:flex;gap:3px;margin-top:3px"><div class="bar" style="flex:2;height:16px"></div><div class="bar" style="flex:1;height:16px"></div></div>
+    </div>
+    <div><span class="btn-o">+ New dashboard</span></div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Datasets become first-class, reusable across many charts (the real Superset model); clear home for everything. − Most new surface area to build; two places to "be" (Catalyst + Superset) unless dashboards are embedded.</p>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><b>Conversational canvas</b> — one chat rail builds the dashboard live; every answer materializes a widget</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr" style="width:420px"><div class="fr-t">1–2 · Chat + canvas in one screen</div><div class="fr-b">
+    <div style="display:flex;gap:8px;flex:1">
+      <div style="width:150px;display:flex;flex-direction:column;gap:5px">
+        <div class="lbl">chat rail</div>
+        <div class="box" style="padding:4px"><span class="lbl">"TB positivity by month"</span></div>
+        <div class="box" style="padding:4px;background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">AI: query generated ✓ preview SQL · added as line chart — resize or ask to change</span></div>
+        <div class="box" style="padding:4px"><span class="lbl">"add avg turnaround as a KPI"</span></div>
+        <div class="box" style="padding:4px;min-height:18px"><span class="lbl">ask for the next widget…</span></div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+        <div class="lbl">dashboard canvas (grid)</div>
+        <div style="display:flex;gap:5px">
+          <div class="box" style="flex:2;height:56px"><svg width="100%" height="44" viewBox="0 0 120 44" preserveAspectRatio="none"><path d="M4 38 Q30 16 60 26 T116 8" fill="none" stroke="#2a78d6" stroke-width="2"/></svg></div>
+          <div class="box" style="flex:1;height:56px;text-align:center"><div style="font-size:18px;font-weight:600">212m</div><div class="lbl">avg TAT</div></div>
+        </div>
+        <div class="box" style="height:40px;border-style:dotted;display:flex;align-items:center;justify-content:center"><span class="lbl">next widget lands here</span></div>
+      </div>
+    </div>
+    <div class="lbl">each widget still carries preview/accept before it runs — governance inline in chat</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Publish</div><div class="fr-b">
+    <div class="lbl">one action pushes the whole set</div>
+    <div class="box">
+      <div style="font-size:13px">Publish "TB program review"</div>
+      <div class="lbl">3 datasets · 3 charts · 1 dashboard → Superset</div>
+    </div>
+    <div class="lbl">shared filters detected from parameters:</div>
+    <div><span class="chip chip-on">month range</span> <span class="chip chip-on">facility</span></div>
+    <div><span class="btn">Publish to Superset</span></div>
+    <div class="lbl">re-opening the session lets you keep editing and re-publish (versioned)</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Smoothest single workflow; dashboard visible as it grows; matches "AI-guided" answer directly. − Layout control in a chat is clumsy beyond simple grids; governance evidence must fit in chat bubbles; risky if the model is slow.</p>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a><b>Result-first pinning</b> — "Visualize" lives on every result; Superset fully owns the dashboard surface</div>
+<div class="dv-card"><div class="wf">
+  <div class="fr"><div class="fr-t">1 · Any result table</div><div class="fr-b">
+    <div class="box" style="padding:4px"><div class="bar" style="background:#bbb;margin-bottom:4px"></div><div class="bar"></div><div class="bar" style="margin-top:4px"></div></div>
+    <div><span class="btn">Visualize ▾</span> <span class="btn-o">Save as dataset</span></div>
+    <div class="lbl">split button: Visualize = chart now; Save = dataset only, chart later</div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">2 · Visualize panel</div><div class="fr-b">
+    <div class="lbl">AI pre-selects from data shape; one question, chips as answers</div>
+    <div class="box" style="background:#f2f7fe;border-color:#2a78d6"><span class="lbl" style="color:#1a4f9c">"This is monthly counts — show as a trend?"</span></div>
+    <div style="display:flex;gap:5px">
+      <div class="thumb thumb-on"><svg width="46" height="22" viewBox="0 0 46 22"><path d="M2 18 Q12 6 20 12 T44 4" fill="none" stroke="#2a78d6" stroke-width="2"/></svg><span class="lbl">Line ★</span></div>
+      <div class="thumb"><svg width="46" height="22" viewBox="0 0 46 22"><rect x="4" y="10" width="7" height="10" fill="#bbb"/><rect x="15" y="5" width="7" height="15" fill="#bbb"/><rect x="26" y="12" width="7" height="8" fill="#bbb"/><rect x="37" y="8" width="7" height="12" fill="#bbb"/></svg><span class="lbl">Bar</span></div>
+      <div class="thumb"><div style="font-size:16px;font-weight:600">86%</div><span class="lbl">KPI</span></div>
+      <div class="thumb"><div class="bar" style="width:34px"></div><div class="bar" style="width:34px"></div><span class="lbl">Table</span></div>
+    </div>
+    <div class="lbl">parameters → <span class="chip chip-on">:since_date = dashboard filter</span></div>
+    <div><span class="btn">Pin to dashboard ▾</span></div>
+  </div></div>
+  <div class="arrow">→</div>
+  <div class="fr"><div class="fr-t">3 · Hand-off to Superset</div><div class="fr-b">
+    <div class="box" style="background:#eefaf0;border-color:#3fa860"><span class="lbl" style="color:#20713a">✓ Pinned to "Lab operations" — dataset, chart and filter created in Superset</span></div>
+    <div class="lbl">Superset dashboard (their editor, drag/resize, native filters):</div>
+    <div class="box" style="padding:4px">
+      <div style="display:flex;gap:3px"><div class="bar" style="flex:1;height:22px"></div><div class="bar" style="flex:1;height:22px;background:#dbe9fb"></div></div>
+      <div style="display:flex;gap:3px;margin-top:3px"><div class="bar" style="flex:2;height:22px"></div><div class="bar" style="flex:1;height:22px"></div></div>
+    </div>
+    <div><span class="btn-o">Open in Superset ↗</span></div>
+    <div class="lbl">Catalyst never re-implements layout; it is a governed widget factory</div>
+  </div></div>
+</div></div>
+<p class="note" style="max-width:930px">+ Least engineering: Superset does layout, filters, sharing; Catalyst stays focused on governed data. − Users bounce between two apps; Catalyst can't show "what's on my dashboards"; viewer experience is 100% Superset.</p>
+</div>
+
+</div>
+<p class="dv-next">Try next: "combine <a class="dv-oid" href="#1a">1a</a>'s save step with <a class="dv-oid" href="#1b">1b</a>'s dataset library" · "wireframe the display step of <a class="dv-oid" href="#1d">1d</a> in more detail" · "hi-fi the winner in the Carbon look"</p>
+</section>
+</x-dc>
+</body>
+</html>

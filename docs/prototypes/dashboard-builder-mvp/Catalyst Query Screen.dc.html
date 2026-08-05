@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;min-width:320px;min-height:100vh;background:linear-gradient(135deg,rgb(15 98 254/5%) 0,transparent 32rem),#f4f4f4;color:#161616;font-family:'IBM Plex Sans',system-ui,sans-serif;text-rendering:optimizeLegibility}
+a{color:#0f62fe;text-decoration:none}a:hover{color:#0043ce;text-decoration:underline}
+*{box-sizing:border-box}
+</style>
+</helmet>
+<div data-screen-label="Catalyst query screen (current UI)" style="min-height:100vh">
+  <aside style="position:sticky;z-index:100;top:0;width:100%;border-bottom:1px solid #8d8d8d;color:#f4f4f4;background:#262626">
+    <div style="display:flex;min-height:2.5rem;max-width:80rem;align-items:center;gap:0.75rem;padding:0.5rem 1.5rem;margin:0 auto;font-size:0.875rem">
+      <svg width="20" height="20" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M16,2A14,14,0,1,0,30,16,14,14,0,0,0,16,2Zm-1.1,6h2.2v11h-2.2ZM16,25a1.5,1.5,0,1,1,1.5-1.5A1.5,1.5,0,0,1,16,25Z"></path></svg>
+      <span style="flex:0 0 auto;display:inline-flex;align-items:center;height:1.125rem;padding:0 0.5rem;border-radius:0.5625rem;background:#e5e0df;color:#171414;font-size:0.75rem;line-height:1">Demo environment</span>
+      <span style="flex:1 1 18rem">Demo data only; not for clinical decision-making.</span>
+      <button onClick="{{ jumpToComposer }}" style="flex:0 0 auto;margin-left:auto;display:inline-flex;align-items:center;gap:2rem;height:2rem;padding:0 0.75rem;border:1px solid transparent;background:#393939;color:#fff;font-size:0.875rem;font-family:inherit;cursor:pointer" style-hover="background:#4c4c4c">
+        Ask OpenELIS
+        <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M24.59 16.59L17 24.17V4h-2v20.17l-7.59-7.58L6 18l10 10 10-10-1.41-1.41z"></path></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main style="width:min(100% - 2rem, 76rem);padding:2rem 0 calc(25rem + env(safe-area-inset-bottom));margin:0 auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 0 1.5rem;color:#525252;font-size:0.875rem">
+      <div>
+        <p style="margin:0;color:#161616;font-weight:600">Catalyst</p>
+        <p style="margin:0">Governed query review and typed table results</p>
+      </div>
+      <sc-if value="{{ showDataSources }}" hint-placeholder-val="{{ true }}">
+        <label style="display:grid;gap:0.4rem;color:#525252;font-size:0.875rem;min-width:16rem">
+          <span>Data source</span>
+          <select value="{{ dataSourceId }}" onChange="{{ onDataSourceChange }}" style="width:100%;min-height:2.5rem;padding:0.5rem;border:0;border-bottom:1px solid #8d8d8d;background:#f4f4f4;font:inherit;color:#161616">
+            <option value="openelis">OpenELIS laboratory (demo)</option>
+            <option value="openmrs">OpenMRS HIV/ART (demo)</option>
+          </select>
+        </label>
+      </sc-if>
+    </div>
+
+    <section aria-labelledby="dataset-title" style="padding:clamp(1rem,3vw,2rem);border-top:4px solid #8a3ffc;margin-bottom:1rem;background:#fff;box-shadow:0 0.125rem 0.5rem rgb(0 0 0 / 8%)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem">
+        <div style="max-width:45rem">
+          <p style="margin:0 0 0.5rem;color:#0f62fe;font-size:0.75rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase">Know what to ask</p>
+          <h1 id="dataset-title" style="margin:0 0 0.5rem;font-weight:400;letter-spacing:-0.025em;font-size:clamp(2rem,5vw,3.5rem);line-height:1.05">Available OpenELIS laboratory data</h1>
+          <p style="margin:0;color:#525252;line-height:1.5">Explore the laboratory records currently available to Catalyst from OpenELIS through FHIR before forming a question.</p>
+        </div>
+        <span style="flex:none;display:inline-flex;align-items:center;height:1.5rem;padding:0 0.5rem;border-radius:0.75rem;background:#e8daff;color:#6929c4;font-size:0.75rem;white-space:nowrap">OpenELIS → FHIR</span>
+      </div>
+
+      <dl style="display:grid;padding:0;margin:0 0 1.5rem;gap:1px;grid-template-columns:repeat(4,minmax(0,1fr));background:#e0e0e0">
+        <div style="padding:1rem;background:#f4f4f4"><dt style="color:#6f6f6f;font-size:0.75rem">Patients</dt><dd style="margin:0.35rem 0 0;font-size:1.25rem">120</dd></div>
+        <div style="padding:1rem;background:#f4f4f4"><dt style="color:#6f6f6f;font-size:0.75rem">Results</dt><dd style="margin:0.35rem 0 0;font-size:1.25rem">1,486</dd></div>
+        <div style="padding:1rem;background:#f4f4f4"><dt style="color:#6f6f6f;font-size:0.75rem">Test types</dt><dd style="margin:0.35rem 0 0;font-size:1.25rem">9</dd></div>
+        <div style="padding:1rem;background:#f4f4f4"><dt style="color:#6f6f6f;font-size:0.75rem">Date range</dt><dd style="margin:0.35rem 0 0;font-size:1.25rem">Jan 6, 2026 – Jul 15, 2026</dd></div>
+      </dl>
+
+      <section aria-labelledby="dataset-schema-title" style="margin:0 0 1rem">
+        <div style="margin-bottom:1rem">
+          <h2 id="dataset-schema-title" style="margin:0 0 0.35rem;font-weight:500;font-size:clamp(1.5rem,3vw,2rem);letter-spacing:-0.025em">Supported query schema</h2>
+          <p style="margin:0;color:#525252;line-height:1.5">1 relation available. Expand a relation to see its columns.</p>
+        </div>
+        <div style="border-top:1px solid #c6c6c6">
+          <div style="border-bottom:1px solid #e0e0e0">
+            <button onClick="{{ toggleSchema }}" aria-expanded="{{ schemaOpen }}" style="display:flex;align-items:center;width:100%;min-height:2.5rem;padding:0.625rem 0;border:0;background:none;font:inherit;text-align:left;cursor:pointer;gap:1rem" style-hover="background:#e8e8e8">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="#161616" aria-hidden="true" style="flex:none;margin:0 0.5rem;transform:rotate({{ schemaRot }}deg);transition:transform 110ms">
+              <path d="M11 8L6 13 5.3 12.3 9.6 8 5.3 3.7 6 3z"></path>
+            </svg>
+              <span style="display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;padding-right:1rem">
+                <code style="font-family:'IBM Plex Mono',monospace;font-size:0.875rem;overflow-wrap:anywhere">analytics.lab_result_fact_v1</code>
+                <span style="flex:none;color:#6f6f6f;font-size:0.75rem">16 columns</span>
+              </span>
+            </button>
+            <sc-if value="{{ schemaOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:0.5rem 0 1rem 2rem">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem">
+                  <p style="margin:0;color:#525252;font-size:0.875rem;line-height:1.5"><strong>Grain:</strong> Exactly one row per FHIR Observation, with at most one Specimen matched by resource key. Built over the lossless default projections: the per-coding cross product is collapsed per observation and the LOINC coding pivoted into the test_* columns.</p>
+                  <span style="flex:none;display:inline-flex;align-items:center;height:1.5rem;padding:0 0.5rem;border-radius:0.75rem;background:#dde1e6;color:#121619;font-size:0.75rem">postgresql</span>
+                </div>
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+                    <caption style="padding:0.75rem 1rem;color:#525252;text-align:left">Columns in analytics.lab_result_fact_v1</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Column</th>
+                        <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Type</th>
+                        <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Nullable</th>
+                        <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Unit relationship</th>
+                        <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <sc-for list="{{ schemaColumns }}" as="col" hint-placeholder-count="4">
+                        <tr style="background:{{ col.rowBg }}">
+                          <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap"><code style="font-family:'IBM Plex Mono',monospace;overflow-wrap:anywhere">{{ col.name }}</code></td>
+                          <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap">{{ col.type }}</td>
+                          <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap">{{ col.nullable }}</td>
+                          <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap">{{ col.unitRel }}</td>
+                          <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;min-width:16rem;white-space:normal">{{ col.description }}</td>
+                        </tr>
+                      </sc-for>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </section>
+
+      <div style="border-top:1px solid #c6c6c6">
+        <div style="border-bottom:1px solid #e0e0e0">
+          <button onClick="{{ togglePreview }}" aria-expanded="{{ previewOpen }}" style="display:flex;align-items:center;width:100%;min-height:2.5rem;padding:0.625rem 0;border:0;background:none;font:inherit;font-size:0.875rem;text-align:left;cursor:pointer;gap:1rem" style-hover="background:#e8e8e8">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="#161616" aria-hidden="true" style="flex:none;margin:0 0.5rem;transform:rotate({{ previewRot }}deg);transition:transform 110ms">
+              <path d="M11 8L6 13 5.3 12.3 9.6 8 5.3 3.7 6 3z"></path>
+            </svg>
+            Preview available laboratory records
+          </button>
+          <sc-if value="{{ previewOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:0.5rem 0 1rem 2rem">
+              <div style="display:grid;align-items:end;gap:1rem;grid-template-columns:1fr 1fr auto;margin:0.5rem 0 1rem">
+                <label style="display:grid;gap:0.4rem;color:#525252;font-size:0.875rem">
+                  Test type
+                  <select style="width:100%;min-height:2.5rem;padding:0.5rem;border:0;border-bottom:1px solid #8d8d8d;background:#f4f4f4;font:inherit;color:#161616">
+                    <option>All tests</option>
+                    <option>Viral Load</option>
+                    <option>CD4 absolute count</option>
+                    <option>CD4 percent (%)</option>
+                    <option>Hemoglobin</option>
+                    <option>Platelets</option>
+                    <option>White Blood Cells Count (WBC)</option>
+                    <option>Creatinine</option>
+                    <option>GPT/ALAT</option>
+                    <option>Glucose</option>
+                  </select>
+                </label>
+                <label style="display:grid;gap:0.4rem;color:#525252;font-size:0.875rem">
+                  Patient FHIR ID
+                  <input placeholder="Optional exact ID" style="width:100%;min-height:2.5rem;padding:0.5rem;border:0;border-bottom:1px solid #8d8d8d;background:#f4f4f4;font:inherit;color:#161616">
+                </label>
+                <button style="display:inline-flex;align-items:center;height:2rem;padding:0 1rem;border:1px solid transparent;background:#393939;color:#fff;font-size:0.875rem;font-family:inherit;cursor:pointer" style-hover="background:#4c4c4c">Apply filters</button>
+              </div>
+              <div style="overflow-x:auto;border:1px solid #e0e0e0">
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+                  <caption style="padding:0.75rem 1rem;color:#525252;text-align:left">1,486 matching laboratory results; showing 1–8</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Patient</th>
+                      <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Test</th>
+                      <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Value</th>
+                      <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Observed</th>
+                      <th scope="col" style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;text-align:left;white-space:nowrap;background:#e8e8e8">Turnaround</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <sc-for list="{{ previewRows }}" as="row" hint-placeholder-count="4">
+                      <tr style="background:{{ row.rowBg }}">
+                        <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;white-space:nowrap">{{ row.patient }}</td>
+                        <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;white-space:nowrap">{{ row.test }}</td>
+                        <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;white-space:nowrap">{{ row.value }}</td>
+                        <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;white-space:nowrap">{{ row.observed }}</td>
+                        <td style="padding:0.75rem 1rem;border-top:1px solid #e0e0e0;white-space:nowrap">{{ row.turnaround }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:0.25rem;margin-top:0.25rem">
+                <button disabled style="height:2rem;padding:0 1rem;border:0;background:none;color:#c6c6c6;font-size:0.875rem;font-family:inherit">Previous</button>
+                <button style="height:2rem;padding:0 1rem;border:0;background:none;color:#0f62fe;font-size:0.875rem;font-family:inherit;cursor:pointer" style-hover="background:#e8e8e8">Next</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <section id="ask-openelis" aria-labelledby="question-title" style="position:fixed;z-index:90;bottom:0;left:50%;transform:translateX(-50%);overflow-y:auto;width:min(calc(100% - 2rem),76rem);max-height:min(24rem,calc(100dvh - 2rem));padding:1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));border-top:4px solid #0f62fe;background:#fff;box-shadow:0 -0.25rem 1rem rgb(0 0 0 / 18%)">
+    <div style="margin-bottom:0.375rem">
+      <h1 id="question-title" style="margin:0 0 0.5rem;font-weight:600;letter-spacing:-0.025em;font-size:clamp(1rem,1.4vw,1.15rem)">Ask OpenELIS</h1>
+    </div>
+    <form style="max-width:58rem;margin:0">
+      <div style="overflow:hidden;border:1px solid #8d8d8d;background:#f4f4f4">
+        <div style="padding:1.25rem 1.25rem 0;background:#fff">
+          <label for="catalyst-question" style="display:block;margin-bottom:0.5rem;color:#525252;font-size:0.75rem">Question</label>
+          <textarea id="catalyst-question" rows="4" placeholder="Describe the laboratory data you want to explore" value="{{ question }}" onChange="{{ onQuestionChange }}" style="display:block;width:100%;min-height:8.5rem;padding:0.6875rem 1rem 0.6875rem 0;border:0;background:#fff;color:#161616;font-family:inherit;font-size:1rem;line-height:1.5;resize:vertical;outline:none"></textarea>
+        </div>
+        <div style="display:flex;align-items:end;justify-content:space-between;gap:1rem;padding:1rem 1.25rem;border-top:1px solid #c6c6c6">
+          <label style="display:grid;gap:0.4rem;color:#525252;font-size:0.875rem;min-width:0;width:min(32rem,100%)">
+            <span>Model profile</span>
+            <select style="width:100%;min-width:0;max-width:100%;min-height:2.5rem;padding:0.5rem;border:0;border-bottom:1px solid #8d8d8d;background:#f4f4f4;font:inherit;color:#161616">
+              <option>Gemma 4 12B writer (default) — gemma-4-12b-q4</option>
+              <option>Gemma 4 12B + Qwen 2.5 14B review — gemma-4-12b-q4, qwen2.5-14b-instruct</option>
+            </select>
+          </label>
+          <button type="button" disabled="{{ generateDisabled }}" style="display:inline-flex;align-items:center;justify-content:space-between;gap:2rem;width:max-content;max-width:100%;height:3rem;padding:0 1rem;border:1px solid transparent;background:#0f62fe;color:#fff;font-family:inherit;font-size:0.875rem;cursor:pointer" style-hover="background:#0050e6">
+            Generate query
+            <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M18 6l-1.43 1.393L24.15 15H4v2h20.15l-7.58 7.573L18 26l10-10L18 6z"></path></svg>
+          </button>
+        </div>
+      </div>
+    </form>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showDataSources&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Header&quot;}}">
+class Component extends DCLogic {
+  state = { question: "", schemaOpen: false, previewOpen: false, dataSourceId: "openelis" };
+  renderVals() {
+    const zebra = (rows) => rows.map((r, i) => ({ ...r, rowBg: i % 2 === 1 ? "#f4f4f4" : "#fff" }));
+    const cols = [
+      ["observation_id", "string", "FHIR Observation resource identifier and stable row identity for the laboratory result."],
+      ["patient_id", "string", "FHIR Patient resource identifier referenced by the observation."],
+      ["service_request_id", "string", "FHIR ServiceRequest resource identifier referenced by the observation."],
+      ["specimen_id", "string", "FHIR Specimen resource identifier referenced by the observation."],
+      ["result_status", "string", "FHIR Observation status for the laboratory result."],
+      ["observed_at", "timestamp", "FHIR Observation effective date and time used to place the result clinically."],
+      ["issued_at", "timestamp", "FHIR Observation issued instant."],
+      ["test_code_system", "string", "Coding-system URI associated with the observation test code."],
+      ["test_code", "string", "OpenELIS/FHIR test code for the observation."],
+      ["test_name", "string", "OpenELIS test display name. A question naming an analyte must constrain this field rather than assume the view contains only that analyte."],
+      ["result_value", "decimal", "Numeric FHIR Quantity value; do not aggregate across unlike units.", "result_unit"],
+      ["result_unit", "string", "FHIR Quantity display unit."],
+      ["result_unit_system", "string", "Coding-system URI associated with the FHIR Quantity unit."],
+      ["result_unit_code", "string", "Machine-readable FHIR Quantity unit code."],
+      ["specimen_received_at", "timestamp", "FHIR Specimen received date and time when a matching specimen is available."],
+      ["receipt_to_release_minutes", "decimal", "Elapsed minutes from Specimen.receivedTime to Observation.issued."],
+    ];
+    const previewRows = [
+      { patient: "0f3b2a1c-9d2e", test: "Viral Load", value: "1,200 copies/mL", observed: "Jul 12, 2026", turnaround: "1,440 min" },
+      { patient: "7c41e8aa-03bf", test: "Hemoglobin", value: "11.2 g/dL", observed: "Jul 12, 2026", turnaround: "182 min" },
+      { patient: "b9d0f4e7-6a15", test: "CD4 absolute count", value: "412 cells/µL", observed: "Jul 11, 2026", turnaround: "1,102 min" },
+      { patient: "22a6c3d9-e80b", test: "Creatinine", value: "84 µmol/L", observed: "Jul 11, 2026", turnaround: "96 min" },
+      { patient: "5e97ab20-cc41", test: "Glucose", value: "5.4 mmol/L", observed: "Jul 10, 2026", turnaround: "88 min" },
+      { patient: "d3184f6b-72c9", test: "Platelets", value: "231 10*3/µL", observed: "Jul 10, 2026", turnaround: "204 min" },
+      { patient: "914be07d-5fa3", test: "White Blood Cells Count (WBC)", value: "6.8 10*3/µL", observed: "Jul 9, 2026", turnaround: "197 min" },
+      { patient: "a06d92c5-18e4", test: "GPT/ALAT", value: "31 U/L", observed: "Jul 9, 2026", turnaround: "110 min" },
+    ];
+    return {
+      question: this.state.question,
+      onQuestionChange: (e) => this.setState({ question: e.target.value }),
+      generateDisabled: !this.state.question.trim(),
+      schemaOpen: this.state.schemaOpen,
+      previewOpen: this.state.previewOpen,
+      schemaRot: this.state.schemaOpen ? 90 : 0,
+      previewRot: this.state.previewOpen ? 90 : 0,
+      toggleSchema: () => this.setState((s) => ({ schemaOpen: !s.schemaOpen })),
+      togglePreview: () => this.setState((s) => ({ previewOpen: !s.previewOpen })),
+      dataSourceId: this.state.dataSourceId,
+      onDataSourceChange: (e) => this.setState({ dataSourceId: e.target.value }),
+      showDataSources: this.props.showDataSources ?? true,
+      jumpToComposer: () => document.getElementById("catalyst-question")?.focus(),
+      schemaColumns: zebra(cols.map(([name, type, description, unitColumn]) => ({
+        name, type, description,
+        nullable: "Yes",
+        unitRel: unitColumn ? "Unit from " + unitColumn : "—",
+      }))),
+      previewRows: zebra(previewRows),
+    };
+  }
+}
+</script>
+</body>
+</html>
