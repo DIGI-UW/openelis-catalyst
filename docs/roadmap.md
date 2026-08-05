@@ -307,68 +307,82 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Selected next milestone; written-plan checkpoint complete 2026-08-05
+**Status:** Selected next milestone; D1a technical validation passed 2026-08-05;
+explicit user acceptance pending before product code
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local
-outbox for clean bootstrap or explicit running-instance import.
+outbox beneath Catalyst-owned, root-gitignored `/runtime/superset/` for clean
+bootstrap or explicit running-instance import; publication must leave the target
+worktree clean.
 
 **Ask integration boundary:** D1 implements the prototype's Ask shell, fixed
 composer, chronological thread, Dataset tile, and review panel while integrating
 the accepted query notebook inside them. Profile/model selection, the single
 full SQL editor, completion/Format, manual versions, advisory
 Validate, explicit Run, visible generation/findings/database/result evidence,
-contextual follow-up, timeline, staleness, refresh, schema/catalog access, and
-New session remain available through **Save Dataset**. Within that redesign, the
-schema/data context and executed-result preview move into the chronological
-Dataset tile/review panel. No example prompts, second editor, or automatic
-execution are introduced.
+contextual follow-up, timeline, staleness, refresh, and one New session action
+remain available through **Save Dataset**. `Available data` becomes the compact,
+keyboard-accessible entry to every runtime relation/column and existing source-
+browser filter/page/failure/zero-match state. Only a successful Run produces a
+Dataset tile; its panel is the sole full bounded typed-result/warning/empty/
+truncation/provenance surface, so no duplicate inline result table is introduced.
+No example prompts, second editor, or automatic execution are introduced.
 
-### Test-first slices
+### Checkpoints and task slices
 
-1. Written plan and stack
-   - Align the design, specification, data model, contracts, tasks and roadmap.
-   - Pin Superset 6.1.0, persistent metadata and a read-only bundle-outbox mount;
-     prove stack bootstrap and explicit CLI import/update behavior.
-2. Builder contract and deterministic export
-   - Bind Dataset/Widget/Dashboard versions to exact query/execution/source/
-     result evidence and preserve stale/missing state without row duplication.
-   - Prove deterministic visualization suggestion/compatibility, typed named-
-     parameter compilation, a stable logical Dashboard UUID with version-derived
-     child UUIDs, byte-identical native ZIPs, atomic
-     outbox publication and digest-addressed import outcomes.
-3. Supplied iterative UX
-   - Recompose the existing `QueryWorkspace` into the prototype's fixed composer,
-     chronological draft tiles and single slide-over review panel while keeping
-     the complete accepted Ask/query-notebook behavior through Dataset save and
-     exactly one canonical SQL editor.
-   - Add Dataset/Widget/Dashboard libraries, five target visualization families
-     with a compact compatible-type selector and schematic thumbnails only,
-     multi-widget Dashboard drafts and explicit stale states.
-   - `Publish to Superset` writes/downloads the bundle; `Open Superset` opens
-     the renderer; file creation alone remains `Bundle ready`.
-4. Real-path and accessibility acceptance
-   - First rerun the complete accepted initial generation → manual version →
-     Format/Validate/Run → follow-up successor → rerun → refresh/New session E2E
-     path in the new shell, through Dataset preview and save.
-   - Exercise one real Catalyst execution, clean Superset import, changed
-     publication through the stable Dashboard UUID plus new versioned children,
-     and independent PostgreSQL value reconciliation.
-   - Prove failed-import recovery, refresh restoration, keyboard path,
-     responsive layout and actual 200%-zoom boundary.
+D1a was reopened because the earlier four-slice plan did not yet encode the
+pinned importer, bounded-result, single-source/layout, accepted Ask, or live
+deployment contracts precisely enough. The T158+ decomposition preserves the
+older gate IDs, so the order below—not numeric sorting—is normative.
+
+The remediated checkpoint has zero unresolved CRITICAL/HIGH findings. Fresh
+remote comparison proves both branches are zero commits behind their current
+`origin/main`; all eight Dashboard Builder contract mirrors are byte-identical;
+the seven JSON Schemas and positive/negative fixtures validate; and T137, T158,
+and T159 are complete. D1a now waits only for the explicit user decision in T138.
+
+| Checkpoint | Entry | Testable exit evidence | Pause rule |
+| --- | --- | --- | --- |
+| **D1a — grounded contracts** | Both feature branches based on current `main`; accepted query-workbench baseline | T137 → T158 → T159 → T138; reconciled API/bundle/pointer/receipt/per-Dashboard-last-verified/event/acceptance schemas; bounded-result and exact `dataSourceId` + `catalogVersion` rules; stable logical-ID slug; scoped failure/recovery; preimplementation PCCP; byte-identical contract copies; valid JSON Schemas; zero unresolved CRITICAL/HIGH findings | After T138, pause for explicit user acceptance; no product code or D1b work starts before it |
+| **D1b — Superset runtime/import** | User accepts D1a | T139–T144 and T160–T165; Catalyst-owned `/runtime/superset/` gitignore boundary and clean-target guard; pinned Superset 6.1.0/driver; clean fixture import for all five visualization families; standalone Python-3.10 importer/state scripts with no Catalyst-package import, Gateway-CI discovery, `rfc8785` parity, and pinned-container smoke; persistence/read-only access; restart/no-op/lock/credential matrix; scoped failure handling; validated per-Dashboard last-verified projection and full Superset-local metadata DB/home-volume reset/reimport recovery with no asset-selective delete, ORM/REST mutation, or automatic retry | Stop on schema, image/driver, transaction, permission, projection, canonical-JSON, clean-target, or verification drift before builder implementation |
+| **D1c — builder backend/export** | D1b passed | T145–T149 and T166–T173; red-first immutable storage/routes, lossless execution adapter/compiler, visualization, serializer, and publication tests; exact source+catalog locking; deterministic full-width layout; root-wrapped byte-identical ZIP; stable Superset UUID and `catalyst-<lowercase-dashboard-id>` slug; exact child reuse/change behavior; real round trip; zero post-execution model/DB calls | Stop on API, manifest, identity, or source-lineage drift before UI integration |
+| **D1d — integrated product UX** | D1c passed | T150–T154 and T174–T179; accepted Ask characterization remains green; one active SQL editor; Available data and sole full Dataset result panel; Dataset/Widget/Dashboard libraries and publication controls; scoped recovery; desktop/390×844/320-CSS-px/actual-200%-zoom and keyboard matrix | Pause for user UX acceptance before the definitive live run |
+| **D1e — deployed MVP acceptance** | User accepts D1d | T180–T182 → T155–T157; validate structured `query_turn`/`query_version`/`query_execution` plus builder event emission and fixed six-step `orderedWorkflow` before the real writer/reviewer run; initial Run → Save Dataset v1 while current → contextual follow-up → rerun → Save Dataset v2 while successor current; heterogeneous Widgets; imported stable slug URL; PostgreSQL reconciliation; repetition/failure/recovery; schema-valid `run_manifest.json`, `events.jsonl`, and `acceptance.json`; green CI and final user acceptance | D1 remains open until the deployed dashboard and evidence are inspected and accepted |
 
 ### Exit criteria
 
 - A user can promote a successful execution through saved Dataset, Widget and
-  multi-widget Dashboard drafts, publish/download a native bundle, and restore
-  immutable history after refresh without model calls or query re-execution.
+  multi-widget Dashboard drafts whose Widgets share one exact `dataSourceId`
+  plus `catalogVersion` and occupy deterministic full-width rows, publish/
+  download a native bundle, and restore immutable history after refresh without
+  model calls or query re-execution.
 - Identical inputs produce byte-identical ZIPs and every asset traces through
   deterministic logical/version UUIDs to query, execution, source/catalog,
-  typed parameters/schema,
-  result digest and actor kind.
+  typed parameters/schema, a canonical bounded-result digest, and actor kind.
+  Every ZIP is rooted at `catalyst_dashboard_<dashboard UUID>/`; its
+  asset-content digest covers the ordered native YAML members and excludes the
+  manifest and ZIP metadata. The logical Catalyst Dashboard ID deterministically
+  yields the Superset UUID and `catalyst-<lowercase-dashboard-id>` slug.
 - Clean boot imports the selected bundle; one explicit command updates a running
-  Superset instance; only the importer records `Imported` or `Import failed`.
+  Superset instance. Catalyst persists exactly `Draft`, `Bundle ready`,
+  `Imported`, or `Import failed`; only the importer records the last two, and
+  `Importing` remains transient process/log state. Preflight and transactionally
+  rolled-back CLI failures preserve the last verified Dashboard; a failed
+  post-import verification disables Open/current-success. Recovery first
+  validates the per-Dashboard last-verified projection, then fully resets only
+  the Superset-local metadata database/home volumes and reimports that bundle;
+  missing/corrupt projection data stops before reset, and asset-selective delete,
+  direct ORM/REST mutation, automatic rollback, and automatic retry are
+  prohibited. Recovering verified A leaves desired B selected in `current.json`
+  and `import_failed`, with bootstrap/retry suppressed until explicit retry or a
+  new publication.
+- Acceptance emits schema-valid `acceptance.json` plus versioned
+  `run_manifest.json` and `events.jsonl` containing structured `query_turn`,
+  `query_version`, `query_execution`, builder/publication/import/reconciliation/
+  accessibility/recovery/acceptance events, and the fixed six-step
+  `orderedWorkflow`.
 - Superset renders values independently reconciled to PostgreSQL, and changed
   source queries produce explicit stale state without rebinding saved drafts.
 - Superset REST API publication, embedded viewing, cross-system undo/

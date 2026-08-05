@@ -1,14 +1,17 @@
 # Catalyst Dashboard Builder MVP design
 
-**Status:** Authoritative UX input; Superset file/outbox MVP architecture approved
+**Status:** Authoritative, reconciled UX contract; Superset file/outbox MVP architecture approved
 **Imported:** 2026-08-05 from the user-supplied `Dashboard builder MVP design.zip`  
 **Interactive reference:** `docs/prototypes/dashboard-builder-mvp/`
 
-This document preserves the complete supplied design handoff in the Catalyst
-repository and is the UX/product-design source for the Dashboard Builder
-workstream. The approved implementation boundary below supersedes conflicting
-integration details in the original handoff while preserving its information
-architecture, interaction design, and visual specification.
+This document preserves the supplied design handoff in the Catalyst repository
+and is the UX/product-design source for the Dashboard Builder workstream. The
+approved implementation boundary below supersedes conflicting integration
+details in the original handoff while preserving its information architecture,
+interaction design, and visual specification. The reconciled populated Ask
+state in `Catalyst Dashboard Builder 4c.dc.html` is the visual reference. When a
+static mock detail and this written contract disagree, this written contract and
+the current query-workbench behavior win.
 
 ## Approved MVP reconciliation
 
@@ -16,14 +19,50 @@ The prototype's Ask shell, fixed composer, chronological thread, Dataset tile,
 and review panel are the required target experience. Production must integrate
 the accepted query notebook into them and retain profile/model selection and
 evidence, exactly one SQL editor with completion/formatting/wrapping, manual
-versions and unresolved snapshots, advisory Validate, explicit Run, visible raw generation evidence,
-findings, database diagnostics and typed results, contextual follow-up, compact
-history, result staleness, refresh restoration, runtime schema/catalog access,
-and New session through **Save Dataset**. The mock's abbreviated prompt-only
-state is not a license to omit those capabilities. Do not implement its example
-prompts or implied automatic generation/execution. Reorganize the schema/data
-context and executed-result preview into the compact thread, Dataset draft tile,
-and review panel while keeping all existing information and actions accessible.
+versions and unresolved snapshots, advisory Validate, explicit Run, visible raw
+generation/failure evidence, findings, database diagnostics and typed results,
+contextual follow-up, compact history, result staleness, refresh restoration,
+runtime schema/catalog access, and one canonical New session action through
+**Save Dataset**. The Dataset tile exists only after a successful execution for
+the exact query digest; it opens the sole bounded typed-result presentation in
+the Dataset panel. Do not implement example prompts or implied automatic
+generation/execution. Reorganize—not remove—the current catalog browser and
+executed results into the compact thread, Available data disclosure, Dataset
+draft tile, and review panel.
+
+The accepted Ask invariants are testable requirements:
+
+- **ASK-01 — one work surface:** a populated session has one editable SQL
+  control whose accessible name is exactly `SQL query`, one fixed question/
+  follow-up composer, and exactly one New session action. Completion/formatting/
+  wrapping help is descriptive text outside the label.
+- **ASK-02 — behavioral parity:** Format, Validate, explicit Run, typed
+  parameters, raw generation/failure evidence, findings, database diagnostics,
+  version provenance, Clear/Restore, result staleness, refresh restoration, and
+  available profile/model selection remain reachable.
+- **ASK-03 — contextual refinement:** the fixed composer identifies the exact
+  visible Query vN/editor snapshot on which the next complete query is based.
+- **ASK-04 — available-data context:** a compact, keyboard-operable disclosure
+  exposes the active runtime catalog's relations and columns and a path into the
+  full searchable/filterable/paginated source browser, including its empty and
+  failure states.
+- **DATASET-01 — explicit transition:** only a successful Run for the exact
+  editor digest creates or refreshes a Dataset draft tile.
+- **DATASET-02 — one result presentation:** the active card reports execution
+  status/counts but no row table; the Dataset panel owns the full bounded typed
+  table, truncation/empty/value warnings, and paging. When execution is
+  truncated without an exact total, every surface says how many rows are shown,
+  that more are available, and that the total is unknown.
+- **DATASET-03 — lineage:** edits or successor generation keep the prior result
+  visible but mark its tile stale until the new exact digest runs successfully.
+- **DATASET-04 — durable save:** Save dataset is single-shot and idempotent and
+  survives refresh as an immutable version.
+- **THREAD-01 — chronology:** earlier turns collapse to read-only summaries and
+  only the latest turn owns the active workbench.
+- **A11Y-01 — working surface access:** all controls are reachable in logical
+  keyboard order at 200% zoom; focus is visible; Escape closes the review panel
+  and restores its invoker; fixed regions do not cover focused content; reduced
+  motion is respected.
 
 1. Superset 6.1.0 is the dashboard renderer. Catalyst does not build a parallel
    chart runtime. Because the MVP is a one-way file handoff, Catalyst remains the
@@ -81,9 +120,9 @@ The files in this bundle are **design references created in HTML** — prototype
 
 **High-fidelity.** `Catalyst Dashboard Builder 4c.dc.html` carries final colors, typography, spacing, states, and interactions — recreate it faithfully, but express it through Carbon components and tokens rather than copying inline styles. `Dashboard Builder Wireframes.dc.html` is **low-fidelity** and is included only as design rationale (four structural directions considered, and why 4c won).
 
-`Catalyst Query Screen.dc.html` is a recreation of the **existing** app screen,
-included so its full query-workbench behavior can be integrated into the new Ask
-screen and visually regressed against today's baseline.
+`Catalyst Query Screen.dc.html` is a partial visual snapshot of the **existing**
+app screen. The running current product and its automated tests—not that static
+snapshot—are the behavioral baseline to integrate and regress.
 
 ## Product model
 
@@ -147,7 +186,7 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 - Height `2.5rem` min, background `#262626`, text `#f4f4f4`, bottom border `1px solid #8d8d8d`, padding `0.5rem 1.5rem`, gap `0.75rem`, font-size `0.875rem`.
 - Carbon warning-circle icon 20×20, then a pill: height `1.125rem`, radius `0.5625rem`, background `#e5e0df`, color `#171414`, font-size `0.75rem`, text "Demo environment".
 - Body copy: "Demo data only; not for clinical decision-making."
-- Right-aligned session meta, color `#c6c6c6`, font-size `0.75rem`: "Session 7f2a91c4 · 3 turns" (or "New session" when the thread is empty).
+- Right-aligned session meta, color `#c6c6c6`, font-size `0.75rem`: "Session 7f2a91c4 · 3 turns" (or "No active session" when the thread is empty). This is status text, never a second New session action.
 - This is the existing `DemoBanner` component, restyled to a full-width fixed bar.
 
 **Left nav** (fixed, `top: 2.5rem`, `bottom: 0`, `z-index: 100`)
@@ -159,7 +198,7 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 - Counts are live: Datasets and Widgets increment as objects are saved.
 - Footer (expanded only), above a `1px solid #e0e0e0` top border: label "Data source" `0.75rem` `#6f6f6f` and a Carbon Select — "OpenELIS laboratory (demo)" / "OpenMRS HIV/ART (demo)".
 
-**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); inner container `width: min(100% - 3rem, 60rem)`, centered. Padding top `2rem`; bottom `14rem` on Ask (clears the composer) and `4rem` elsewhere.
+**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); inner container `width: min(100% - 3rem, 60rem)`, centered. Padding top `2rem`; bottom `18rem` on Ask (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
 
 **Page header pattern** (all four screens): eyebrow `0.75rem`/600 `#0f62fe`, `letter-spacing: 0.08em`, uppercase; H1 `2rem`/400, `letter-spacing: -0.025em`, `line-height: 1.15`; description `0.875rem` `#525252`, `line-height: 1.5`. Primary action, when present, sits top-right.
 
@@ -183,16 +222,29 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
   the only editable SQL surface and retains the current CodeMirror completion,
   formatting and wrapping controls; typed parameter editor; advisory validation;
   explicit Run; raw generation evidence; findings; database diagnostics; typed
-  result status; provenance/version history; Clear/Restore; and New session. Use
+  result status; provenance/version history; and Clear/Restore. New session
+  remains only in the Ask page header. Use
   the thread's full content width and Carbon tile styling. After a successful Run,
-  the one Dataset tile immediately following this card is the entry point to the
-  typed row preview; do not retain a second inline result table. Earlier turns
+  for the exact visible editor digest, the one Dataset tile immediately following
+  this card is the entry point to the typed rows; do not retain a second inline
+  result table. If the buffer changes, keep the previous tile visible but mark it
+  stale. Earlier turns
   collapse to read-only question/query/version/execution summaries. When a
   successor becomes current, this same card moves with the latest turn rather
   than creating another editor.
+  Its editable control is labelled exactly `SQL query`; completion, formatting,
+  and wrapping help is linked with `aria-describedby` rather than included in
+  the accessible name.
+- **Available data disclosure**: place a compact `Available data` button in the
+  workbench header, labelled with the active catalog summary (for example,
+  "2 schemas · 6 relations"). It expands in place to a search/filterable relation
+  and column summary and links or expands to the existing full source browser.
+  Preserve its runtime-derived relation/column list, source and test filters,
+  pagination, exact identifiers, and loading/empty/failure feedback. It is query
+  context, not a second static dataset overview and not an executed-result table.
 - **Draft tile — dataset** (the key component). A button, `width: 100%`, `max-width: 34rem`, `display: flex; align-items: center; gap: 1rem`, padding `0.75rem 1rem`, background `#fff`, border `1px solid #c6c6c6`, `border-left: 3px solid` state accent. Contents left → right:
   - 20×20 Carbon "data-table" icon, `#525252`
-  - stacked text (`flex: 1`): name `0.875rem`/600; meta line `0.75rem` `#6f6f6f` — "Dataset · 1,486 rows · 4 columns"
+  - stacked text (`flex: 1`): name `0.875rem`/600; meta line `0.75rem` `#6f6f6f` — "Dataset · 250 shown · more available · total unknown · 4 typed columns · Query v3" for a truncated result without an exact total
   - status pill: height `1.5rem`, radius `0.75rem`, `0.75rem` text. Draft = background `#fcf4d6` / color `#684e00`. Saved = background `#defbe6` / color `#0e6027`.
   - "Review" affordance, `#0f62fe`, `0.875rem`
   - Hover: `border-color: #0f62fe`, `background: #f4f4f4`. Left accent: `#0f62fe` while draft, `#24a148` once saved.
@@ -201,9 +253,20 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
 - **Draft tile — widget**: same geometry as the dataset tile; thumbnail is a 52×24 two-series sparkline (`#0f62fe` and `#a56eff`, `stroke-width: 2`). Meta line: "Line chart · split by test_name", becoming "Line chart · on Lab operations" after placement. Left accent `#8a3ffc` while draft, `#24a148` once saved.
 
 **Composer** (fixed, bottom, `left` tracks nav width, `z-index: 90`)
-- Padding `1rem 1.5rem calc(1rem + env(safe-area-inset-bottom))`, `border-top: 4px solid #0f62fe`, background `#fff`, `box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%)`. Inner container matches the content column.
-- Field wrapper: `1px solid #8d8d8d`, background `#f4f4f4`; textarea area is `#fff`, padding `0.75rem 1rem`, `min-height: 3.5rem`, `font-size: 1rem`/1.5, `resize: none`, no visible border. Placeholder: "Ask a question, or say how you want the last result to look".
-- Footer row, `border-top: 1px solid #c6c6c6`, padding `0.625rem 1rem`: model/exec note `0.75rem` `#6f6f6f` ("Gemma 4 12B writer · read-only execution") and a primary Send button (height `2.5rem`, background `#0f62fe`, hover `#0050e6`, arrow-right-16 icon, `gap: 2rem` between label and icon — the Carbon expressive button pattern already used in the app).
+- Padding `0.75rem 1.5rem calc(0.75rem + env(safe-area-inset-bottom))`, `border-top: 4px solid #0f62fe`, background `#fff`, `box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%)`. Inner container matches the content column.
+- In a populated session, the visible label is `Refine Query vN` and helper text
+  says `Based on Query vN` plus the version author/model and whether the exact
+  editor buffer is saved or unresolved. In an empty session, use `Ask OpenELIS`.
+- Field wrapper: `1px solid #8d8d8d`, background `#f4f4f4`; textarea area is `#fff`, padding `0.75rem 1rem`, `min-height: 3.5rem`, `font-size: 1rem`/1.5, `resize: none`, no visible border. Placeholder: "Ask a question, or say how you want the current query changed".
+- Footer row, `border-top: 1px solid #c6c6c6`, padding `0.625rem 1rem`, contains
+  the available-profile selector (profile name plus writer and reviewer model
+  families), read-only execution note, and a primary `Generate next query`
+  button. Do not render unavailable profiles. The empty-state action is
+  `Generate query`.
+- Use a persistent programmatic label, `aria-describedby` for base/version and
+  shortcut help, and a documented `Cmd/Ctrl+Enter` action. Empty input disables
+  generation. Tab order is textarea → profile → action; focus and error status
+  remain visible above the fixed region, and the region reflows at 200% zoom.
 - Composer is present on Ask only.
 
 ### 2. Ask — first run / empty thread
@@ -262,14 +325,25 @@ One panel component, two modes. Opened by any draft tile or library row; this is
 
 **Dataset mode body**
 1. Name text input (label `0.75rem` `#525252`; Carbon underline field: `background: #f4f4f4`, `border-bottom: 1px solid #8d8d8d`, `min-height: 2.5rem`).
-2. Metadata grid, 2 columns, `gap: 1px` on a `#e0e0e0` background so hairlines show; each cell padding `0.75rem 1rem`, background `#f4f4f4`; `dt` `0.75rem` `#6f6f6f`, `dd` `1rem`. Rows: 1,486 · 4 · OpenELIS · `:since_date`.
-3. Three-row result preview table, `0.75rem`, `1px solid #e0e0e0`, same header/zebra treatment as the libraries.
-4. Collapsed accordion "SQL and provenance" (Carbon accordion; chevron rotates 90°, `transition: transform 110ms`). Expanded: `<pre>` IBM Plex Mono `0.75rem`/1.6 on `#f4f4f4`, padding `1rem`; then provenance line `0.75rem` `#6f6f6f`: "Profile catalyst-query-gemma-4-12b-q4 · lint passed · trace cat-7f2a91c4 · catalog analytics-catalog-v1".
+2. Metadata grid, 2 columns, `gap: 1px` on a `#e0e0e0` background so hairlines show; each cell padding `0.75rem 1rem`, background `#f4f4f4`; `dt` `0.75rem` `#6f6f6f`, `dd` `1rem`. Include bounded rows (`250 shown · total unknown` when truncated without an exact total), columns, exact `Query vN`, source, typed parameters, and truncation state.
+3. Always-visible `Query vN evidence` block with the exact-digest validation
+   findings, database diagnostic (including an explicit `None` after a
+   successful run), and profile/model/trace/catalog provenance. Required
+   evidence must not be discoverable only by opening an accordion.
+4. Full bounded typed-result table, `0.75rem`, `1px solid #e0e0e0`, with the
+   same header/zebra treatment as the libraries. Show each column's declared
+   type, `showing X–Y of N` for the bounded payload, paging controls,
+   null/empty-cell rendering, empty-result feedback, value warnings, and the
+   execution-limit/truncation notice. When truncated and no exact total was
+   returned, use `N shown; more available; total unknown`; never infer a total
+   from the query or preview. This panel is the only row-table rendering for the
+   active result; it is not a three-row teaser.
+5. Collapsed accordion `Query vN SQL snapshot` (Carbon accordion; chevron rotates 90°, `transition: transform 110ms`). Expanded: `<pre>` IBM Plex Mono `0.75rem`/1.6 on `#f4f4f4`, padding `1rem`. The always-visible evidence block above remains authoritative for findings, diagnostics, and provenance.
    - **Governance decision:** this is a read-only snapshot of the exact executed
      Query vN and provenance. Editing remains in the latest turn's single
      canonical SQL editor. Saving the Dataset is explicit; later query changes
      mark the draft stale rather than mutating or silently rebinding it.
-5. Footer: "Save dataset" → "Saved to library" (disabled) once saved.
+6. Footer: "Save dataset" → "Saved to library" (disabled) once saved.
 
 **Widget mode body**
 1. Schematic preview, padding `1rem`, `1px solid #e0e0e0`: preserve the mock's
@@ -297,7 +371,10 @@ Use Carbon `ToastNotification` if it can be positioned this way; otherwise match
 
 **Navigation**
 - Nav item click sets the active screen and closes any open panel. Collapse toggle animates nav `width`, and content `margin-left`, composer `left`, and scrim `left` all track it (140ms).
-- "New from question" (Datasets) → Ask. "New session" (Ask) → empty thread, cleared composer.
+- "New from question" (Datasets) → Ask. The single page-header "New session"
+  action clears the active thread and composer after the existing confirmation
+  semantics. Neither the banner, workbench, nor composer provides another New
+  session action.
 
 **Draft tile → panel**
 - Click anywhere on a tile opens the panel in the matching mode. Panel closes on: close button, "Close", or scrim click. Add `Escape` to close and return focus to the invoking tile (a11y requirement not visible in the prototype).
@@ -310,9 +387,9 @@ Use Carbon `ToastNotification` if it can be positioned this way; otherwise match
 
 **Not in the MVP** (all considered and cut, in this order of likely reintroduction): arbitrary column-mapping panel, model-generated/"why this suggestion" reasoning, full Catalyst chart rendering, size/slot picker, parameter → native-filter mapping, config diff before write, embedded Superset viewing, dashboard rename/delete/share from Catalyst.
 
-**Loading / error states to add during implementation** (the prototype does not draw them):
+**Loading / error states** (the reconciled prototype draws representative generation evidence; production implements every state):
 - Question/follow-up in flight: skeleton latest-turn workbench state; composer
-  Send disabled with an inline spinner. No Dataset tile exists before a
+  generation action disabled with an inline spinner. No Dataset tile exists before a
   successful explicit Run.
 - SQL generation failure: inline notification in the thread with the failure reason, raw candidate evidence when available, and a retry action; keep the prior query current and editable.
 - Query execution error: the active workbench retains the editable SQL and shows
@@ -338,6 +415,8 @@ Session-scoped state (prototype names in parentheses):
 | `thread` | boolean (prototype) / message array (production) | empty vs. populated Ask screen |
 | `currentVersion` + `editorSnapshot` | immutable version reference + exact mutable SQL/typed-parameter buffer | drives the latest turn's single active workbench card; dirty/unresolved state is never duplicated in a Dataset draft |
 | `validation` + `execution` | exact-digest findings and latest execution summary/typed result reference | drives advisory state, explicit Run, result staleness, and eligibility for a Dataset tile |
+| `catalogOpen` + runtime catalog projection | boolean + server response | compact Available data disclosure backed by the same runtime relations/columns, filters, paging, and status as the full source browser |
+| `evidenceOpen` | boolean | exposes raw candidate/failure evidence, findings, and database diagnostics without creating a second editor |
 | `panel` | null \| "dataset" \| "widget" | which slide-over mode is open |
 | `sqlOpen` | boolean | SQL/provenance accordion |
 | `dsSaved`, `wSaved` | boolean (prototype) / immutable Catalyst version ids (implementation) | Draft vs. Saved for the current drafts |
@@ -422,8 +501,8 @@ In this bundle:
 
 | File | What it is |
 | --- | --- |
-| `Catalyst Dashboard Builder 4c.dc.html` | **The design to implement.** Hi-fi, interactive: all four screens, both Ask states, both panel modes, save flows, toast. Open it and click through before starting. |
-| `Catalyst Query Screen.dc.html` | Recreation of today's Catalyst query screen — the visual baseline the new work must sit alongside. |
+| `Catalyst Dashboard Builder 4c.dc.html` | **Reconciled visual reference.** Hi-fi, interactive: all four screens, both Ask states, integrated populated query workbench, both panel modes, save flows, toast. Written invariants above remain normative. |
+| `Catalyst Query Screen.dc.html` | Partial recreation of today's Catalyst query screen. Use the running current product and its tests—not this static page—as the behavioral baseline for Format/Validate/Run, evidence, typed results, versions, and restoration. |
 | `Dashboard Builder Wireframes.dc.html` | Lo-fi rationale: four structural directions (1a–1d), the merged direction (2a–2c), the minimal conversational variants (3a–3b), and the panel variants (4a–4c). 4c is the one that was built. |
 | `github.md` | Repo association and screen map. |
 
