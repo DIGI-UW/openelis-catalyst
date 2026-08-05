@@ -212,56 +212,6 @@ services:
       retries: 30
       start_period: 30s
 
-  model-router:
-    image: ghcr.io/ggml-org/llama.cpp@sha256:6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8077"
-      - --model
-      - "/models/${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}"
-      - --alias
-      - "${MVP_BUNDLED_MODEL_ID:-qwen2.5-coder-1.5b-instruct-q4_k_m}"
-      - --ctx-size
-      - "${MVP_MODEL_CONTEXT:-8192}"
-      - --parallel
-      - "1"
-      - --jinja
-    volumes:
-      - ./.models:/models:ro
-    expose:
-      - "8077"
-    networks:
-      - openelis-network
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-fsS",
-          "http://localhost:8077/v1/models",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 30s
-
-  model-router-fake:
-    image: python:3.11.13-alpine3.22@sha256:801053a2c35d91edc335c4c478f682de905611fed131007715538c7552d943db
-    profiles:
-      - fake
-    command: ["python", "/opt/catalyst/fake-model-router.py"]
-    environment:
-      MODEL_ROUTER_PORT: "8077"
-      MODEL_ROUTER_MODEL_IDS: "${MVP_FAKE_MODEL_IDS:-gemma-e4b,gemma-4-12b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m}"
-    volumes:
-      - ./scripts/fake-model-router.py:/opt/catalyst/fake-model-router.py:ro
-    expose:
-      - "8077"
-    networks:
-      - openelis-network
-
   med-agent-hub:
     build:
       context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
@@ -270,8 +220,8 @@ services:
     ports:
       - "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080"
     environment:
-      LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"
-      LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"
+      LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:1234}"
+      LLM_PROVIDER: "${HUB_LLM_PROVIDER:-openai-compatible}"
       LLM_API_KEY: "${HUB_LLM_API_KEY:-}"
       LLM_TEMPERATURE: "0"
       TEAM_TRACE_DIR: /tmp/catalyst-trace
@@ -304,7 +254,7 @@ services:
     environment:
       CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
-      CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID:-catalyst-query-gemma-4-12b-q4}"
+      CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID:-catalyst-query-e4b-qwen14b}"
       CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"

@@ -12,20 +12,8 @@ cd "${ROOT_DIR}"
 
 model_backend_override="${MVP_MODEL_BACKEND:-}"
 external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
-local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
-fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
-external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
-external_role_models_override="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
-bundled_model_override="${MVP_BUNDLED_MODEL_ID:-}"
-bundled_profile_override="${MVP_BUNDLED_PROFILE_ID:-}"
-bundled_role_models_override="${MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON:-}"
-fake_model_override="${MVP_FAKE_MODEL_ID:-}"
-fake_profile_override="${MVP_FAKE_PROFILE_ID:-}"
-fake_role_models_override="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
-expected_model_override="${MVP_EXPECTED_MODEL_ID:-}"
 profile_override="${MVP_PROFILE_ID:-}"
-expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
 hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
@@ -51,10 +39,6 @@ set -a
 . "${ENV_FILE}"
 set +a
 
-# The generic role map is an explicit invocation override. Persistent defaults
-# are backend-specific so an external split profile cannot leak into local mode.
-unset MVP_EXPECTED_ROLE_MODELS_JSON
-
 # Explicit invocation settings take precedence over values copied into .env.
 if [ -n "${model_backend_override}" ]; then
   export MVP_MODEL_BACKEND="${model_backend_override}"
@@ -62,47 +46,11 @@ fi
 if [ -n "${external_router_url_override}" ]; then
   export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
 fi
-if [ -n "${local_router_url_override}" ]; then
-  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
-fi
-if [ -n "${fake_router_url_override}" ]; then
-  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
-fi
-if [ -n "${external_model_override}" ]; then
-  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
-fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
-if [ -n "${external_role_models_override}" ]; then
-  export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON="${external_role_models_override}"
-fi
-if [ -n "${bundled_model_override}" ]; then
-  export MVP_BUNDLED_MODEL_ID="${bundled_model_override}"
-fi
-if [ -n "${bundled_profile_override}" ]; then
-  export MVP_BUNDLED_PROFILE_ID="${bundled_profile_override}"
-fi
-if [ -n "${bundled_role_models_override}" ]; then
-  export MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON="${bundled_role_models_override}"
-fi
-if [ -n "${fake_model_override}" ]; then
-  export MVP_FAKE_MODEL_ID="${fake_model_override}"
-fi
-if [ -n "${fake_profile_override}" ]; then
-  export MVP_FAKE_PROFILE_ID="${fake_profile_override}"
-fi
-if [ -n "${fake_role_models_override}" ]; then
-  export MVP_FAKE_EXPECTED_ROLE_MODELS_JSON="${fake_role_models_override}"
-fi
-if [ -n "${expected_model_override}" ]; then
-  export MVP_EXPECTED_MODEL_ID="${expected_model_override}"
-fi
 if [ -n "${profile_override}" ]; then
   export MVP_PROFILE_ID="${profile_override}"
-fi
-if [ -n "${expected_role_models_override}" ]; then
-  export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
 fi
 if [ -n "${hub_context_override}" ]; then
   export MED_AGENT_HUB_CONTEXT="${hub_context_override}"
@@ -142,7 +90,7 @@ fi
 mvp_resolve_model_config
 model_backend="${MVP_RESOLVED_MODEL_BACKEND}"
 router_url="${MVP_RESOLVED_ROUTER_URL}"
-model_id="${MVP_RESOLVED_MODEL_ID}"
+profile_id="${MVP_RESOLVED_PROFILE_ID}"
 
 compose=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
 compose_override_file="${MVP_COMPOSE_OVERRIDE_FILE:-}"
@@ -173,32 +121,7 @@ if [[ ! "${hub_build_revision}" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 export HUB_BUILD_REVISION="${hub_build_revision}"
 
-compose_all_profiles=("${compose[@]}" --profile fake)
-model_services=()
-stale_model_services=()
-
-case "${model_backend}" in
-  fake)
-    compose+=(--profile fake)
-    model_services+=(model-router-fake)
-    stale_model_services+=(model-router)
-    echo "Using deterministic fake model backend"
-    ;;
-  local)
-    "${ROOT_DIR}/scripts/mvp-download-model.sh"
-    model_services+=(model-router)
-    stale_model_services+=(model-router-fake)
-    echo "Using bundled ${model_id} llama.cpp backend"
-    ;;
-  external)
-    stale_model_services+=(model-router model-router-fake)
-    echo "Using external ${model_id} backend at ${router_url}"
-    ;;
-  *)
-    echo "ERROR: MVP_MODEL_BACKEND must be local, external, or fake." >&2
-    exit 2
-    ;;
-esac
+echo "Using external Hub router at ${router_url} with query profile ${profile_id}"
 
 export MVP_SELECTED_ROUTER_URL="${router_url}"
 mkdir -p \
@@ -206,8 +129,6 @@ mkdir -p \
   "${ROOT_DIR}/runtime/superset/receipts/attempts" \
   "${ROOT_DIR}/runtime/superset/receipts/latest" \
   "${ROOT_DIR}/runtime/superset/receipts/last-verified"
-"${compose_all_profiles[@]}" stop "${stale_model_services[@]}"
-
 "${compose[@]}" up -d --build \
   certs \
   db.openelis.org \
@@ -218,12 +139,43 @@ mkdir -p \
   superset-init \
   superset \
   fhir-data-pipes \
-  "${model_services[@]}" \
   med-agent-hub \
   catalyst-gateway \
   catalyst-ui
 
-echo "MVP services started."
+for attempt in $(seq 1 "${MVP_PROFILE_PREFLIGHT_ATTEMPTS:-30}"); do
+  if MED_AGENT_HUB_PORT="${MED_AGENT_HUB_PORT:-8082}" \
+    PROFILE_ID="${profile_id}" python3 - <<'PY'
+import json
+import os
+import urllib.request
+
+url = f"http://localhost:{os.environ['MED_AGENT_HUB_PORT']}/v1/hub/query-profiles"
+with urllib.request.urlopen(url, timeout=5) as response:
+    profiles = json.load(response).get("data", [])
+profile_id = os.environ["PROFILE_ID"]
+profile = next((item for item in profiles if item.get("id") == profile_id), None)
+if profile is None:
+    raise SystemExit(f"configured Hub query profile is not defined: {profile_id}")
+if profile.get("available") is not True:
+    raise SystemExit(
+        f"configured Hub query profile is unavailable: {profile_id}; "
+        f"{profile.get('unavailable_reasons', [])}"
+    )
+PY
+  then
+    echo "OK: real Hub query profile ${profile_id}"
+    break
+  fi
+  if [ "${attempt}" = "${MVP_PROFILE_PREFLIGHT_ATTEMPTS:-30}" ]; then
+    echo "ERROR: real Hub query profile ${profile_id} did not become available." >&2
+    exit 1
+  fi
+  echo "Waiting for real Hub query profile (${attempt}/${MVP_PROFILE_PREFLIGHT_ATTEMPTS:-30})..."
+  sleep 2
+done
+
+echo "MVP services started with a real externally routed Hub profile."
 echo "Seed and validate: MVP_MODEL_BACKEND=${model_backend} ./scripts/mvp-seed.sh"
 echo "Catalyst UI: http://localhost:${CATALYST_UI_PORT:-3000}"
 echo "Superset: http://localhost:${SUPERSET_PORT:-8088}"

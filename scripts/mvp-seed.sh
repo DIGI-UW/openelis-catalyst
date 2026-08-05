@@ -11,20 +11,8 @@ CURL_CONNECT_TIMEOUT_SECONDS="${MVP_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${MVP_CURL_MAX_TIME_SECONDS:-15}"
 model_backend_override="${MVP_MODEL_BACKEND:-}"
 external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
-local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
-fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
-external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
-external_role_models_override="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
-bundled_model_override="${MVP_BUNDLED_MODEL_ID:-}"
-bundled_profile_override="${MVP_BUNDLED_PROFILE_ID:-}"
-bundled_role_models_override="${MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON:-}"
-fake_model_override="${MVP_FAKE_MODEL_ID:-}"
-fake_profile_override="${MVP_FAKE_PROFILE_ID:-}"
-fake_role_models_override="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
-expected_model_override="${MVP_EXPECTED_MODEL_ID:-}"
 profile_override="${MVP_PROFILE_ID:-}"
-expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
 hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
@@ -42,54 +30,17 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
-unset MVP_EXPECTED_ROLE_MODELS_JSON
 if [ -n "${model_backend_override}" ]; then
   export MVP_MODEL_BACKEND="${model_backend_override}"
 fi
 if [ -n "${external_router_url_override}" ]; then
   export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
 fi
-if [ -n "${local_router_url_override}" ]; then
-  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
-fi
-if [ -n "${fake_router_url_override}" ]; then
-  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
-fi
-if [ -n "${external_model_override}" ]; then
-  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
-fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
-if [ -n "${external_role_models_override}" ]; then
-  export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON="${external_role_models_override}"
-fi
-if [ -n "${bundled_model_override}" ]; then
-  export MVP_BUNDLED_MODEL_ID="${bundled_model_override}"
-fi
-if [ -n "${bundled_profile_override}" ]; then
-  export MVP_BUNDLED_PROFILE_ID="${bundled_profile_override}"
-fi
-if [ -n "${bundled_role_models_override}" ]; then
-  export MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON="${bundled_role_models_override}"
-fi
-if [ -n "${fake_model_override}" ]; then
-  export MVP_FAKE_MODEL_ID="${fake_model_override}"
-fi
-if [ -n "${fake_profile_override}" ]; then
-  export MVP_FAKE_PROFILE_ID="${fake_profile_override}"
-fi
-if [ -n "${fake_role_models_override}" ]; then
-  export MVP_FAKE_EXPECTED_ROLE_MODELS_JSON="${fake_role_models_override}"
-fi
-if [ -n "${expected_model_override}" ]; then
-  export MVP_EXPECTED_MODEL_ID="${expected_model_override}"
-fi
 if [ -n "${profile_override}" ]; then
   export MVP_PROFILE_ID="${profile_override}"
-fi
-if [ -n "${expected_role_models_override}" ]; then
-  export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
 fi
 if [ -n "${hub_context_override}" ]; then
   export MED_AGENT_HUB_CONTEXT="${hub_context_override}"

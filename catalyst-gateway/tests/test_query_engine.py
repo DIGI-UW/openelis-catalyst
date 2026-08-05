@@ -105,7 +105,6 @@ def _writer_only_profile() -> EngineProfile:
         label="Writer only",
         models={"query_generate": "gemma-4-12b-q4"},
         knobs={"query_generate": {"temperature": 0, "dry": 0}},
-        prompts={"query_generate": "catalyst-query-generate"},
         policies={"generation_attempts": 3},
     )
 
@@ -119,10 +118,6 @@ def _reviewed_profile() -> EngineProfile:
             "query_generate": {"temperature": 0, "dry": 0},
             "query_review": {"temperature": 0, "dry": 0},
         },
-        prompts={
-            "query_generate": "catalyst-query-generate",
-            "query_review": "catalyst-query-review",
-        },
         policies={"generation_attempts": 3},
     )
 
@@ -135,10 +130,6 @@ def _collaborative_profile() -> EngineProfile:
         knobs={
             "query_generate": {"temperature": 0, "dry": 0},
             "query_review": {"temperature": 0, "dry": 0},
-        },
-        prompts={
-            "query_generate": "catalyst-query-generate",
-            "query_review": "catalyst-query-review",
         },
         policies={
             "generation_attempts": 3,
@@ -154,7 +145,7 @@ def _collaborative_profile() -> EngineProfile:
 def _queued_backend(responses: list, captured_messages: list | None = None):
     queue = [r if isinstance(r, str) else json.dumps(r) for r in responses]
 
-    async def fake_backend(client, model, messages, **kwargs) -> str:
+    async def fake_backend(client, profile_id, role, model, messages, **kwargs) -> str:
         if captured_messages is not None:
             captured_messages.append(copy.deepcopy(messages))
         return queue.pop(0)

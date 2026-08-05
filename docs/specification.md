@@ -1,8 +1,7 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook MVP accepted; Dashboard Builder D1a passed
-and user-accepted; local table-dashboard vertical slice implemented; full D1
-acceptance open
+**Status:** Iterative query notebook foundation accepted; Superset import spike
+implemented; full Dashboard Builder D1 MVP and user acceptance remain open
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -20,12 +19,14 @@ reimplement a dashboard runtime. Evidence-linked narrative reporting remains a
 separate, optional pathway.
 
 For governed query generation, Catalyst is an **orchestrating client of
-med-agent-hub**. Gateway owns the selectable query profiles, role-to-model
-mapping, prompts, structured-output formats, deterministic lint/correction,
-optional review, and evidence assembly. med-agent-hub provides the shared
-provider/router boundary and executes one model role at a time through
-`POST /v1/hub/generate`. Planned narrative reports may use Hub-owned product
-profiles, but that future flow is separate from the implemented query engine.
+med-agent-hub**. Hub owns the shared profile entry, role-to-model mapping,
+prompts, and role knobs. Gateway owns context assembly, structured-output
+formats, writer/reviewer orchestration, deterministic lint/correction,
+execution, lineage, and evidence assembly. Gateway invokes one configured Hub
+role at a time through
+`POST /v1/hub/query-profiles/{profile}/roles/{role}/generate`. Planned
+narrative reports may use Hub-hosted clinical profiles, but that workflow
+adapter remains separate from the Catalyst query engine.
 
 The accepted product foundation is:
 
@@ -116,7 +117,7 @@ OpenELIS FHIR
   → per-resource analytics tables
   → PostgreSQL projections and semantic marts readable by the Catalyst role
   → Catalyst runtime catalog/context adapter and governed-query engine
-      → med-agent-hub generic role generation → local model router
+      → med-agent-hub configured query-role generation → local model router
       → Catalyst deterministic lint → optional review → deterministic re-lint
   → append-only query notebook and local read-only demo execution
   → typed table
@@ -226,11 +227,12 @@ false conflict on first use.
 1. The demo UI creates a session from the user's question.
 2. Catalyst resolves the runtime analytics catalog, schema version, SQL
    dialect, and data-freshness metadata.
-3. Catalyst selects a Gateway-owned profile and assembles the exact
-   question/catalog/policy context plus the profile's prompt, model,
-   structured-output format, and sampling knobs.
-4. Gateway invokes med-agent-hub's generic `POST /v1/hub/generate` once per
-   model role. It parses the writer's complete candidate, runs deterministic
+3. Catalyst selects an available Hub-owned query profile and assembles the exact
+   question/catalog/policy context plus the role-specific structured-output
+   format.
+4. Gateway invokes med-agent-hub's configured role endpoint once per model
+   role. Hub supplies that role's model, system prompt, and sampling knobs.
+   Gateway parses the writer's complete candidate, runs deterministic
    contract/SQL/semantic lint and bounded correction, optionally asks the
    configured reviewer to approve or return a complete correction, then
    deterministically re-lints any correction and finalizes
@@ -255,8 +257,8 @@ false conflict on first use.
     hiding them.
 11. A follow-up uses the exact active SQL/parameters, current instruction,
     bounded instruction history and only exact-digest validation/execution
-    summaries. The writer returns a complete successor; when the selected
-    Gateway profile includes a reviewer, it may approve or return one complete
+    summaries. The writer returns a complete successor; when the selected Hub
+    query profile includes a reviewer, it may approve or return one complete
     correction, which Gateway re-lints.
 
 The hub never receives database credentials and never executes the query.
@@ -367,18 +369,15 @@ The demo configuration must point med-agent-hub at the local model router.
 
 ## Query profiles and Hub execution
 
-Gateway defines the implemented governed-query profiles in
-`catalyst-gateway/src/catalyst/query_profiles.py`:
+Hub defines the implemented governed-query profile in the shared
+`server/levels.yaml` profile catalog:
 
 | Profile | Roles | Purpose |
 | --- | --- | --- |
-| `catalyst-query-gemma-4-12b-q4` | Gemma 4 12B Q4 writer | **Product default.** CPU-oriented writer-only demo lane |
-| `catalyst-query-gemma-4-12b-q4-checked` | Gemma 4 12B Q4 writer and same-model reviewer | Optional CPU-oriented self-check |
-| `catalyst-query-gemma-4-12b` | Gemma 4 12B writer | Full-weight writer-only lane |
-| `catalyst-query-gemma-4-12b-qwen2.5-14b-checked` | Gemma 4 12B writer and Qwen 2.5 14B reviewer | Recommended GPU cross-family review lane |
-| `catalyst-query-qwen-coder-1.5b` | Qwen 2.5 Coder 1.5B Q4 writer | Bundled writer-only fallback lane |
+| `catalyst-query-e4b-qwen14b` | `google/gemma-4-e4b` writer and `qwen2.5-14b-instruct-mlx` reviewer | External cross-family manual-testing lane |
 
-`GET /v1/catalyst/query-options` exposes this Gateway-owned registry to the UI,
+`GET /v1/hub/query-profiles` exposes Hub configuration plus live router
+availability. `GET /v1/catalyst/query-options` relays only available entries to the UI,
 including profile labels, writer/reviewer model IDs, stages, and exact
 credential-free profile evidence. Per-turn profile switching is allowed and
 fully recorded. Every listed profile can generate a contextual revision; that
@@ -400,11 +399,13 @@ configuration are retained in workbench evidence. These settings prevent a
 prose-oriented repetition penalty from corrupting repeated SQL identifiers,
 but they are not treated as reproducibility proof.
 
-The pinned Hub is intentionally domain-agnostic for this flow. Gateway sends
-one model, message list, optional JSON `response_format`, temperature, DRY
-multiplier, and token cap to `POST /v1/hub/generate`; Hub returns the selected
-model ID and assistant content. Hub owns provider/auth/timeout transport and
-the model-router connection, not Catalyst query semantics or profile policy.
+The pinned Hub core remains domain-agnostic while its shared profile catalog
+supports workflow-specific adapters. Gateway sends a profile ID, role,
+non-system message list, and optional JSON `response_format`; Hub resolves the
+configured model, prompt, temperature, DRY multiplier, and token cap and returns
+the actual model ID plus assistant content. Hub owns profile configuration,
+provider/auth/timeout transport, and the model-router connection; Catalyst owns
+query semantics, SQL policy, orchestration, execution, and lineage.
 
 Planned narrative reports remain separate: `single-e4b-checked` and
 `team-med-checked` are Hub product profiles whose Catalyst integration is
@@ -422,14 +423,14 @@ correlation IDs, current version/digest, exact editor SQL/parameters/digest,
 bounded instruction history and matching validation/execution summaries. They
 exclude result rows, credentials, raw traces, historical SQL copies and
 unrelated sessions. Gateway selects the role-specific model-backend
-`response_format` and passes it through Hub's generic executor.
+`response_format` and passes it through Hub's configured-role endpoint.
 
 The normative finalized-query schema is
 [`contracts/catalyst-query-v1.schema.json`](contracts/catalyst-query-v1.schema.json).
 The earlier remote-profile completion envelope remains documented by
 [`contracts/catalyst-query-completion-v1.schema.json`](contracts/catalyst-query-completion-v1.schema.json).
 The implemented in-process Gateway engine does not use that outer envelope:
-each generic Hub role call returns assistant content, which Gateway parses
+each configured Hub role call returns assistant content, which Gateway parses
 against the role's structured-output schema before it finalizes
 `catalyst.query.v1`. Catalyst never extracts executable query instructions from
 surrounding prose.
@@ -453,7 +454,7 @@ The implemented `catalyst.query.v1` response contains:
 The contract contains no database credentials and no query results.
 
 Catalyst requires response `question` to equal the submitted current
-instruction exactly and binds model provenance to the selected Gateway profile.
+instruction exactly and binds model provenance to the selected Hub profile.
 It also requires returned `dataSource`, `catalogVersion`, and `dialect` to equal
 the request target, and every `approvedViews` entry to belong to the requested
 catalog. Normalized intent belongs in trace metadata, not this execution
@@ -617,7 +618,7 @@ claimed by the demo MVP.
 ## Functional requirements
 
 - **CAT-FR-001:** Accept natural-language laboratory reporting questions.
-- **CAT-FR-002:** Expose Gateway-owned query profiles and record the selected
+- **CAT-FR-002:** Expose available Hub-owned query profiles and record the selected
   profile/model/prompt/configuration evidence for every turn.
 - **CAT-FR-003:** Supply the versioned runtime catalog visible to the read-only
   database role to the query profile, editor completion and validator.
@@ -724,8 +725,8 @@ claimed by the demo MVP.
 
 MVP requires an end-to-end deployment that demonstrates:
 
-1. Gateway profile discovery, including writer/reviewer model identities, plus
-   Hub generic-executor readiness.
+1. Hub query-profile discovery, including writer/reviewer model identities,
+   prompts, and knobs, plus configured-role readiness.
 2. At least one natural-language question producing a valid structured query
    against an approved semantic-layer view over Data Pipes projections.
 3. Query review and governed read-only execution.
@@ -843,11 +844,11 @@ and delivery order.
 
 | OGC-70 capability | Local direction |
 | --- | --- |
-| Natural language to SQL | Retained; generated by the Gateway-owned query engine through Hub's generic role executor |
+| Natural language to SQL | Retained; orchestrated by the Gateway-owned query engine through Hub-configured query roles |
 | SQL review and table results | Retained as the first product MVP |
 | Schema RAG/MCP | Reframed as one runtime-discovered role-readable PostgreSQL catalog shared by model grounding, completion and validation |
 | Gemini and LM Studio clients in Catalyst | Reassigned to med-agent-hub and its model router |
-| RouterAgent → SchemaAgent → SQLGenAgent | Superseded by Gateway profile orchestration over the runtime catalog |
+| RouterAgent → SchemaAgent → SQLGenAgent | Superseded by Gateway query orchestration over Hub-configured roles and the runtime catalog |
 | MCP SQL validation | Retained as a deterministic boundary, independent of model review |
 | OpenELIS Java RBAC/execution | Deferred to production hardening; demo execution remains local and read-only |
 | Carbon UI integration | Retained as a future host integration; not required for the first sidecar MVP |

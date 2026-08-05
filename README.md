@@ -1,10 +1,10 @@
 # Catalyst
 
 Catalyst is the OpenELIS reporting integration service. For governed query
-generation, Catalyst owns the profile registry, prompts, role-to-model mapping,
-writer/reviewer workflow, deterministic validation, execution, and table
-output. It uses med-agent-hub as the shared local model-provider boundary
-through a generic, single-role generation API.
+generation, med-agent-hub owns the shared profile registry, prompts,
+role-to-model mapping, and model knobs. Catalyst owns catalog/context assembly,
+writer/reviewer orchestration, deterministic validation, execution, query
+lineage, and table output, and invokes each configured Hub role by profile ID.
 
 The current target is a local demo using demo data and local LLMs. Production
 security and real clinical data are future roadmap work.
@@ -50,8 +50,8 @@ The query-to-table sandbox implements that path with:
 - a pinned synthetic multi-analyte OpenELIS cohort;
 - HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
 - a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- Gateway-owned Gemma and Qwen generation/review profiles selectable in the UI,
-  with SQL roles fixed at temperature zero and DRY repetition penalty zero;
+- a Hub-owned Catalyst query profile selectable in the UI only when its exact
+  Gemma and Qwen role models are advertised by the external router;
 - writer → deterministic lint/correction → optional reviewer → deterministic
   re-lint orchestration in Gateway, with exact role/model/prompt/configuration
   evidence;
@@ -116,60 +116,32 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The recommended configuration connects the containerized Hub to the existing
-host llama.cpp router at `http://host.docker.internal:8077`. Its external
-verification profile is the Gateway-owned
-`catalyst-query-gemma-4-12b-qwen2.5-14b-checked`: Gemma 4 12B writes and Qwen
-2.5 14B reviews. Both exact model IDs must be served. The product default
-remains the CPU-oriented, writer-only `catalyst-query-gemma-4-12b-q4`; choose
-the cross-family profile in the UI for the recommended external lane.
-Open the sidecar at `http://localhost:3000`.
+The configuration connects the containerized Hub to the existing host
+OpenAI-compatible router at `http://host.docker.internal:1234`. The Hub-owned
+`catalyst-query-e4b-qwen14b` profile uses `google/gemma-4-e4b` for writing and
+`qwen2.5-14b-instruct-mlx` for review. Startup fails unless the router
+advertises both exact IDs. Open the sidecar at `http://localhost:3000`.
 
-To use a different OpenAI-compatible server, set its root without a trailing
-`/v1` together with the exact model and Gateway profile IDs:
+To use the real router at another location, set its root without a trailing
+`/v1` and keep the Hub-owned profile ID explicit:
 
 ```bash
 export MVP_MODEL_BACKEND=external
 export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
-export MVP_EXTERNAL_MODEL_ID=my-exact-model-id
-export MVP_EXTERNAL_PROFILE_ID=my-gateway-profile-id
-# For a multi-model profile, map every exact role model for this backend:
-export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='{"query_generate":"writer-id","query_review":"reviewer-id"}'
+export MVP_EXTERNAL_PROFILE_ID=catalyst-query-e4b-qwen14b
 ./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh
 ./scripts/mvp-health.sh
 ```
 
-The profile ID must exist in
-`catalyst-gateway/src/catalyst/query_profiles.py`; each configured role model
-must be advertised by the selected router. Gateway reads Hub's versioned,
-credential-free router catalog and advertises a profile as available only when
-every exact writer and reviewer alias is present. The UI omits unavailable
-profiles, and Gateway rejects an unavailable selection before creating a
-session or invoking a model. A backend can still change after discovery, so
-generation/backend failure remains a supported residual path.
-
-An optional bundled fallback selects the writer-only
-`catalyst-query-qwen-coder-1.5b` profile, downloads Qwen2.5-Coder 1.5B, and
-advertises its truthful `qwen2.5-coder-1.5b-instruct-q4_k_m` identity:
-
-```bash
-export MVP_MODEL_BACKEND=local
-./scripts/mvp-up.sh
-./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
-```
+The profile ID must exist in med-agent-hub's shared `server/levels.yaml`
+catalog. Hub discovery combines that configuration with its credential-free
+router inventory. Gateway exposes only available query profiles, and rejects an
+unavailable selection before creating a session or invoking a model. A backend
+can still change after discovery, so generation/backend failure remains a
+supported residual path.
 
 Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
-
-Deterministic fake-backend mode:
-
-```bash
-export MVP_MODEL_BACKEND=fake
-./scripts/mvp-up.sh
-./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
-```
 
 Stop or reset disposable demo state:
 

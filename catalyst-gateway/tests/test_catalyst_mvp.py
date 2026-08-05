@@ -125,7 +125,7 @@ def ready_query(question: str = "Count tests since July 1") -> dict:
             "checks": [{"name": "review", "status": "passed"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-q4",
+            "profileId": "catalyst-query-e4b-qwen14b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -143,7 +143,7 @@ def non_ready_query(status: str, question: str = "Question") -> dict:
             "checks": [{"name": "scope", "status": "warned"}],
         },
         "provenance": {
-            "profileId": "catalyst-query-gemma-4-12b-q4",
+            "profileId": "catalyst-query-e4b-qwen14b",
             "traceId": "hub-trace-1",
             "contextSourceIds": ["catalog:openelis-demo:2026.07"],
         },
@@ -216,13 +216,16 @@ class FakeHub:
             raise self.error
         return [
             {
-                "id": "catalyst-query-gemma-4-12b-q4",
-                "label": "Catalyst governed query — Gemma 4 12B",
+                "id": "catalyst-query-e4b-qwen14b",
+                "label": "Catalyst query — Gemma 4 E4B writer, Qwen 2.5 14B reviewer",
                 "available": self.error is None,
-                "required_models": ["gemma-4-12b-q4"],
+                "required_models": [
+                    "google/gemma-4-e4b",
+                    "qwen2.5-14b-instruct-mlx",
+                ],
                 "role_models": {
-                    "query_generate": "gemma-4-12b-q4",
-                    "query_review": "gemma-4-12b-q4",
+                    "query_generate": "google/gemma-4-e4b",
+                    "query_review": "qwen2.5-14b-instruct-mlx",
                 },
                 "stages": [
                     "context",
@@ -384,7 +387,7 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
                 ],
                 "validation": {"status": "passed", "checks": []},
                 "provenance": {
-                    "profileId": "catalyst-query-gemma-4-12b-q4",
+                    "profileId": "catalyst-query-e4b-qwen14b",
                     "traceId": "hub-runtime-schema",
                     "contextSourceIds": [context_id],
                 },
@@ -455,7 +458,7 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
 
 def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 24
+    assert len(registry.schemas) == 29
     assert set(registry.schemas) == {
         "catalyst-data-sources-v1.schema.json",
         "catalyst-execute-request-v1.schema.json",
@@ -468,6 +471,11 @@ def test_loads_and_checks_all_normative_schemas():
         "catalyst-query-revision-context-v1.schema.json",
         "catalyst-query-v1.schema.json",
         "catalyst-question-request-v1.schema.json",
+        "catalyst-superset-bundle-v1.schema.json",
+        "catalyst-superset-import-latest-v1.schema.json",
+        "catalyst-superset-import-receipt-v1.schema.json",
+        "catalyst-superset-last-verified-v1.schema.json",
+        "catalyst-superset-outbox-current-v1.schema.json",
         "catalyst-table-v1.schema.json",
         "catalyst-workbench-execute-request-v1.schema.json",
         "catalyst-workbench-editor-catalog-v1.schema.json",
@@ -1273,7 +1281,7 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
     assert preview["question"] == question
     assert preview["reasoningTrace"] == {
         "traceId": "hub-trace-1",
-        "profileId": "catalyst-query-gemma-4-12b-q4",
+        "profileId": "catalyst-query-e4b-qwen14b",
         "status": "passed",
         "stages": [
             "context",
@@ -1282,8 +1290,8 @@ def test_query_route_builds_ready_preview(tmp_path: Path):
             "query_finalize",
         ],
         "roleModels": {
-            "query_generate": "gemma-4-12b-q4",
-            "query_review": "gemma-4-12b-q4",
+            "query_generate": "google/gemma-4-e4b",
+            "query_review": "qwen2.5-14b-instruct-mlx",
         },
         "checks": [{"name": "review", "status": "passed"}],
     }

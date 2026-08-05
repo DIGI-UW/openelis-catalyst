@@ -1,7 +1,7 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; local table-dashboard vertical slice
-implemented; full Superset-backed Dashboard Builder D1 remains open
+**Status:** Active pathway roadmap; Superset import spike implemented;
+full Superset-backed Dashboard Builder D1 remains open
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -37,13 +37,13 @@ The repository currently contains:
   Gateway model context and deterministic validation;
 - one canonical SQL editor, manual query versions, validation, explicit
   execution, typed results, compact turn history and contextual follow-ups;
-- Gateway-owned selectable profiles, prompts, writer/reviewer orchestration,
-  deterministic lint/re-lint, and exact model/configuration provenance;
-- med-agent-hub as a generic single-role provider/router boundary through
-  `POST /v1/hub/generate`;
+- a Hub-owned Catalyst query profile containing exact role models, prompts, and
+  knobs, exposed to Gateway with live availability and immutable evidence;
+- Gateway-owned writer/reviewer orchestration, deterministic lint/re-lint,
+  execution, and query lineage through Hub's configured-role endpoint;
 - a pinned OpenELIS → HAPI FHIR → FHIR Data Pipes → PostgreSQL demo assembly;
 - persisted, immutable Dataset, Widget, and Dashboard draft records for the
-  current table-dashboard vertical slice;
+  current Superset import spike;
 - deterministic native Superset bundle generation, a pinned local Superset
   service, explicit importer, and verified local import receipts;
 - a second, independently switchable data source (OpenMRS HIV/ART, its own
@@ -51,6 +51,7 @@ The repository currently contains:
   within one source-agnostic session;
 - Gateway, analytics/assembly, UI and browser tests.
 
+The current dashboard work is a **Superset import spike**, not a Dashboard MVP.
 It does not yet contain full D1 acceptance:
 
 - the designed multi-widget/library experience and all five verified native
@@ -71,7 +72,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **Working local table-dashboard vertical slice; full D1 open** | Accepted query/workbench foundation only | Complete real-model local-MVP acceptance, then D1 hardening |
+| **Superset-backed Dashboard Builder (D1)** | **Superset import spike implemented; Dashboard MVP open** | Accepted query/workbench foundation only | Prove the Hub-profile real-model path, then integrate the actual multi-widget experience and complete D1 acceptance |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -105,36 +106,39 @@ architecture documentation.
 ### Exit criteria
 
 - Local documentation consistently assigns governed-query profiles, prompts,
-  role composition, and orchestration to Gateway and generic role execution to
-  Hub.
+  role models, and knobs to Hub; query orchestration, policy, execution, and
+  lineage remain in Gateway.
 - Planned profiles are clearly distinguished from profiles available today.
 - OGC-70 functionality is classified as retained, reassigned, superseded, or
   deferred.
 - The Clinical AI Validation Harness is documented as the umbrella assembly and
   experiment boundary.
-- Standalone scorecard documents remain retired; Gateway profile changes are
+- Standalone scorecard documents remain retired; Hub query-profile changes are
   evaluated through local golden engineering fixtures and cross-model
   experiments in the harness.
 
-## R1 — Generic med-agent-hub execution foundation
+## R1 — Shared med-agent-hub profile and role-execution foundation
 
 **Status:** Complete for the local governed-query demo
 
 **Goal:** Keep Catalyst query semantics and orchestration in Gateway while
-using Hub as the shared provider/router and structured-output transport
-boundary.
+using one Hub profile schema for clinical and Catalyst workflows and one
+configured role-execution boundary for the query path.
 
 ### Test-first slices
 
-1. Gateway query profiles
-   - Test Gemma and bundled Qwen writer-only, same-model checked, full-weight
-     writer, and cross-family reviewed profile discovery with exact
-     prompt/model/configuration evidence.
-   - Serve them through `GET /v1/catalyst/query-options`.
-2. Generic role call
+1. Hub query profile
+   - Test one `workflow: catalyst_query`, `topology: caller` profile with exact
+     Gemma writer and different-family Qwen reviewer models, prompts, knobs,
+     and credential-free profile evidence.
+   - Discover it through Hub and relay only available profiles through
+     `GET /v1/catalyst/query-options`.
+2. Configured role call
    - Test request mapping, structured-output pass-through, timeout,
      cancellation, malformed content, and backend failures.
-   - Implement one `POST /v1/hub/generate` call per writer/reviewer invocation.
+   - Implement one
+     `POST /v1/hub/query-profiles/{profile}/roles/{role}/generate` call per
+     writer/reviewer invocation; reject caller model/prompt/knob overrides.
 3. Gateway orchestration
    - Test writer → deterministic lint/correction → optional reviewer →
      deterministic re-lint and final evidence.
@@ -146,10 +150,10 @@ boundary.
 
 ### Ownership rule
 
-Catalyst owns the governed-query profile ID and its roles, prompts, stages,
-sampling settings, response formats, and validation policy. Hub owns
-provider/router connectivity and executes only the single role call requested
-by Catalyst.
+Hub owns the shared profile ID, role-to-model mapping, prompts, sampling/token
+knobs, availability, and physical model call. Catalyst owns role ordering,
+response formats, context, deterministic validation policy, execution, and
+lineage.
 
 ### Exit criteria
 
@@ -158,11 +162,11 @@ by Catalyst.
   required role model.
 - Hub is the only provider/router integration service on the target path;
   Gateway is the only Catalyst query orchestrator.
-- Existing Gateway callers receive stable errors when Hub, a Gateway profile,
+- Existing Gateway callers receive stable errors when Hub, a Hub query profile,
   or a requested model is unavailable.
 - Catalyst uses the configured hub; the demo stack verifies that the hub uses
   the local model router.
-- Unit, contract and live generic-Hub smoke tests pass.
+- Unit, contract and live configured-Hub smoke tests pass.
 
 ## R2 — Analytics data and query contract
 
@@ -205,17 +209,19 @@ database role.
 
 ## R3 — Query-to-table MVP
 
-**Status:** MVP implementation and final live multi-model acceptance complete
+**Status:** Query workbench implementation complete; live acceptance of the
+Hub-configured external-model path required before Dashboard work resumes
 
 **Goal:** Deliver the first useful product slice:
 natural-language question → governed query → table.
 
 ### External dependency
 
-med-agent-hub must provide the generic `POST /v1/hub/generate` executor and
-reach a local router serving the exact models required by the selected
-Gateway profile. Gateway owns query planning, generation, deterministic
-lint/correction, optional review, and `catalyst.query.v1` finalization.
+med-agent-hub must expose the configured Catalyst query profile and reach the
+external router at `host.docker.internal:1234`, which must advertise
+`google/gemma-4-e4b` and `qwen2.5-14b-instruct-mlx` exactly. Gateway owns query
+planning, generation orchestration, deterministic lint/correction, review,
+execution, and `catalyst.query.v1` finalization.
 Contextual follow-up through the reviewed path additionally requires a Gateway
 profile with a reviewer role. Hub clinical-answer profiles do not satisfy this
 query dependency.
@@ -256,15 +262,15 @@ query dependency.
 6. Demo-mode boundary
    - Add full-stack smoke assertions that Hub `LLM_BASE_URL` resolves to the
      local model router and the analytics source uses seeded demo data.
-   - Catalyst verifies Hub health and Gateway-profile presence; Hub and Compose
+   - Catalyst verifies Hub health and Hub query-profile presence; Hub and Compose
      own model-router connection configuration.
    - Label all UI and API responses as demo behavior without production
      security claims.
 
 ### MVP exit criteria
 
-- Gateway profile discovery succeeds with exact writer/reviewer evidence, and
-  Hub generic generation is reachable.
+- Hub query-profile discovery succeeds with exact writer/reviewer evidence, and
+  configured role generation is reachable.
 - Every role output validates against its configured structured-output schema,
   and Gateway's finalized `catalyst.query.v1` validates against the normative
   local JSON Schema.
@@ -316,18 +322,17 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Working local table-dashboard vertical slice; D1a passed and
-user-accepted 2026-08-05; full D1 acceptance remains open
+**Status:** Superset import spike implemented; full D1 Dashboard MVP remains open
 
-**Current delivery boundary:** The active branches provide a manually testable
-table Dashboard path—exact Run → Dataset → table Widget → named Dashboard →
-native ZIP → explicit local Superset import. Health, restart retention, and
-verified import receipts are demonstrated. This must not be described as full
-D1: the full five-family/multi-widget UI, reset/reimport recovery, complete
-accessibility matrix, event/acceptance emitter, and real Gemma/Qwen acceptance
-run remain open. The local MVP closes only after the real-model path produces a
-verified dashboard whose displayed values reconcile to PostgreSQL and the user
-accepts it.
+**Current delivery boundary:** The active branches implement a Superset import
+spike—exact Run → Dataset → table Widget → named Dashboard → native ZIP →
+explicit local Superset import. Health, restart retention, and verified import
+receipts are demonstrated. This is not a working Dashboard MVP: the actual
+multi-widget experience and five visualization mappings, reset/reimport
+recovery, complete accessibility matrix, event/acceptance emitter, and real
+Gemma/Qwen acceptance run remain open. The MVP closes only after the real-model
+workflow is integrated into the actual builder, the imported dashboard values
+reconcile to PostgreSQL, and the user accepts it.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
@@ -513,7 +518,7 @@ evaluation work and do not block D1 implementation.
 ## Dependency summary
 
 ```text
-R0 local specs → R1 generic Hub execution → R2 analytics contract
+R0 local specs → R1 shared Hub profiles/configured roles → R2 analytics contract
   → R3 query-to-table MVP → R3.1 iterative query notebook (accepted base)
        ├→ D1 supervised dashboard MVP (selected next)
        ├→ G2.10 multi-source/lossless data foundation

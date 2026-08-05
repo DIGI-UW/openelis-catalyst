@@ -58,11 +58,9 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The recommended live run uses the configured external Gemma router. The React
-sidecar is at `http://localhost:3000`.
-
-Export `MVP_MODEL_BACKEND=fake` before running `mvp-up.sh`, `mvp-seed.sh`, and
-`mvp-health.sh` for deterministic CI-style assembly without the GGUF.
+The live run uses the configured external router at
+`http://host.docker.internal:1234`. It must advertise the exact role models in
+the selected Hub profile. The React sidecar is at `http://localhost:3000`.
 
 #### Full stack
 
@@ -135,14 +133,16 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 
 #### MVP path
 
-Catalyst Gateway owns governed-query profiles, role-to-model mapping, prompts,
-writer/reviewer stage ordering, deterministic lint/re-lint, and query evidence.
-med-agent-hub provides the generic `POST /v1/hub/generate` model-provider
-boundary and forwards each Gateway-selected role to its local model router.
-Hub's separate clinical-answer/report profiles are not the Catalyst query
-engine. The standalone bootstrap checks out the pinned Hub commit without local
-patches; the harness owns and pins the same Hub repository as a sibling
-submodule.
+med-agent-hub's shared profile catalog owns Catalyst query role models, role
+knobs, and prompts. Catalyst Gateway owns context assembly, writer/reviewer
+stage ordering, deterministic lint/re-lint, query evidence, execution, and
+lineage. Gateway discovers available profiles from
+`GET /v1/hub/query-profiles` and invokes a configured role through
+`POST /v1/hub/query-profiles/{profile}/roles/{role}/generate`; it cannot select
+or override that role's model, prompt, or knobs. Hub's clinical profiles use
+the same base profile schema through a separate hosted workflow adapter. The
+standalone bootstrap checks out the pinned Hub commit without local patches;
+the harness owns and pins the same Hub repository as a sibling submodule.
 
 #### Current prototype
 
