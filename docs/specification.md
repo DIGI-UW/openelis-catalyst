@@ -756,8 +756,10 @@ table/notebook acceptance.
 The full acceptance below remains the D1 product standard. The current local
 vertical slice is deliberately narrower: it verifies one table Widget and one
 Dashboard imported into Superset while preserving the accepted Ask workflow.
-It is a working MVP only after a real configured writer/reviewer run, PostgreSQL
-value reconciliation, and user acceptance; it is not evidence that the five
+The standalone configured writer/reviewer workbench run and PostgreSQL value
+reconciliation passed at M2. It becomes a working Dashboard MVP only after that
+path is integrated through the multi-widget Dashboard and receives user
+acceptance; the M2 evidence is not evidence that the five
 visualization mappings, multi-widget library experience, full recovery, or the
 complete accessibility/evidence program are done.
 

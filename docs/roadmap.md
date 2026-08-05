@@ -58,8 +58,9 @@ It does not yet contain full D1 acceptance:
   visualization mappings (the current exporter is table-only);
 - complete reset/reimport recovery, the full accessibility matrix, and the
   schema-backed dashboard acceptance emitter;
-- a real-model Dashboard MVP acceptance run (the completed local structural
-  flow used the deterministic fake router and is not model evidence);
+- a builder-integrated real-model Dashboard MVP acceptance run (the standalone
+  Gemma E4B → Qwen 14B query-workbench proof passed at M2, but it does not prove
+  the multi-widget Dashboard path);
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
@@ -72,7 +73,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **Superset import spike implemented; Dashboard MVP open** | Accepted query/workbench foundation only | Prove the Hub-profile real-model path, then integrate the actual multi-widget experience and complete D1 acceptance |
+| **Superset-backed Dashboard Builder (D1)** | **Superset import spike plus M2 real-model workbench proof; Dashboard MVP open** | Accepted query/workbench foundation only | Accept M2, then integrate the actual multi-widget experience and complete D1 acceptance |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -329,9 +330,10 @@ spike—exact Run → Dataset → table Widget → named Dashboard → native ZI
 explicit local Superset import. Health, restart retention, and verified import
 receipts are demonstrated. This is not a working Dashboard MVP: the actual
 multi-widget experience and five visualization mappings, reset/reimport
-recovery, complete accessibility matrix, event/acceptance emitter, and real
-Gemma/Qwen acceptance run remain open. The MVP closes only after the real-model
-workflow is integrated into the actual builder, the imported dashboard values
+recovery, complete accessibility matrix, event/acceptance emitter, and the
+builder-integrated Gemma/Qwen D1e run remain open. The standalone real-model
+workbench proof passed technically at M2. The MVP closes only after that workflow
+is integrated into the actual builder, the imported dashboard values
 reconcile to PostgreSQL, and the user accepts it.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
