@@ -1,0 +1,45 @@
+.dashboard-publish {
+  display: grid;
+  padding: 1.25rem;
+  border-top: 4px solid #0f62fe;
+  margin-top: 1rem;
+  gap: 1rem;
+  background: #fff;
+}
+
+.dashboard-publish h2,
+.dashboard-publish p {
+  margin: 0;
+}
+
+.dashboard-publish p {
+  margin-top: 0.35rem;
+  color: #525252;
+}
+
+.dashboard-publish__controls {
+  display: flex;
+  align-items: end;
+  gap: 1rem;
+}
+
+.dashboard-publish__controls .cds--text-input-wrapper {
+  flex: 1;
+}
+
+.dashboard-publish__ready {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.dashboard-publish__ready a {
+  justify-self: start;
+  color: #0f62fe;
+}
+
+@media (max-width: 42rem) {
+  .dashboard-publish__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

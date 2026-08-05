@@ -115,3 +115,11 @@ def test_diagnostic_redaction_is_bounded_and_hides_credentials() -> None:
         "truncated": True,
         "redacted": True,
     }
+
+
+def test_relationship_verification_initializes_superset_before_model_imports() -> None:
+    source = (ROOT / "scripts/superset-import.py").read_text(encoding="utf-8")
+    verification = source[source.index("def _verify_superset") :]
+    assert verification.index("app = create_app()") < verification.index(
+        "from superset import db"
+    )

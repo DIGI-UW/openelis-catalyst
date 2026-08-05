@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ROOT_DIR}/.fhir-data-pipes"
 FHIR_DATA_PIPES_REPO="${FHIR_DATA_PIPES_REPO:-https://github.com/google/fhir-data-pipes.git}"
 FHIR_DATA_PIPES_COMMIT="3ea890884d674e2f31257a2da421601f2d75b5e9"
+REFRESH_DEPENDENCIES="${MVP_REFRESH_DEPENDENCIES:-false}"
 
 if [ -e "${TARGET_DIR}" ] && [ ! -d "${TARGET_DIR}/.git" ]; then
   echo "ERROR: ${TARGET_DIR} exists but is not a Git checkout" >&2
@@ -27,6 +28,13 @@ fi
   if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "ERROR: ${TARGET_DIR} has tracked local changes; refusing to replace them" >&2
     exit 1
+  fi
+
+  actual_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+  if [ "${REFRESH_DEPENDENCIES}" != "true" ] && \
+    [ "${actual_commit}" = "${FHIR_DATA_PIPES_COMMIT}" ]; then
+    echo "FHIR Data Pipes checkout already matches ${FHIR_DATA_PIPES_COMMIT}; reusing it"
+    exit 0
   fi
 
   git fetch --depth 1 origin "${FHIR_DATA_PIPES_COMMIT}"

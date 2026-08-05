@@ -119,6 +119,8 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
     widget = builder.save_widget(
         dataset_version_id=dataset["versionId"], title="Result trend"
     )
+    assert widget["configuration"]["presentationKind"] == "table"
+    assert widget["configuration"]["suggestedKind"] == "line"
     dashboard = builder.save_dashboard(
         title="Lab operations", widget_version_ids=[widget["versionId"]]
     )
@@ -138,6 +140,14 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
     )
     with zipfile.ZipFile(bundle) as archive:
         names = archive.namelist()
+        database_member = next(name for name in names if "/databases/" in name)
+        dashboard_member = next(name for name in names if "/dashboards/" in name)
+        database = json.loads(archive.read(database_member))
+        dashboard_asset = json.loads(archive.read(dashboard_member))
+    assert "masked_encrypted_extra" not in database
+    chart_meta = dashboard_asset["position"]["CHART-0"]["meta"]
+    assert chart_meta["uuid"] == publication["manifest"]["assetUuids"]["chartsByVersion"][widget["versionId"]]
+    assert chart_meta["chartId"] == 0
     assert any(name.endswith("/metadata.yaml") for name in names)
     assert any("/databases/" in name for name in names)
     assert any("/datasets/" in name for name in names)

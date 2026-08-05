@@ -5,6 +5,7 @@ import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
 import { DatasetBrowser } from "./components/DatasetBrowser";
+import { DashboardPublishPanel } from "./components/DashboardPublishPanel";
 import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
@@ -1068,6 +1069,14 @@ export const QueryWorkspace = ({
           onNewSession={startNewSession}
           onValidate={validateWorkbenchDraft}
           onRun={runWorkbenchDraft}
+        />
+      )}
+
+      {workbenchSession && (
+        <DashboardPublishPanel
+          api={api}
+          session={workbenchSession}
+          disabled={followupBusy || workbenchBusy !== null}
         />
       )}
 

@@ -413,14 +413,17 @@ def _failure_receipt(
 
 def _verify_superset(manifest: dict[str, Any]) -> dict[str, Any]:
     try:
-        from superset import db
         from superset.app import create_app
-        from superset.connectors.sqla.models import SqlaTable
-        from superset.models.dashboard import Dashboard
-        from superset.models.slice import Slice
 
         app = create_app()
         with app.app_context():
+            # These model imports initialize encrypted fields; Superset requires
+            # the application to exist before they are imported.
+            from superset import db
+            from superset.connectors.sqla.models import SqlaTable
+            from superset.models.dashboard import Dashboard
+            from superset.models.slice import Slice
+
             dashboard_uuid = uuid.UUID(manifest["assetUuids"]["dashboard"])
             dashboard = db.session.query(Dashboard).filter_by(uuid=dashboard_uuid).one()
             if dashboard.slug != manifest["dashboardSlug"]:

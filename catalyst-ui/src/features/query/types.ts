@@ -409,6 +409,24 @@ export interface WorkbenchExecution {
   completedAt: string;
 }
 
+export interface DashboardBuilderEntity {
+  id: string;
+  versionId: string;
+  ordinal: number;
+  configuration: Record<string, unknown>;
+  configurationDigest: string;
+  createdAt: string;
+}
+
+export interface DashboardPublication {
+  status: "bundle_ready";
+  dashboard: DashboardBuilderEntity;
+  pointer: {
+    bundle: { fileName: string; sha256: string; bytes: number };
+  };
+  downloadPath: string;
+}
+
 export interface WorkbenchSession {
   contractVersion: "catalyst.workbench.session.v1";
   sessionId: string;

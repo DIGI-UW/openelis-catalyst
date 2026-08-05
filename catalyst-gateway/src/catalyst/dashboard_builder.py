@@ -369,7 +369,10 @@ class DashboardBuilder:
         dataset = self._entity("dataset", dataset_version_id)
         row_count = int(dataset.configuration.get("rowCount", {}).get("returned", 0))
         suggestion = suggest_presentation(dataset.configuration["columns"], row_count)
-        kind = presentation_kind or suggestion
+        # The local MVP exports one verified native Superset table configuration.
+        # Keep the heuristic as advisory metadata until the corresponding native
+        # chart mappings have real import coverage.
+        kind = presentation_kind or "table"
         if kind not in _PRESENTATION_KINDS:
             raise DashboardBuilderError("Unsupported presentation kind.")
         configuration = {
@@ -446,7 +449,8 @@ class DashboardBuilder:
                 "postgresql+psycopg2://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics",
             ),
             "password": None,
-            "masked_encrypted_extra": "",
+            # Superset's native importer rejects an empty encrypted-extra map;
+            # omit it when the local demo connection has no encrypted extras.
             "cache_timeout": None,
             "expose_in_sqllab": False,
             "allow_run_async": False,
@@ -556,7 +560,15 @@ class DashboardBuilder:
                 "type": "CHART",
                 "parents": [row_id],
                 "children": [],
-                "meta": {"chartId": chart_uuid, "width": 12, "height": 50},
+                # Superset discovers related assets from ``meta.uuid`` and
+                # rewrites the temporary numeric chart ID during import.
+                "meta": {
+                    "chartId": index,
+                    "uuid": chart_uuid,
+                    "sliceName": widget.configuration["title"],
+                    "width": 12,
+                    "height": 50,
+                },
             }
         dashboard_config = {
             "dashboard_title": dashboard.configuration["title"],

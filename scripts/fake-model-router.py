@@ -32,10 +32,16 @@ def generation(payload: dict[str, Any]) -> dict[str, Any]:
             "SELECT result_value, result_unit, issued_at, "
             "specimen_received_at, receipt_to_release_minutes "
             "FROM analytics.lab_result_fact_v1 "
-            "WHERE observed_at >= :start_at "
+            "WHERE test_name = :test_name AND observed_at >= :start_at "
             f"ORDER BY observed_at LIMIT {max_rows}"
         ),
         "parameters": [
+            {
+                "name": "test_name",
+                "type": "string",
+                "source": "question",
+                "value": "Viral Load",
+            },
             {
                 "name": "start_at",
                 "type": "date",

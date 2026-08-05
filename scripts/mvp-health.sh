@@ -443,9 +443,15 @@ import os
 import urllib.request
 
 with urllib.request.urlopen(os.environ["SUPERSET_URL"] + "/health", timeout=5) as response:
-    health = json.load(response)
-if health.get("status") != "OK":
-    raise SystemExit(json.dumps(health))
+    body = response.read().decode("utf-8").strip()
+try:
+    health = json.loads(body)
+except json.JSONDecodeError:
+    if body != "OK":
+        raise SystemExit(body)
+else:
+    if health.get("status") != "OK":
+        raise SystemExit(json.dumps(health))
 PY
 }
 

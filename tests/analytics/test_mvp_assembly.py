@@ -26,6 +26,11 @@ class MvpComposeContractTests(unittest.TestCase):
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
         cls.model_config_script = (ROOT / "scripts/mvp-model-config.sh").read_text()
         cls.hub_bootstrap = (ROOT / "scripts/bootstrap-med-agent-hub.sh").read_text()
+        cls.fake_router = (ROOT / "scripts/fake-model-router.py").read_text()
+        cls.fhir_data_pipes_bootstrap = (
+            ROOT / "scripts/bootstrap-fhir-data-pipes.sh"
+        ).read_text()
+        cls.openelis_bootstrap = (ROOT / "scripts/bootstrap-openelis.sh").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
@@ -177,6 +182,18 @@ class MvpComposeContractTests(unittest.TestCase):
             proxy_config,
         )
 
+    def test_pinned_runtime_dependency_checkouts_are_reused_until_refresh_requested(self):
+        for script, pinned_reference in (
+            (self.fhir_data_pipes_bootstrap, "FHIR_DATA_PIPES_COMMIT"),
+            (self.openelis_bootstrap, "OPENELIS_DOCKER_REF"),
+        ):
+            with self.subTest(reference=pinned_reference):
+                self.assertIn('MVP_REFRESH_DEPENDENCIES:-false', script)
+                self.assertIn('REFRESH_DEPENDENCIES}" != "true"', script)
+                self.assertIn(
+                    f'actual_commit}}" = "${{{pinned_reference}}}"', script
+                )
+
     def test_router_identity_hub_and_ui_ports_do_not_collide(self):
         self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.env)
         self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
@@ -272,6 +289,11 @@ class MvpComposeContractTests(unittest.TestCase):
             "'",
             self.env,
         )
+
+    def test_fake_router_returns_a_lintable_seeded_viral_load_query(self):
+        self.assertIn("WHERE test_name = :test_name AND observed_at >= :start_at", self.fake_router)
+        self.assertIn('"name": "test_name"', self.fake_router)
+        self.assertIn('"value": "Viral Load"', self.fake_router)
 
     def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
         self.assertIn(
@@ -611,6 +633,7 @@ class MvpScriptContractTests(unittest.TestCase):
             "mvp-provenance.json",
         ):
             self.assertIn(marker, script)
+        self.assertIn('if body != "OK":', script)
 
 
 if __name__ == "__main__":

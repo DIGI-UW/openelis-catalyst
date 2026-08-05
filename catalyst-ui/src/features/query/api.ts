@@ -15,6 +15,8 @@ import type {
   WorkbenchTurnTimeline,
   WorkbenchValidation,
   WorkbenchVersionDraft,
+  DashboardBuilderEntity,
+  DashboardPublication,
 } from "./types";
 
 export interface CatalystApi {
@@ -98,6 +100,19 @@ export interface CatalystApi {
     browserState: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<WorkbenchSession>;
+  saveDashboardDataset?(
+    input: { sessionId: string; executionId: string; title?: string },
+    signal?: AbortSignal,
+  ): Promise<DashboardBuilderEntity>;
+  saveDashboardWidget?(
+    input: { datasetVersionId: string; title?: string; presentationKind?: string },
+    signal?: AbortSignal,
+  ): Promise<DashboardBuilderEntity>;
+  saveDashboard?(
+    input: { title?: string; widgetVersionIds: string[] },
+    signal?: AbortSignal,
+  ): Promise<DashboardBuilderEntity>;
+  publishDashboard?(dashboardVersionId: string, signal?: AbortSignal): Promise<DashboardPublication>;
 }
 
 export class CatalystApiError extends Error {
@@ -159,6 +174,19 @@ const hasContractVersion = <Version extends string>(
   contractVersion: Version,
 ): body is Record<string, unknown> & { contractVersion: Version } =>
   isRecord(body) && body.contractVersion === contractVersion;
+
+const isDashboardEntity = (body: unknown): body is DashboardBuilderEntity =>
+  isRecord(body) &&
+  typeof body.id === "string" &&
+  typeof body.versionId === "string" &&
+  typeof body.configurationDigest === "string";
+
+const isDashboardPublication = (body: unknown): body is DashboardPublication =>
+  isRecord(body) &&
+  body.status === "bundle_ready" &&
+  isRecord(body.pointer) &&
+  isRecord(body.pointer.bundle) &&
+  typeof body.pointer.bundle.fileName === "string";
 
 export const createCatalystApi = ({
   baseUrl = "/v1/catalyst",
@@ -479,6 +507,60 @@ export const createCatalystApi = ({
         throw new CatalystApiError(errorMessage(body, response.status), response.status);
       }
       return body as unknown as WorkbenchSession;
+    },
+
+    async saveDashboardDataset(input, signal) {
+      const response = await fetcher(`${root}/dashboard-builder/datasets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isDashboardEntity(body)) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body;
+    },
+
+    async saveDashboardWidget(input, signal) {
+      const response = await fetcher(`${root}/dashboard-builder/widgets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isDashboardEntity(body)) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body;
+    },
+
+    async saveDashboard(input, signal) {
+      const response = await fetcher(`${root}/dashboard-builder/dashboards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!isDashboardEntity(body)) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body;
+    },
+
+    async publishDashboard(dashboardVersionId, signal) {
+      const response = await fetcher(
+        `${root}/dashboard-builder/dashboards/${encodeURIComponent(dashboardVersionId)}/publish`,
+        { method: "POST", headers: { Accept: "application/json" }, signal },
+      );
+      const body = await parseJson(response);
+      if (!isDashboardPublication(body)) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body;
     },
   };
 };
