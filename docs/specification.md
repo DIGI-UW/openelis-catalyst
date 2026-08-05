@@ -1,7 +1,7 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook MVP accepted; Dashboard Builder D1a
-technical validation passed, explicit user acceptance pending
+**Status:** Iterative query notebook MVP accepted; Dashboard Builder D1a passed
+and user-accepted; D1b implementation authorized
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -813,9 +813,9 @@ correctness, sharing, scheduling, automatic refresh or production access.
 Implementation order is D1a T137 → T158 → T159 → T138; D1b T139–T144 plus
 T160–T165; D1c T145–T149 plus T166–T173; D1d T150–T154 plus T174–T179; and D1e
 T180–T182 before T155–T157. The D1a cross-artifact analysis now has zero
-unresolved CRITICAL/HIGH findings and its contracts validate; D1a remains open
-only until the user explicitly accepts the checkpoint. No product code or D1b
-work begins before that pause.
+unresolved CRITICAL/HIGH findings and its contracts validate. The user accepted
+the checkpoint on 2026-08-05 and authorized implementation through a working
+local MVP; D1b product work may now begin.
 
 Because the local demo has no authentication, saved-version authorship records
 only the actor kind `human`; it does not claim a verified user identity.

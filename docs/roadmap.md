@@ -307,8 +307,8 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Selected next milestone; D1a technical validation passed 2026-08-05;
-explicit user acceptance pending before product code
+**Status:** Selected next milestone; D1a passed and user-accepted 2026-08-05;
+D1b runtime/import implementation authorized
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
@@ -341,7 +341,8 @@ The remediated checkpoint has zero unresolved CRITICAL/HIGH findings. Fresh
 remote comparison proves both branches are zero commits behind their current
 `origin/main`; all eight Dashboard Builder contract mirrors are byte-identical;
 the seven JSON Schemas and positive/negative fixtures validate; and T137, T158,
-and T159 are complete. D1a now waits only for the explicit user decision in T138.
+and T159 are complete. The user accepted D1a on 2026-08-05 and directed
+implementation to continue through a working local MVP; T138 is complete.
 
 | Checkpoint | Entry | Testable exit evidence | Pause rule |
 | --- | --- | --- | --- |
