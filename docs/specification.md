@@ -261,8 +261,8 @@ not generate or execute another query.
    exact query version.
 2. Catalyst creates a draft bound to the session, query version and digest,
    execution, data source/catalog version, typed result schema and result
-   digest. The result digest is the RFC 8785 canonical SHA-256 of the stored
-   successful `catalyst.table.v1` payload.
+   digest. `resultDigest` is SHA-256 over RFC 8785 JSON Canonicalization Scheme
+   bytes of the stored successful `catalyst.table.v1` payload.
 3. The draft contains exactly one user-selected presentation: the existing
    table, a bar chart, or a line chart when the result's typed columns support
    that choice.

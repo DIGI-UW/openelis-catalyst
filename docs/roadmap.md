@@ -61,7 +61,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Dashboard product (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Create, configure, version, restore, and stale-mark one dashboard artifact from one execution |
+| **Dashboard product (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Create, configure, version, restore, and mark one dashboard artifact stale when its source changes |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
