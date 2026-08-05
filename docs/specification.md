@@ -1,6 +1,6 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook MVP accepted; production hardening pending
+**Status:** Iterative query notebook MVP accepted; Dashboard MVP selected next
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -8,11 +8,12 @@
 
 ## Product statement
 
-Catalyst is the OpenELIS reporting integration service. It turns a laboratory
-user's natural-language question into a governed query, executes that query
-against an analytics data source, and returns a typed table. It can then ask
-med-agent-hub to turn the table into an evidence-linked narrative report with
-explicit grounding states.
+Catalyst is a supervised dashboard creator for OpenELIS reporting. It turns a
+laboratory user's natural-language question into a governed query, executes
+that query against an analytics data source, and returns a typed table. The
+user can then promote an executed result into a manually configured, versioned
+dashboard artifact. Evidence-linked narrative reporting remains a separate,
+optional pathway.
 
 For governed query generation, Catalyst is an **orchestrating client of
 med-agent-hub**. Gateway owns the selectable query profiles, role-to-model
@@ -22,19 +23,26 @@ provider/router boundary and executes one model role at a time through
 `POST /v1/hub/generate`. Planned narrative reports may use Hub-owned product
 profiles, but that future flow is separate from the implemented query engine.
 
-The current product milestone is:
+The accepted product foundation is:
 
 > Question → generated query → manual versions → execution → contextual
 > follow-up → complete successor query
 
-Narrative and in-depth reports build on the same table and provenance after the
-table milestone works reliably.
+The selected next product milestone is:
+
+> Executed Query vN → Dashboard Draft v1 → manual table/chart configuration →
+> saved dashboard version
+
+Multi-source hardening, automated query repair, experiment export, narrative
+reports, and production security continue as parallel pathways. They can
+improve the dashboard later but do not block the single-source Dashboard MVP.
 
 ## Document authority
 
 This file is the canonical local product and architecture specification.
 
-- [`roadmap.md`](roadmap.md) defines delivery order and exit criteria.
+- [`roadmap.md`](roadmap.md) defines the parallel development pathways, selected
+  milestone, dependencies, and exit criteria.
 - [`med-agent-hub.md`](med-agent-hub.md) defines the hub client contract.
 - [`../AGENTS.md`](../AGENTS.md) contains development and test instructions,
   not product architecture.
@@ -59,9 +67,11 @@ scaffolding.
 4. Keep database credentials and query execution outside the LLM boundary.
 5. Preserve source, query, schema, and data-freshness provenance for every
    result.
-6. Support an evidence-linked report with explicit grounding states, generated
+6. Let a user turn an executed result into a manually configured, versioned
+   dashboard artifact without losing its source lineage.
+7. Support an evidence-linked report with explicit grounding states, generated
    from an already governed result table.
-7. Emit session, turn, version, model, prompt, validation, and execution evidence
+8. Emit session, turn, version, model, prompt, validation, and execution evidence
    that maps cleanly into the Clinical AI Validation Harness.
 
 ## Non-goals
@@ -72,8 +82,8 @@ scaffolding.
 - Using external model providers in the demo path.
 - Processing production patient data or claiming production security.
 - Granting database access beyond the configured PostgreSQL role.
-- Building report scheduling, sharing, dashboards, or cross-report memory in
-  the first MVP.
+- Building multi-widget layouts, report scheduling, sharing, automatic refresh,
+  publication, or cross-report memory in Dashboard MVP.
 - Automatic query execution, branching from arbitrary old versions, or a
   general-purpose chat interface in the notebook MVP.
 
@@ -84,9 +94,9 @@ scaffolding.
 | OpenELIS | Source laboratory data; future production identity and permissions | LLM orchestration |
 | OHS FHIR Data Pipes | FHIR extraction, incremental synchronization and per-resource Parquet or database projections | Cross-resource business metrics or user-facing query workflow |
 | Analytics PostgreSQL store | FHIR projections, semantic marts, role-level grants and runtime schema metadata | LLM orchestration |
-| Catalyst | Query profiles, prompts, role composition, runtime catalog, structured query orchestration, deterministic diagnostics, append-only notebook state, read-only execution, query evidence and table response | Model-provider credentials or router implementation |
+| Catalyst | Query profiles, prompts, role composition, runtime catalog, structured query orchestration, deterministic diagnostics, append-only notebook and dashboard state, read-only execution, query evidence and typed table response | Model-provider credentials or router implementation |
 | med-agent-hub | Generic single-role generation, model-provider/router connection, shared transport controls, and future report product profiles | Catalyst query profiles, catalog semantics, query orchestration, database credentials or SQL execution |
-| Catalyst/OpenELIS UI | One active SQL editor, manual versions, validation, execution, follow-up composer, timeline and table rendering | Hidden model orchestration |
+| Catalyst/OpenELIS UI | One active SQL editor, manual versions, validation, execution, follow-up composer, timeline, table rendering, and supervised dashboard configuration | Hidden model orchestration |
 | Clinical AI Validation Harness | Pinned umbrella assembly, scenarios, comparison runs, scoring and reviewable evidence | Production request serving |
 
 ## Target architecture
@@ -241,6 +251,35 @@ false conflict on first use.
     correction, which Gateway re-lints.
 
 The hub never receives database credentials and never executes the query.
+
+## Selected next workflow: executed result to dashboard
+
+Dashboard MVP starts from one successful, non-stale query execution. It does
+not generate or execute another query.
+
+1. The user chooses **Create dashboard** from the result labelled with its
+   exact query version.
+2. Catalyst creates a draft bound to the session, query version and digest,
+   execution, data source/catalog version, typed result schema and result
+   digest. The result digest is the RFC 8785 canonical SHA-256 of the stored
+   successful `catalyst.table.v1` payload.
+3. The draft contains exactly one user-selected presentation: the existing
+   table, a bar chart, or a line chart when the result's typed columns support
+   that choice.
+4. The user manually configures the title, selected columns or axis bindings,
+   labels and sort order, previews the result, and explicitly saves a version.
+5. Every save appends an immutable dashboard version with author and source
+   provenance. Reload restores the latest saved version without a model call or
+   query re-execution.
+6. A later query edit, successor, or execution never silently rebinds the
+   dashboard. Catalyst keeps the saved artifact visible and marks its source as
+   stale when the active workbench state has moved on.
+
+Dashboard MVP is deliberately narrow: one artifact, one table or chart, manual
+configuration, local persistence and refresh restoration. It excludes
+multi-widget layouts, model-generated visualization specifications, result
+narratives, sharing, scheduling, automatic refresh, export/publication,
+authorization and production deployment.
 
 ## Secondary workflow: table to report
 
@@ -536,8 +575,22 @@ claimed by the demo MVP.
   rows.
 - **CAT-FR-015:** Keep prior results visible and label the exact query version
   that produced them; mark them stale after edits or successor generation.
+- **CAT-FR-016:** Create a dashboard draft only from a successful query
+  execution and bind it to the exact query, execution, source and result
+  evidence that produced it.
+- **CAT-FR-017:** Let the user choose exactly one table or compatible bar/line
+  visualization and manually configure its title, bindings, labels and sort.
+- **CAT-FR-018:** Append immutable dashboard versions on explicit save and
+  retain author plus source provenance for every version.
+- **CAT-FR-019:** Restore the latest saved dashboard and its version history
+  after refresh without invoking a model or re-executing its query.
+- **CAT-FR-020:** Keep a dashboard visible but mark its source stale when the
+  active query or execution no longer matches; never silently rebind it.
+- **CAT-FR-021:** Keep Dashboard MVP independent of multi-source completion,
+  automated SQL repair, experiment export, narrative reporting and production
+  security pathways.
 
-## MVP acceptance
+## Accepted query-workbench MVP
 
 MVP requires an end-to-end deployment that demonstrates:
 
@@ -567,6 +620,30 @@ now preserves the accepted keyboard focus order and 200%-equivalent reflow
 boundary. An optional report demonstration does not substitute for
 table/notebook acceptance.
 
+## Dashboard MVP acceptance
+
+Dashboard MVP is complete only when a user can:
+
+1. Run a query and create a draft from that exact successful execution.
+2. Configure and save one table, bar chart, or line chart without a model call.
+3. Reload the application and recover the saved artifact and immutable version
+   history without query re-execution.
+4. Trace the artifact to its session, query version/digest, execution, data
+   source/catalog version, result schema/digest, and author.
+5. Edit or replace the underlying query and see the saved dashboard remain
+   visible with an explicit stale-source state.
+6. Complete the flow using the accepted keyboard and 200%-zoom accessibility
+   boundaries.
+
+Acceptance uses a deterministic seeded result fixture plus one real Catalyst
+execution whose rendered values are independently checked against PostgreSQL.
+The milestone makes no claim about multi-dashboard composition, sharing,
+scheduling, narrative correctness or production access control.
+
+Because the local demo has no authentication, dashboard-version authorship
+records only the actor kind `human`; it does not claim a verified user identity.
+Production identity attribution remains part of R5.
+
 ## Relationship to OGC-70
 
 OGC-70 has specifications because Catalyst was originally planned as a
@@ -591,7 +668,8 @@ and delivery order.
 | Base `clinlims` SQL | Not granted by the demo analytics role; any future exposure is controlled through database grants and the runtime catalog |
 | CloudSafe and LocalPHI security modes | Deferred; the current target is explicitly local demo data with local LLMs |
 | Golden-query evaluation | Moved into the umbrella Clinical AI Validation Harness with real-path execution and versioned evidence |
-| Advanced report storage, scheduling and dashboards | Deferred |
+| Dashboards | Selected next: one manually configured, versioned artifact from one executed result |
+| Advanced report storage, sharing and scheduling | Deferred |
 
 ## Clinical AI Validation Harness integration
 
