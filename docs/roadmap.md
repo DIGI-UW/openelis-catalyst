@@ -1,13 +1,16 @@
 # Catalyst Roadmap
 
-**Status:** Active local roadmap  
+**Status:** Active pathway roadmap; Dashboard MVP selected next
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
 ## Roadmap policy
 
 This roadmap replaces the local use of OGC-70 milestone labels M0.0–M5. Those
-labels remain historical references in the parent OpenELIS specification.
+labels remain historical references in the parent OpenELIS specification. The
+accepted query workbench is the shared foundation; later work is organized as
+parallel product, data, assistance, evaluation, narrative, and production
+pathways rather than one mandatory sequence.
 
 Delivery follows vertical, test-driven slices:
 
@@ -19,8 +22,9 @@ Delivery follows vertical, test-driven slices:
 Milestones have exit criteria rather than calendar estimates. A milestone is
 not complete because its classes, endpoints, or compose services exist.
 
-R0–R4 target a local demo using demo data, med-agent-hub, and local LLMs.
-Production security is future R5 work.
+The selected milestone is the next product investment, not a claim that every
+other pathway is blocked or abandoned. A pathway may advance independently
+when its own gate is approved. Production security remains future R5 work.
 
 ## Current baseline
 
@@ -44,12 +48,30 @@ The repository currently contains:
 
 It does not yet contain:
 
+- a persisted, versioned dashboard artifact or dashboard configuration UI;
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
 
 The original Catalyst-local agent code remains compatibility scaffolding, not
 the target topology.
+
+## Development pathways and selected milestone
+
+| Pathway | Current state | Dependency | Next boundary |
+| --- | --- | --- | --- |
+| Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
+| **Dashboard product (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Create, configure, version, restore, and mark one dashboard artifact stale when its source changes |
+| Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
+| Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
+| Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
+| Narrative reporting (R4) | Not started | A governed table; Dashboard MVP is not required | Add evidence-linked summaries with honest grounding states |
+| Productionization (R5) | Future | Explicit security/deployment program | Authentication, authorization, data scope, audit, operations |
+
+Dashboard MVP does not wait for G2.10, W2, W3, R4, or R5. Conversely, selecting
+D1 does not silently approve those pathways. PR #43 and its final MS-D decision
+are validation-report release closeout, not a Dashboard MVP implementation
+gate.
 
 ## R0 — Local specification baseline
 
@@ -275,18 +297,56 @@ The linear notebook extends R3 without adding chat or branching:
 6. Restore sessions, versions, executions and compact history without model
    calls.
 
-The previously reviewed stack produced and executed a complete contextual
-successor that preserved the base query and added only descending observed-date
-ordering.
-Both Gemma 4 12B writer and Qwen 2.5 14B reviewer invocations recorded
-temperature zero and DRY multiplier zero; an independent PostgreSQL check
-confirmed the matching row count and data range. That evidence predates the
-Gateway-owned orchestration refactor and is retained as history, not acceptance
-of the current pins. Exit still requires a current-pin rerun, the full
-scenario/accessibility matrix, user checkpoint, and a record of any output
-nondeterminism under the same sampling configuration.
+Final-pin acceptance on 2026-08-04 covered the complete initial → manual edit →
+Validate/Run → contextual follow-up → successor → rerun → refresh flow. The
+12/12 real-model matrix, independent PostgreSQL/gold comparisons, bounded
+failure/recovery, keyboard-only traversal, and actual 200% browser zoom passed.
+Model candidates and observed temperature-zero digest variance remain recorded
+evidence rather than reproducibility claims.
 
-## R4 — Evidence-linked narrative with grounding states
+## D1 — Supervised dashboard MVP
+
+**Status:** Selected next milestone
+
+**Goal:** Let a user promote one successful query execution into one manually
+configured, versioned dashboard artifact while preserving exact source lineage.
+
+### Test-first slices
+
+1. Dashboard contract and persistence
+   - Bind a draft to the source session, query version/digest, execution,
+     source/catalog version, typed result schema, and result digest.
+   - Append immutable versions only on explicit save; record author and time.
+2. One supervised presentation
+   - Start from the result table and allow one table, bar chart, or line chart
+     when the typed columns are compatible.
+   - Let the user configure title, selected columns or axes, labels, and sort.
+3. Restoration and staleness
+   - Restore the latest saved version and history after refresh without a model
+     call or query re-execution.
+   - Keep the artifact visible and mark its source stale when the active query
+     or execution changes; never silently rebind it.
+4. Real-path and accessibility acceptance
+   - Exercise one seeded deterministic fixture and one real Catalyst execution,
+     independently checking rendered values against PostgreSQL.
+   - Preserve the accepted keyboard path, responsive layout, and 200%-zoom
+     boundary.
+
+### Exit criteria
+
+- A user can create, configure, save, reload, and revise one dashboard artifact
+  from one exact successful execution.
+- Every saved version traces to its query, execution, data source/catalog, typed
+  result schema/digest, and author.
+- A changed source query produces an explicit stale state without destroying or
+  rebinding the saved artifact.
+- No model call or automatic query execution is required to configure, save, or
+  restore the dashboard.
+- Multi-widget layouts, model-generated visualization specifications,
+  narratives, sharing, scheduling, automatic refresh, export/publication,
+  authorization, and production deployment remain explicit deferrals.
+
+## Narrative reporting pathway (R4) — Evidence-linked summaries
 
 **Status:** Not started
 
@@ -323,7 +383,7 @@ This remains a local demo using demo data and local LLMs.
 - Hub trace and Catalyst trace IDs are correlated.
 - Report failure never invalidates or hides a successful table.
 
-## R5 — Future production security and supported deployment
+## Productionization pathway (R5) — Security and supported deployment
 
 **Status:** Future
 
@@ -353,15 +413,17 @@ This remains a local demo using demo data and local LLMs.
 
 ## Clinical AI Validation Harness transition
 
-**Status:** Umbrella pin and initial real-path runner implemented; comparative
-experiments continue in the harness roadmap.
+**Status:** Umbrella pins, real-path runner, judging, and mixed-family report
+publication implemented. PR #43's final MS-D acceptance remains release
+closeout; broader session export and comparative experiments remain optional
+evaluation-path work.
 
 The
 [Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness)
 owns the sibling Catalyst and Hub pins. Catalyst keeps only component tests and
 local smoke evidence; cross-model experiments belong in the harness.
 
-### Current implementation and next work
+### Current implementation and evaluation-path work
 
 - Maintain the implemented real adapter path:
   `Harness → Catalyst ↔ med-agent-hub`, with Catalyst separately executing
@@ -374,21 +436,29 @@ local smoke evidence; cross-model experiments belong in the harness.
 - Score structured-query correctness and result-table correctness separately.
 - Add report grounding, abstention, safety and temporal scoring when R4 is
   available.
-- Produce the harness's manifests, JSONL traces, result records and reviewable
-  reports.
+- Maintain the implemented manifests, JSONL traces, result records, judging,
+  mixed-family publishing, and reviewable reports.
+- Add one-click workbench session export only if that separately scoped W3
+  pathway is selected.
+- Add dashboard artifact validation after D1 exists; it is not part of PR #43.
 - Make harness evidence the release gate for later profile or model changes.
 
 The initial suite is engineering evidence, not a claim of clinical validation.
-Broader notebook scenarios and comparative experiments remain future work.
+Broader notebook/dashboard scenarios and comparative experiments remain future
+evaluation work and do not block D1 implementation.
 
 ## Dependency summary
 
 ```text
-R0 local specs
-  → R1 generic Hub execution
-  → R2 analytics contract
-  → R3 query-to-table MVP
-       ├→ R3.1 iterative query notebook → harness experiments
-       ├→ R4 evidence-linked narrative
-       └→ R5 future production security and supported deployment
+R0 local specs → R1 generic Hub execution → R2 analytics contract
+  → R3 query-to-table MVP → R3.1 iterative query notebook (accepted base)
+       ├→ D1 supervised dashboard MVP (selected next)
+       ├→ G2.10 multi-source/lossless data foundation
+       ├→ W2 targeted query assistance
+       ├→ W3/CVR evaluation and comparative experiments
+       ├→ R4 evidence-linked narrative reporting
+       └→ R5 production security and supported deployment
 ```
+
+Only the accepted R3/R3.1 base blocks D1. The sibling branches above are
+parallel pathways with independent approval and acceptance gates.
