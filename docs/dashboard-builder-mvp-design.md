@@ -12,6 +12,19 @@ architecture, interaction design, and visual specification.
 
 ## Approved MVP reconciliation
 
+The prototype's Ask shell, fixed composer, chronological thread, Dataset tile,
+and review panel are the required target experience. Production must integrate
+the accepted query notebook into them and retain profile/model selection and
+evidence, exactly one SQL editor with completion/formatting/wrapping, manual
+versions and unresolved snapshots, advisory Validate, explicit Run, visible raw generation evidence,
+findings, database diagnostics and typed results, contextual follow-up, compact
+history, result staleness, refresh restoration, runtime schema/catalog access,
+and New session through **Save Dataset**. The mock's abbreviated prompt-only
+state is not a license to omit those capabilities. Do not implement its example
+prompts or implied automatic generation/execution. Reorganize the schema/data
+context and executed-result preview into the compact thread, Dataset draft tile,
+and review panel while keeping all existing information and actions accessible.
+
 1. Superset 6.1.0 is the dashboard renderer. Catalyst does not build a parallel
    chart runtime. Because the MVP is a one-way file handoff, Catalyst remains the
    desired-configuration source of truth and Superset-only layout edits are
@@ -62,13 +75,15 @@ Repo this extends: `DIGI-UW/openelis-catalyst` (branch `main`), app at `catalyst
 
 ## About the Design Files
 
-The files in this bundle are **design references created in HTML** — prototypes showing intended look and behavior, not production code to copy directly. The task is to **recreate these designs in `catalyst-ui`** using its existing environment: React + TypeScript with IBM Carbon Design System conventions (the existing app already uses Carbon tokens, IBM Plex Sans/Mono, and Carbon component patterns in `catalyst-ui/src/features/query/`). Prefer real `@carbon/react` components (`DataTable`, `Tile`, `SideNav`, `Accordion`, `Button`, `Select`, `TextArea`, `Tag`, `InlineNotification`) over hand-rolled markup wherever a Carbon component matches what the prototype draws.
+The files in this bundle are **design references created in HTML** — prototypes showing intended look and builder behavior, not production code to copy directly and not a replacement for the accepted Ask/query-notebook behavior. The task is to **recreate these designs in `catalyst-ui`** using its existing environment: React + TypeScript with IBM Carbon Design System conventions (the existing app already uses Carbon tokens, IBM Plex Sans/Mono, and Carbon component patterns in `catalyst-ui/src/features/query/`). Prefer real `@carbon/react` components (`DataTable`, `Tile`, `SideNav`, `Accordion`, `Button`, `Select`, `TextArea`, `Tag`, `InlineNotification`) over hand-rolled markup wherever a Carbon component matches what the prototype draws.
 
 ## Fidelity
 
 **High-fidelity.** `Catalyst Dashboard Builder 4c.dc.html` carries final colors, typography, spacing, states, and interactions — recreate it faithfully, but express it through Carbon components and tokens rather than copying inline styles. `Dashboard Builder Wireframes.dc.html` is **low-fidelity** and is included only as design rationale (four structural directions considered, and why 4c won).
 
-`Catalyst Query Screen.dc.html` is a recreation of the **existing** app screen, included so the new work can be visually diffed against today's baseline.
+`Catalyst Query Screen.dc.html` is a recreation of the **existing** app screen,
+included so its full query-workbench behavior can be integrated into the new Ask
+screen and visually regressed against today's baseline.
 
 ## Product model
 
@@ -152,10 +167,29 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 
 Purpose: ask a question, review what came back, save it.
 
+Behavioral override: retain the accepted production query workflow and controls
+through Dataset save. The thread wraps that workflow; it does not collapse SQL
+generation, editing, versioning, validation, explicit execution, diagnostics,
+results, and follow-up into a single automatic prompt action. The executed-result
+preview opens from the Dataset tile in the review panel, while the one canonical
+SQL editor remains the active query work surface.
+
 Thread is a single `flex-direction: column; gap: 1rem` stack, full content width.
 
 - **Header**: eyebrow "Ask OpenELIS", H1 = the session title ("Monthly viral load, 2026"), description "Nothing is saved until you review it. Drafts stay in this thread." Top-right: "New session" ghost button (height `2rem`, `1px solid #0f62fe`, `#0f62fe`, add-16 icon).
 - **User message**: `align-self: flex-end`, `max-width: 38rem`, padding `0.75rem 1rem`, background `#e0e0e0`, color `#161616`, `0.875rem`/1.5. No radius (Carbon is square).
+- **Latest query workbench card**: immediately after the latest user instruction
+  and before any Dataset tile, integrate the current production workbench. It is
+  the only editable SQL surface and retains the current CodeMirror completion,
+  formatting and wrapping controls; typed parameter editor; advisory validation;
+  explicit Run; raw generation evidence; findings; database diagnostics; typed
+  result status; provenance/version history; Clear/Restore; and New session. Use
+  the thread's full content width and Carbon tile styling. After a successful Run,
+  the one Dataset tile immediately following this card is the entry point to the
+  typed row preview; do not retain a second inline result table. Earlier turns
+  collapse to read-only question/query/version/execution summaries. When a
+  successor becomes current, this same card moves with the latest turn rather
+  than creating another editor.
 - **Draft tile — dataset** (the key component). A button, `width: 100%`, `max-width: 34rem`, `display: flex; align-items: center; gap: 1rem`, padding `0.75rem 1rem`, background `#fff`, border `1px solid #c6c6c6`, `border-left: 3px solid` state accent. Contents left → right:
   - 20×20 Carbon "data-table" icon, `#525252`
   - stacked text (`flex: 1`): name `0.875rem`/600; meta line `0.75rem` `#6f6f6f` — "Dataset · 1,486 rows · 4 columns"
@@ -175,12 +209,11 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
 ### 2. Ask — first run / empty thread
 
 Same shell and composer, no thread.
-- H1 "What do you want to know?"; description "Ask in plain language. Catalyst writes the SQL, runs it read-only, and suggests how to show it."
-- Three example-prompt buttons, `max-width: 44rem`, stacked `gap: 0.5rem`: padding `0.875rem 1rem`, `1px solid #c6c6c6`, background `#fff`, `0.875rem`, left-aligned text, arrow-right-16 `#0f62fe` at the right. Hover `border-color: #0f62fe`, `background: #f4f4f4`. Clicking one fills the composer (does not auto-send).
-  1. "Monthly viral load results for 2026, with the month and the number of results"
-  2. "Median turnaround time by test type over the last 30 days"
-  3. "Which specimen rejection reasons are most common this quarter?"
-- Footnote `0.75rem` `#6f6f6f`: "Every question is executed read-only against the governed catalog. You review the SQL before anything is saved."
+- H1 "What do you want to know?"; description "Ask in plain language. Catalyst
+  prepares editable SQL; you review, validate, and explicitly run it read-only."
+- Omit the prototype's three example-prompt buttons. They would bias manual
+  evaluation and are not part of the accepted Ask experience.
+- Footnote `0.75rem` `#6f6f6f`: "Queries run read-only against the governed catalog only when you select Run. You review the SQL before anything is saved."
 - No "New session" button in this state.
 
 ### 3. Datasets library
@@ -232,7 +265,10 @@ One panel component, two modes. Opened by any draft tile or library row; this is
 2. Metadata grid, 2 columns, `gap: 1px` on a `#e0e0e0` background so hairlines show; each cell padding `0.75rem 1rem`, background `#f4f4f4`; `dt` `0.75rem` `#6f6f6f`, `dd` `1rem`. Rows: 1,486 · 4 · OpenELIS · `:since_date`.
 3. Three-row result preview table, `0.75rem`, `1px solid #e0e0e0`, same header/zebra treatment as the libraries.
 4. Collapsed accordion "SQL and provenance" (Carbon accordion; chevron rotates 90°, `transition: transform 110ms`). Expanded: `<pre>` IBM Plex Mono `0.75rem`/1.6 on `#f4f4f4`, padding `1rem`; then provenance line `0.75rem` `#6f6f6f`: "Profile catalyst-query-gemma-4-12b-q4 · lint passed · trace cat-7f2a91c4 · catalog analytics-catalog-v1".
-   - **Governance decision:** SQL and provenance stay available but collapsed. The MVP governance moment is the review panel itself; there is no mandatory SQL acceptance gate and no config-diff step. Reversal is by Undo.
+   - **Governance decision:** this is a read-only snapshot of the exact executed
+     Query vN and provenance. Editing remains in the latest turn's single
+     canonical SQL editor. Saving the Dataset is explicit; later query changes
+     mark the draft stale rather than mutating or silently rebinding it.
 5. Footer: "Save dataset" → "Saved to library" (disabled) once saved.
 
 **Widget mode body**
@@ -275,9 +311,12 @@ Use Carbon `ToastNotification` if it can be positioned this way; otherwise match
 **Not in the MVP** (all considered and cut, in this order of likely reintroduction): arbitrary column-mapping panel, model-generated/"why this suggestion" reasoning, full Catalyst chart rendering, size/slot picker, parameter → native-filter mapping, config diff before write, embedded Superset viewing, dashboard rename/delete/share from Catalyst.
 
 **Loading / error states to add during implementation** (the prototype does not draw them):
-- Question in flight: skeleton draft tile, composer Send disabled with an inline spinner.
-- SQL generation failure: inline notification in the thread with the failure reason and a retry action.
-- Query execution error: error-state tile carrying the SQL error, "Review" opens the panel with SQL expanded.
+- Question/follow-up in flight: skeleton latest-turn workbench state; composer
+  Send disabled with an inline spinner. No Dataset tile exists before a
+  successful explicit Run.
+- SQL generation failure: inline notification in the thread with the failure reason, raw candidate evidence when available, and a retry action; keep the prior query current and editable.
+- Query execution error: the active workbench retains the editable SQL and shows
+  the database diagnostic; do not create a Dataset tile for a failed execution.
 - Bundle generation failure: drafts stay Saved, no current pointer changes, and an inline notification exposes the bounded diagnostic and retry action.
 - Superset CLI import failure: Superset remains available, the prior imported dashboard remains usable, and the exact bundle shows `Import failed` with retry/reset guidance.
 - Superset render check pending: schematic thumbnail remains visible while the
@@ -297,6 +336,8 @@ Session-scoped state (prototype names in parentheses):
 | `screen` | "Ask" \| "Datasets" \| "Widgets" \| "Dashboards" | nav selection; also closes the panel |
 | `navExpanded` | boolean | nav rail collapsed/expanded |
 | `thread` | boolean (prototype) / message array (production) | empty vs. populated Ask screen |
+| `currentVersion` + `editorSnapshot` | immutable version reference + exact mutable SQL/typed-parameter buffer | drives the latest turn's single active workbench card; dirty/unresolved state is never duplicated in a Dataset draft |
+| `validation` + `execution` | exact-digest findings and latest execution summary/typed result reference | drives advisory state, explicit Run, result staleness, and eligibility for a Dataset tile |
 | `panel` | null \| "dataset" \| "widget" | which slide-over mode is open |
 | `sqlOpen` | boolean | SQL/provenance accordion |
 | `dsSaved`, `wSaved` | boolean (prototype) / immutable Catalyst version ids (implementation) | Draft vs. Saved for the current drafts |
@@ -309,8 +350,11 @@ Session-scoped state (prototype names in parentheses):
 In implementation, replace the booleans with server-owned entities: a session/thread resource holding messages and draft objects plus immutable Dataset, Widget, Dashboard, and Bundle Export versions. Stable logical Dashboard UUIDs and version-derived child UUIDs are export provenance; drafts persist server-side so reload does not lose work.
 
 **Data fetching**
-- `POST` question → generated SQL + provenance (existing Catalyst service).
-- `POST` execute (read-only) → typed rows; feeds tile meta, panel preview, and the shape-based viz suggestion.
+- Existing question/turn/version/Validate/Run routes and semantics remain the
+  behavioral contract. A question or follow-up produces a complete query for
+  manual review in the one canonical editor; execution is always explicit.
+- Explicit read-only execution returns typed rows and diagnostics; these feed
+  tile metadata, the movable panel preview, and the shape-based viz suggestion.
 - Publish: Gateway serializes database → virtual dataset → chart → dashboard YAML plus the Catalyst manifest, writes the content-addressed ZIP and `current.json` atomically to the outbox, and offers the same ZIP for download.
 - Import: a one-shot Compose service runs the pinned Superset CLI, reads the outbox read-only, and writes a digest-addressed receipt. It is invoked during clean bootstrap or by the explicit running-instance helper; Catalyst never accesses the Docker socket.
 - Libraries read from Catalyst's own records and import receipts, so they render without querying Superset on every page view.

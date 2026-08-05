@@ -4,7 +4,7 @@
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-05
 
 ## Product statement
 
@@ -263,6 +263,20 @@ The hub never receives database credentials and never executes the query.
 
 Dashboard Builder MVP starts from one successful, non-stale query execution. It
 does not generate or execute another query while configuring or publishing.
+The design prototype's Ask shell, fixed composer, chronological thread, Dataset
+tile, and review panel are the required target experience. They integrate the
+accepted Ask/query notebook rather than reducing it to the mock's abbreviated
+prompt-only state. Through **Save Dataset**,
+the user retains profile/model selection and evidence, one canonical SQL editor
+with completion and formatting, manual versions and unresolved snapshots,
+advisory validation, explicit execution, raw generation evidence/findings/
+database diagnostics, typed results, contextual follow-up, the compact timeline,
+stale labels, refresh restoration, and New session. No example prompts, second
+editor, or automatic execution are introduced. The latest turn contains the
+single active SQL work surface; older turns and the Dataset panel show read-only
+snapshots. The schema/data context and executed-result preview move into the
+design's thread/Dataset tile/review panel with their existing information and
+actions intact.
 
 1. In the persistent Ask thread, the user promotes results labelled with their
    exact Query vN into a Dataset draft. Catalyst binds the exact session, query
@@ -618,6 +632,18 @@ claimed by the demo MVP.
   completion, automated SQL repair, experiment export, narrative reporting and
   production security, and exclude Superset REST API publication, embedded
   viewing, cross-system undo/reconciliation, sharing and scheduling.
+- **CAT-FR-024:** Extend, and do not replace, the accepted Ask/query-notebook
+  workflow through **Save Dataset**. Preserve profile/model selection and
+  evidence, exactly one completion/formatting-enabled SQL editor, manual versions
+  and unresolved snapshots, advisory Validate, explicit Run, visible findings/
+  raw generation evidence/database diagnostics, typed results, contextual
+  follow-up, history, staleness, refresh restoration, schema/catalog access, and
+  New session inside the prototype's required Ask shell, fixed composer,
+  chronological thread, Dataset tile, and review panel. Reorganize schema context
+  and the executed-result preview within that design without losing information
+  or actions. The latest turn contains the single active SQL work surface; older
+  turns and the Dataset panel show read-only snapshots. Do not add its example
+  prompts or implied automatic query execution.
 
 ## Accepted query-workbench MVP
 
@@ -653,21 +679,28 @@ table/notebook acceptance.
 
 Dashboard Builder MVP is complete only when a user can:
 
-1. Run a query and promote that exact successful execution to a Dataset draft.
-2. Review or override the deterministic Widget suggestion, save it, place one
+1. Complete the accepted profile → generation → single SQL editor/manual version
+   → Format → Validate → explicit Run → diagnostics/typed results → contextual
+   successor → rerun → stale labeling → refresh/New session path in the new
+   shell, with no missing action/evidence, duplicate editor, example prompts, or
+   automatic execution.
+2. Open the moved Dataset preview from its chronological tile, inspect the exact
+   Query vN, typed rows, findings/diagnostics, and provenance, and promote that
+   exact successful execution to a Dataset draft.
+3. Review or override the deterministic Widget suggestion, save it, place one
    or more saved widgets into a Dashboard draft, and recover all libraries and
    immutable history after refresh without model calls or query re-execution.
-3. Trace every draft/export to its session, query version/digest, execution,
+4. Trace every draft/export to its session, query version/digest, execution,
    data source/catalog, typed parameters/schema, result digest and actor kind.
-4. Select **Publish to Superset**, receive the downloadable ZIP, and see the
+5. Select **Publish to Superset**, receive the downloadable ZIP, and see the
    identical bundle atomically appear in the host-visible Superset outbox.
-5. Boot a clean Superset 6.1.0 instance with that bundle or use the explicit
+6. Boot a clean Superset 6.1.0 instance with that bundle or use the explicit
    import/update helper in a running instance; render values independently
    checked against PostgreSQL, then import a changed bundle that keeps the same
    Dashboard UUID and introduces new version-addressed child UUIDs.
-6. Recover honestly from import failure and distinguish `Bundle ready`,
+7. Recover honestly from import failure and distinguish `Bundle ready`,
    `Imported`, and `Import failed`; a generated file alone never appears synced.
-7. Edit or replace the underlying query and see saved drafts remain visible with
+8. Edit or replace the underlying query and see saved drafts remain visible with
    explicit stale-source state, then complete the flow using the accepted
    keyboard, narrow-layout and actual 200%-zoom boundaries.
 

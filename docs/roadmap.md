@@ -314,6 +314,17 @@ design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local
 outbox for clean bootstrap or explicit running-instance import.
 
+**Ask integration boundary:** D1 implements the prototype's Ask shell, fixed
+composer, chronological thread, Dataset tile, and review panel while integrating
+the accepted query notebook inside them. Profile/model selection, the single
+full SQL editor, completion/Format, manual versions, advisory
+Validate, explicit Run, visible generation/findings/database/result evidence,
+contextual follow-up, timeline, staleness, refresh, schema/catalog access, and
+New session remain available through **Save Dataset**. Within that redesign, the
+schema/data context and executed-result preview move into the chronological
+Dataset tile/review panel. No example prompts, second editor, or automatic
+execution are introduced.
+
 ### Test-first slices
 
 1. Written plan and stack
@@ -328,14 +339,19 @@ outbox for clean bootstrap or explicit running-instance import.
      child UUIDs, byte-identical native ZIPs, atomic
      outbox publication and digest-addressed import outcomes.
 3. Supplied iterative UX
-   - Implement the fixed Ask composer, chronological draft tiles, single
-     slide-over review panel, Dataset/Widget/Dashboard libraries, five target
-     visualization families with a compact compatible-type selector and
-     schematic thumbnails only, multi-widget Dashboard drafts and explicit
-     stale states.
+   - Recompose the existing `QueryWorkspace` into the prototype's fixed composer,
+     chronological draft tiles and single slide-over review panel while keeping
+     the complete accepted Ask/query-notebook behavior through Dataset save and
+     exactly one canonical SQL editor.
+   - Add Dataset/Widget/Dashboard libraries, five target visualization families
+     with a compact compatible-type selector and schematic thumbnails only,
+     multi-widget Dashboard drafts and explicit stale states.
    - `Publish to Superset` writes/downloads the bundle; `Open Superset` opens
      the renderer; file creation alone remains `Bundle ready`.
 4. Real-path and accessibility acceptance
+   - First rerun the complete accepted initial generation → manual version →
+     Format/Validate/Run → follow-up successor → rerun → refresh/New session E2E
+     path in the new shell, through Dataset preview and save.
    - Exercise one real Catalyst execution, clean Superset import, changed
      publication through the stable Dashboard UUID plus new versioned children,
      and independent PostgreSQL value reconciliation.
