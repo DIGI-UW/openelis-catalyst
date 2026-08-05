@@ -308,6 +308,8 @@ services:
       CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
+      CATALYST_SUPERSET_OUTBOX: "/app/superset-outbox"
+      CATALYST_SUPERSET_ANALYTICS_URI: "postgresql+psycopg2://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_QUERY_MAX_ROWS: "${CATALYST_QUERY_MAX_ROWS:-100}"
       CATALYST_STATEMENT_TIMEOUT_MS: "${CATALYST_STATEMENT_TIMEOUT_MS:-10000}"
       CATALYST_EXECUTION_LEASE_SECONDS: "${CATALYST_EXECUTION_LEASE_SECONDS:-60}"
@@ -316,6 +318,7 @@ services:
       - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
       - ./docs/contracts:/docs/contracts:ro
       - gateway-state:/app/state
+      - ./runtime/superset/outbox:/app/superset-outbox
     networks:
       - openelis-network
     depends_on:

@@ -38,6 +38,7 @@ class GatewayConfig:
     data_sources: tuple[DataSourceConfig, ...]
     default_data_source_id: str
     default_query_profile_id: str
+    superset_outbox_path: str
 
 
 def _load_extra_data_sources() -> tuple[DataSourceConfig, ...]:
@@ -103,5 +104,8 @@ def load_config() -> GatewayConfig:
         default_data_source_id=default_source_id,
         default_query_profile_id=os.getenv(
             "CATALYST_QUERY_PROFILE_ID", QUERY_PROFILE_ID
+        ),
+        superset_outbox_path=os.getenv(
+            "CATALYST_SUPERSET_OUTBOX", "/tmp/catalyst-superset-outbox"
         ),
     )
