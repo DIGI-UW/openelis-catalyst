@@ -1,6 +1,7 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; Superset-backed Dashboard Builder MVP selected next
+**Status:** Active pathway roadmap; local table-dashboard vertical slice
+implemented; full Superset-backed Dashboard Builder D1 remains open
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -41,15 +42,23 @@ The repository currently contains:
 - med-agent-hub as a generic single-role provider/router boundary through
   `POST /v1/hub/generate`;
 - a pinned OpenELIS → HAPI FHIR → FHIR Data Pipes → PostgreSQL demo assembly;
+- persisted, immutable Dataset, Widget, and Dashboard draft records for the
+  current table-dashboard vertical slice;
+- deterministic native Superset bundle generation, a pinned local Superset
+  service, explicit importer, and verified local import receipts;
 - a second, independently switchable data source (OpenMRS HIV/ART, its own
   analytics database and catalog) alongside OpenELIS, targetable per turn
   within one source-agnostic session;
 - Gateway, analytics/assembly, UI and browser tests.
 
-It does not yet contain:
+It does not yet contain full D1 acceptance:
 
-- persisted/versioned Dataset, Widget, and Dashboard draft libraries;
-- deterministic Superset bundle generation or a pinned local Superset service;
+- the designed multi-widget/library experience and all five verified native
+  visualization mappings (the current exporter is table-only);
+- complete reset/reimport recovery, the full accessibility matrix, and the
+  schema-backed dashboard acceptance emitter;
+- a real-model Dashboard MVP acceptance run (the completed local structural
+  flow used the deterministic fake router and is not model evidence);
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
@@ -62,7 +71,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Implement iterative Dataset/Widget/Dashboard drafts and publish deterministic native bundles to pinned local Superset |
+| **Superset-backed Dashboard Builder (D1)** | **Working local table-dashboard vertical slice; full D1 open** | Accepted query/workbench foundation only | Complete real-model local-MVP acceptance, then D1 hardening |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -307,8 +316,18 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Selected next milestone; D1a passed and user-accepted 2026-08-05;
-D1b runtime/import implementation authorized
+**Status:** Working local table-dashboard vertical slice; D1a passed and
+user-accepted 2026-08-05; full D1 acceptance remains open
+
+**Current delivery boundary:** The active branches provide a manually testable
+table Dashboard path—exact Run → Dataset → table Widget → named Dashboard →
+native ZIP → explicit local Superset import. Health, restart retention, and
+verified import receipts are demonstrated. This must not be described as full
+D1: the full five-family/multi-widget UI, reset/reimport recovery, complete
+accessibility matrix, event/acceptance emitter, and real Gemma/Qwen acceptance
+run remain open. The local MVP closes only after the real-model path produces a
+verified dashboard whose displayed values reconcile to PostgreSQL and the user
+accepts it.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised

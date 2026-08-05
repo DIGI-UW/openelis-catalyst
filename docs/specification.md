@@ -1,7 +1,8 @@
 # Catalyst Product Specification
 
 **Status:** Iterative query notebook MVP accepted; Dashboard Builder D1a passed
-and user-accepted; D1b implementation authorized
+and user-accepted; local table-dashboard vertical slice implemented; full D1
+acceptance open
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -750,6 +751,14 @@ boundary. An optional report demonstration does not substitute for
 table/notebook acceptance.
 
 ## Dashboard Builder MVP acceptance
+
+The full acceptance below remains the D1 product standard. The current local
+vertical slice is deliberately narrower: it verifies one table Widget and one
+Dashboard imported into Superset while preserving the accepted Ask workflow.
+It is a working MVP only after a real configured writer/reviewer run, PostgreSQL
+value reconciliation, and user acceptance; it is not evidence that the five
+visualization mappings, multi-widget library experience, full recovery, or the
+complete accessibility/evidence program are done.
 
 Dashboard Builder MVP is complete only when a user can:
 
