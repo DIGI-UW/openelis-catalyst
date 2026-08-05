@@ -1,6 +1,6 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook MVP accepted; Dashboard MVP selected next
+**Status:** Iterative query notebook MVP accepted; Superset-backed Dashboard Builder MVP selected next
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -11,9 +11,11 @@
 Catalyst is a supervised dashboard creator for OpenELIS reporting. It turns a
 laboratory user's natural-language question into a governed query, executes
 that query against an analytics data source, and returns a typed table. The
-user can then promote an executed result into a manually configured, versioned
-dashboard artifact. Evidence-linked narrative reporting remains a separate,
-optional pathway.
+user can then promote an executed result through supervised Dataset, Widget,
+and Dashboard drafts and publish a native configuration bundle that Apache
+Superset imports and renders. Catalyst is the iterative builder; it does not
+reimplement a dashboard runtime. Evidence-linked narrative reporting remains a
+separate, optional pathway.
 
 For governed query generation, Catalyst is an **orchestrating client of
 med-agent-hub**. Gateway owns the selectable query profiles, role-to-model
@@ -30,12 +32,13 @@ The accepted product foundation is:
 
 The selected next product milestone is:
 
-> Executed Query vN → Dashboard Draft v1 → manual table/chart configuration →
-> saved dashboard version
+> Executed Query vN → Dataset draft → Widget draft → Dashboard draft →
+> deterministic Superset bundle → local Superset import
 
 Multi-source hardening, automated query repair, experiment export, narrative
 reports, and production security continue as parallel pathways. They can
-improve the dashboard later but do not block the single-source Dashboard MVP.
+improve the dashboard later but do not block the file/outbox Dashboard Builder
+MVP.
 
 ## Document authority
 
@@ -67,8 +70,9 @@ scaffolding.
 4. Keep database credentials and query execution outside the LLM boundary.
 5. Preserve source, query, schema, and data-freshness provenance for every
    result.
-6. Let a user turn an executed result into a manually configured, versioned
-   dashboard artifact without losing its source lineage.
+6. Let a user promote governed results through versioned Dataset, Widget, and
+   Dashboard drafts and publish them to the pinned local Superset renderer
+   without losing source lineage.
 7. Support an evidence-linked report with explicit grounding states, generated
    from an already governed result table.
 8. Emit session, turn, version, model, prompt, validation, and execution evidence
@@ -82,8 +86,10 @@ scaffolding.
 - Using external model providers in the demo path.
 - Processing production patient data or claiming production security.
 - Granting database access beyond the configured PostgreSQL role.
-- Building multi-widget layouts, report scheduling, sharing, automatic refresh,
-  publication, or cross-report memory in Dashboard MVP.
+- Building a Catalyst-owned dashboard renderer, invoking the Superset REST API,
+  embedding Superset, or claiming cross-system synchronization in this MVP.
+- Report scheduling, sharing, automatic refresh, production publication, or
+  cross-report memory in Dashboard Builder MVP.
 - Automatic query execution, branching from arbitrary old versions, or a
   general-purpose chat interface in the notebook MVP.
 
@@ -94,9 +100,10 @@ scaffolding.
 | OpenELIS | Source laboratory data; future production identity and permissions | LLM orchestration |
 | OHS FHIR Data Pipes | FHIR extraction, incremental synchronization and per-resource Parquet or database projections | Cross-resource business metrics or user-facing query workflow |
 | Analytics PostgreSQL store | FHIR projections, semantic marts, role-level grants and runtime schema metadata | LLM orchestration |
-| Catalyst | Query profiles, prompts, role composition, runtime catalog, structured query orchestration, deterministic diagnostics, append-only notebook and dashboard state, read-only execution, query evidence and typed table response | Model-provider credentials or router implementation |
+| Catalyst | Query profiles, prompts, role composition, runtime catalog, structured query orchestration, deterministic diagnostics, append-only notebook and builder-draft state, read-only execution, typed results, deterministic Superset bundle generation and import evidence | Model-provider credentials, router implementation, or dashboard rendering |
 | med-agent-hub | Generic single-role generation, model-provider/router connection, shared transport controls, and future report product profiles | Catalyst query profiles, catalog semantics, query orchestration, database credentials or SQL execution |
-| Catalyst/OpenELIS UI | One active SQL editor, manual versions, validation, execution, follow-up composer, timeline, table rendering, and supervised dashboard configuration | Hidden model orchestration |
+| Catalyst/OpenELIS UI | One active SQL editor, manual versions, validation, execution, follow-up composer, timeline, typed results, iterative Dataset/Widget/Dashboard review, libraries, and publish/import status | Hidden model orchestration or a dashboard rendering engine |
+| Apache Superset 6.1.0 | Imported database/dataset/chart/dashboard assets, analytics queries, dashboard layout and rendering | Catalyst query generation, draft lineage, or inferred import state |
 | Clinical AI Validation Harness | Pinned umbrella assembly, scenarios, comparison runs, scoring and reviewable evidence | Production request serving |
 
 ## Target architecture
@@ -252,34 +259,42 @@ false conflict on first use.
 
 The hub never receives database credentials and never executes the query.
 
-## Selected next workflow: executed result to dashboard
+## Selected next workflow: governed result to Superset dashboard
 
-Dashboard MVP starts from one successful, non-stale query execution. It does
-not generate or execute another query.
+Dashboard Builder MVP starts from one successful, non-stale query execution. It
+does not generate or execute another query while configuring or publishing.
 
-1. The user chooses **Create dashboard** from the result labelled with its
-   exact query version.
-2. Catalyst creates a draft bound to the session, query version and digest,
-   execution, data source/catalog version, typed result schema and result
-   digest. `resultDigest` is SHA-256 over RFC 8785 JSON Canonicalization Scheme
-   bytes of the stored successful `catalyst.table.v1` payload.
-3. The draft contains exactly one user-selected presentation: the existing
-   table, a bar chart, or a line chart when the result's typed columns support
-   that choice.
-4. The user manually configures the title, selected columns or axis bindings,
-   labels and sort order, previews the result, and explicitly saves a version.
-5. Every save appends an immutable dashboard version with author and source
-   provenance. Reload restores the latest saved version without a model call or
-   query re-execution.
-6. A later query edit, successor, or execution never silently rebinds the
-   dashboard. Catalyst keeps the saved artifact visible and marks its source as
-   stale when the active workbench state has moved on.
+1. In the persistent Ask thread, the user promotes results labelled with their
+   exact Query vN into a Dataset draft. Catalyst binds the exact session, query
+   digest/version, execution, data source/catalog, typed schema/parameters and
+   canonical result digest without copying result rows.
+2. Catalyst deterministically suggests one compatible presentation from table,
+   big-number KPI, time-series line/area, grouped/stacked bar, and proportion
+   bar. The user reviews or overrides the compatible type in one slide-over
+   panel; deterministic bindings are visible/read-only. Catalyst shows only a
+   schematic thumbnail, while Superset performs authoritative rendering.
+3. Saving appends immutable Dataset and Widget versions. The user may place one
+   or more saved Widget versions into a Dashboard draft and save an immutable
+   Dashboard version. Dataset, Widget, and Dashboard libraries restore after
+   refresh and retain explicit stale-source state.
+4. **Publish to Superset** compiles named parameters from the exact typed
+   execution values, keeps the logical Dashboard UUID stable, derives Dataset
+   and Widget/chart UUIDs from immutable versions, and atomically writes a
+   byte-deterministic native Superset ZIP to a host-visible outbox mounted
+   read-only into Superset. The same ZIP is downloadable.
+5. Stack bootstrap imports the selected current bundle into a clean Superset
+   6.1.0 instance. An explicit CLI helper imports or updates it in a running
+   instance. Only the exact importer outcome changes `Bundle ready` to
+   `Imported` or `Import failed`; file generation alone never claims sync.
+6. Superset queries the analytics database through a read-only role and renders
+   the dashboard. A later query edit or execution never silently rebinds saved
+   drafts or exports.
 
-Dashboard MVP is deliberately narrow: one artifact, one table or chart, manual
-configuration, local persistence and refresh restoration. It excludes
-multi-widget layouts, model-generated visualization specifications, result
-narratives, sharing, scheduling, automatic refresh, export/publication,
-authorization and production deployment.
+The MVP does not call the Superset REST API and does not build a local dashboard
+renderer. Model-generated visualization specifications, embedded viewing,
+cross-system undo/reconciliation, narratives, sharing, scheduling, automatic
+refresh, production credentials/authorization and production deployment remain
+explicitly deferred.
 
 ## Secondary workflow: table to report
 
@@ -575,20 +590,34 @@ claimed by the demo MVP.
   rows.
 - **CAT-FR-015:** Keep prior results visible and label the exact query version
   that produced them; mark them stale after edits or successor generation.
-- **CAT-FR-016:** Create a dashboard draft only from a successful query
-  execution and bind it to the exact query, execution, source and result
-  evidence that produced it.
-- **CAT-FR-017:** Let the user choose exactly one table or compatible bar/line
-  visualization and manually configure its title, bindings, labels and sort.
-- **CAT-FR-018:** Append immutable dashboard versions on explicit save and
-  retain author plus source provenance for every version.
-- **CAT-FR-019:** Restore the latest saved dashboard and its version history
-  after refresh without invoking a model or re-executing its query.
-- **CAT-FR-020:** Keep a dashboard visible but mark its source stale when the
-  active query or execution no longer matches; never silently rebind it.
-- **CAT-FR-021:** Keep Dashboard MVP independent of multi-source completion,
-  automated SQL repair, experiment export, narrative reporting and production
-  security pathways.
+- **CAT-FR-016:** Promote only a successful query execution into a Dataset draft
+  bound to exact query, execution, source, typed parameter/schema and result
+  evidence; never copy result rows into builder metadata or export assets.
+- **CAT-FR-017:** Suggest a deterministic shape-compatible presentation and let
+  the user review or override table, big-number KPI, time-series line/area,
+  grouped/stacked bar, or proportion bar type. Show derived bindings read-only
+  with incompatibility reasons and only a schematic local thumbnail; arbitrary
+  column remapping and Catalyst chart rendering are deferred.
+- **CAT-FR-018:** Append immutable Dataset, Widget, and Dashboard versions on
+  explicit saves; allow one Dashboard to compose multiple saved Widget versions
+  and retain complete transitive source provenance.
+- **CAT-FR-019:** Restore draft libraries, latest saved versions, history and
+  import evidence after refresh without invoking a model or re-executing SQL.
+- **CAT-FR-020:** Preserve saved drafts and exports but mark their source stale
+  when active query/execution evidence changes; never silently rebind them.
+- **CAT-FR-021:** Generate a native Superset asset ZIP with deterministic typed
+  parameter compilation, a stable logical Dashboard UUID, version-derived
+  Dataset/Widget UUIDs, byte-deterministic serialization, and a Catalyst
+  manifest. Atomically publish it to a host-visible outbox mounted read-only
+  into Superset and offer the same file for download.
+- **CAT-FR-022:** Pin Superset 6.1.0 in the isolated stack, import the current
+  bundle at bootstrap, provide one explicit CLI import/update helper for a
+  running instance, and record exact success/failure by bundle digest. Do not
+  claim synchronization when only a file was generated.
+- **CAT-FR-023:** Keep Dashboard Builder MVP independent of multi-source
+  completion, automated SQL repair, experiment export, narrative reporting and
+  production security, and exclude Superset REST API publication, embedded
+  viewing, cross-system undo/reconciliation, sharing and scheduling.
 
 ## Accepted query-workbench MVP
 
@@ -620,28 +649,35 @@ now preserves the accepted keyboard focus order and 200%-equivalent reflow
 boundary. An optional report demonstration does not substitute for
 table/notebook acceptance.
 
-## Dashboard MVP acceptance
+## Dashboard Builder MVP acceptance
 
-Dashboard MVP is complete only when a user can:
+Dashboard Builder MVP is complete only when a user can:
 
-1. Run a query and create a draft from that exact successful execution.
-2. Configure and save one table, bar chart, or line chart without a model call.
-3. Reload the application and recover the saved artifact and immutable version
-   history without query re-execution.
-4. Trace the artifact to its session, query version/digest, execution, data
-   source/catalog version, result schema/digest, and author.
-5. Edit or replace the underlying query and see the saved dashboard remain
-   visible with an explicit stale-source state.
-6. Complete the flow using the accepted keyboard and 200%-zoom accessibility
-   boundaries.
+1. Run a query and promote that exact successful execution to a Dataset draft.
+2. Review or override the deterministic Widget suggestion, save it, place one
+   or more saved widgets into a Dashboard draft, and recover all libraries and
+   immutable history after refresh without model calls or query re-execution.
+3. Trace every draft/export to its session, query version/digest, execution,
+   data source/catalog, typed parameters/schema, result digest and actor kind.
+4. Select **Publish to Superset**, receive the downloadable ZIP, and see the
+   identical bundle atomically appear in the host-visible Superset outbox.
+5. Boot a clean Superset 6.1.0 instance with that bundle or use the explicit
+   import/update helper in a running instance; render values independently
+   checked against PostgreSQL, then import a changed bundle that keeps the same
+   Dashboard UUID and introduces new version-addressed child UUIDs.
+6. Recover honestly from import failure and distinguish `Bundle ready`,
+   `Imported`, and `Import failed`; a generated file alone never appears synced.
+7. Edit or replace the underlying query and see saved drafts remain visible with
+   explicit stale-source state, then complete the flow using the accepted
+   keyboard, narrow-layout and actual 200%-zoom boundaries.
 
-Acceptance uses a deterministic seeded result fixture plus one real Catalyst
-execution whose rendered values are independently checked against PostgreSQL.
-The milestone makes no claim about multi-dashboard composition, sharing,
-scheduling, narrative correctness or production access control.
+Acceptance uses deterministic fixtures plus one real Catalyst execution and a
+real Superset clean-import/re-import. It makes no claim about Superset API
+publication, embedding, cross-system undo/reconciliation, narrative
+correctness, sharing, scheduling, automatic refresh or production access.
 
-Because the local demo has no authentication, dashboard-version authorship
-records only the actor kind `human`; it does not claim a verified user identity.
+Because the local demo has no authentication, saved-version authorship records
+only the actor kind `human`; it does not claim a verified user identity.
 Production identity attribution remains part of R5.
 
 ## Relationship to OGC-70
@@ -668,7 +704,7 @@ and delivery order.
 | Base `clinlims` SQL | Not granted by the demo analytics role; any future exposure is controlled through database grants and the runtime catalog |
 | CloudSafe and LocalPHI security modes | Deferred; the current target is explicitly local demo data with local LLMs |
 | Golden-query evaluation | Moved into the umbrella Clinical AI Validation Harness with real-path execution and versioned evidence |
-| Dashboards | Selected next: one manually configured, versioned artifact from one executed result |
+| Dashboards | Selected next: supervised Dataset/Widget/Dashboard drafts exported as a deterministic native bundle to pinned local Superset |
 | Advanced report storage, sharing and scheduling | Deferred |
 
 ## Clinical AI Validation Harness integration

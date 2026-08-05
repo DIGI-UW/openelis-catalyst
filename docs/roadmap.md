@@ -1,6 +1,6 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; Dashboard MVP selected next
+**Status:** Active pathway roadmap; Superset-backed Dashboard Builder MVP selected next
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -48,7 +48,8 @@ The repository currently contains:
 
 It does not yet contain:
 
-- a persisted, versioned dashboard artifact or dashboard configuration UI;
+- persisted/versioned Dataset, Widget, and Dashboard draft libraries;
+- deterministic Superset bundle generation or a pinned local Superset service;
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
@@ -61,7 +62,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Dashboard product (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Create, configure, version, restore, and mark one dashboard artifact stale when its source changes |
+| **Superset-backed Dashboard Builder (D1)** | **Selected next milestone** | Accepted query/workbench foundation only | Implement iterative Dataset/Widget/Dashboard drafts and publish deterministic native bundles to pinned local Superset |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -304,47 +305,59 @@ failure/recovery, keyboard-only traversal, and actual 200% browser zoom passed.
 Model candidates and observed temperature-zero digest variance remain recorded
 evidence rather than reproducibility claims.
 
-## D1 — Supervised dashboard MVP
+## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Selected next milestone
+**Status:** Selected next milestone; written-plan checkpoint complete 2026-08-05
 
-**Goal:** Let a user promote one successful query execution into one manually
-configured, versioned dashboard artifact while preserving exact source lineage.
+**Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
+design while keeping Superset as the renderer. Catalyst persists supervised
+draft lineage and publishes deterministic native bundles into a shared local
+outbox for clean bootstrap or explicit running-instance import.
 
 ### Test-first slices
 
-1. Dashboard contract and persistence
-   - Bind a draft to the source session, query version/digest, execution,
-     source/catalog version, typed result schema, and result digest.
-   - Append immutable versions only on explicit save; record author and time.
-2. One supervised presentation
-   - Start from the result table and allow one table, bar chart, or line chart
-     when the typed columns are compatible.
-   - Let the user configure title, selected columns or axes, labels, and sort.
-3. Restoration and staleness
-   - Restore the latest saved version and history after refresh without a model
-     call or query re-execution.
-   - Keep the artifact visible and mark its source stale when the active query
-     or execution changes; never silently rebind it.
+1. Written plan and stack
+   - Align the design, specification, data model, contracts, tasks and roadmap.
+   - Pin Superset 6.1.0, persistent metadata and a read-only bundle-outbox mount;
+     prove stack bootstrap and explicit CLI import/update behavior.
+2. Builder contract and deterministic export
+   - Bind Dataset/Widget/Dashboard versions to exact query/execution/source/
+     result evidence and preserve stale/missing state without row duplication.
+   - Prove deterministic visualization suggestion/compatibility, typed named-
+     parameter compilation, a stable logical Dashboard UUID with version-derived
+     child UUIDs, byte-identical native ZIPs, atomic
+     outbox publication and digest-addressed import outcomes.
+3. Supplied iterative UX
+   - Implement the fixed Ask composer, chronological draft tiles, single
+     slide-over review panel, Dataset/Widget/Dashboard libraries, five target
+     visualization families with a compact compatible-type selector and
+     schematic thumbnails only, multi-widget Dashboard drafts and explicit
+     stale states.
+   - `Publish to Superset` writes/downloads the bundle; `Open Superset` opens
+     the renderer; file creation alone remains `Bundle ready`.
 4. Real-path and accessibility acceptance
-   - Exercise one seeded deterministic fixture and one real Catalyst execution,
-     independently checking rendered values against PostgreSQL.
-   - Preserve the accepted keyboard path, responsive layout, and 200%-zoom
-     boundary.
+   - Exercise one real Catalyst execution, clean Superset import, changed
+     publication through the stable Dashboard UUID plus new versioned children,
+     and independent PostgreSQL value reconciliation.
+   - Prove failed-import recovery, refresh restoration, keyboard path,
+     responsive layout and actual 200%-zoom boundary.
 
 ### Exit criteria
 
-- A user can create, configure, save, reload, and revise one dashboard artifact
-  from one exact successful execution.
-- Every saved version traces to its query, execution, data source/catalog, typed
-  result schema/digest, and author.
-- A changed source query produces an explicit stale state without destroying or
-  rebinding the saved artifact.
-- No model call or automatic query execution is required to configure, save, or
-  restore the dashboard.
-- Multi-widget layouts, model-generated visualization specifications,
-  narratives, sharing, scheduling, automatic refresh, export/publication,
-  authorization, and production deployment remain explicit deferrals.
+- A user can promote a successful execution through saved Dataset, Widget and
+  multi-widget Dashboard drafts, publish/download a native bundle, and restore
+  immutable history after refresh without model calls or query re-execution.
+- Identical inputs produce byte-identical ZIPs and every asset traces through
+  deterministic logical/version UUIDs to query, execution, source/catalog,
+  typed parameters/schema,
+  result digest and actor kind.
+- Clean boot imports the selected bundle; one explicit command updates a running
+  Superset instance; only the importer records `Imported` or `Import failed`.
+- Superset renders values independently reconciled to PostgreSQL, and changed
+  source queries produce explicit stale state without rebinding saved drafts.
+- Superset REST API publication, embedded viewing, cross-system undo/
+  reconciliation, model visualization calls, narratives, sharing, scheduling,
+  automatic refresh, authorization and production deployment remain deferred.
 
 ## Narrative reporting pathway (R4) — Evidence-linked summaries
 

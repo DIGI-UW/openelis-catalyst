@@ -13,10 +13,21 @@ The first product milestone is:
 
 > Natural-language question → governed query → table output
 
+That query/notebook milestone is accepted. The selected next milestone is:
+
+> Governed execution → Dataset draft → Widget draft → Dashboard draft →
+> deterministic native bundle → local Superset 6.1.0 renderer
+
+Catalyst remains the supervised builder and desired-configuration source for
+this one-way MVP. `Publish to Superset` writes/downloads a bundle from a shared
+outbox; stack bootstrap or an explicit CLI helper imports it. The Superset REST
+API and bidirectional reconciliation are deferred.
+
 ## Canonical documentation
 
 - [Product specification](docs/specification.md)
 - [Roadmap](docs/roadmap.md)
+- [Dashboard Builder design](docs/dashboard-builder-mvp-design.md)
 - [med-agent-hub client contract](docs/med-agent-hub.md)
 - [Cloud development instructions](AGENTS.md)
 
