@@ -342,6 +342,15 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn('127.0.0.1:${SUPERSET_PORT:-8088}:8088', self.compose)
         self.assertIn("/health", self.compose)
 
+    def test_hapi_proxy_allows_the_pinned_fhir_first_start_to_finish(self):
+        proxy = self.compose[
+            self.compose.index("  hapi-mtls-proxy:") : self.compose.index(
+                "  fhir-data-pipes:"
+            )
+        ]
+        self.assertIn("wget -qO /dev/null http://127.0.0.1:8080/fhir/metadata", proxy)
+        self.assertIn("start_period: 10m", proxy)
+
     def test_superset_runtime_separates_read_only_input_and_writable_receipts(self):
         gitignore = (ROOT / ".gitignore").read_text()
         config = (ROOT / "superset/superset_config.py").read_text()

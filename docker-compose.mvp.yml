@@ -165,7 +165,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-      start_period: 10s
+      # A clean HAPI volume builds its initial FHIR indexes before accepting
+      # TLS requests. Let that one-time initialization complete before health
+      # failures can block FHIR Data Pipes startup.
+      start_period: 10m
 
   fhir-data-pipes:
     image: catalyst/fhir-data-pipes:3ea890884d674e2f31257a2da421601f2d75b5e9
