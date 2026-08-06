@@ -195,7 +195,6 @@ const defaultProps = {
   onWrapLinesChange: vi.fn(),
   onClearDraft: vi.fn(),
   onRestoreCurrentVersion: vi.fn(),
-  onNewSession: vi.fn(),
   onValidate: vi.fn(),
   onRun: vi.fn(),
 };
@@ -302,7 +301,6 @@ describe("WorkbenchPanel", () => {
     expect(
       screen.getByRole("button", { name: "Remove parameter 1" }),
     ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();

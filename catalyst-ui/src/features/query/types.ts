@@ -424,6 +424,12 @@ export interface DashboardBuilderCollection {
   items: DashboardBuilderEntity[];
 }
 
+export type DashboardBuilderSection =
+  | "ask"
+  | "datasets"
+  | "widgets"
+  | "dashboards";
+
 export type DashboardPresentationKind =
   | "table"
   | "big_number"

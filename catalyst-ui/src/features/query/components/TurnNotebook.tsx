@@ -275,77 +275,89 @@ export const TurnNotebook = ({
     onGenerate();
   };
 
+  const renderTurn = (turn: NotebookTurn) => {
+    const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
+    const regionId = `query-turn-${turn.turnId}`;
+    return (
+      <article className="query-turn" key={turn.turnId}>
+        <button
+          type="button"
+          className="query-turn__disclosure"
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          onClick={() => toggleTurn(turn.turnId)}
+        >
+          <span className="query-turn__summary">
+            <strong>Query turn {turn.ordinal}</strong>
+            <span>{turn.instruction}</span>
+          </span>
+          {turn.dataSourceLabel && (
+            <span className="query-turn__source">{turn.dataSourceLabel}</span>
+          )}
+          <span>{turn.status}</span>
+        </button>
+        {expanded && (
+          <section
+            id={regionId}
+            className="query-turn__detail"
+            aria-label={`Query turn ${turn.ordinal}`}
+          >
+            <p className="query-turn__instruction">{turn.instruction}</p>
+            <p className="query-turn__profile">
+              {turn.profileSnapshot.profileName ?? "Profile unavailable"}
+            </p>
+            {turn.outputVersions.map((output, index) => {
+              const version = output.version;
+              if (!version) return null;
+              let summary: string;
+              if (turn.status === "failed" && output.role === "writer") {
+                summary = `Structured writer output — Query v${version.ordinal} — not selected`;
+              } else if (output.selected) {
+                summary = `Query v${version.ordinal} — selected ${output.role} output`;
+              } else {
+                summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
+              }
+              return <p key={`${version.versionId}-${index}`}>{summary}</p>;
+            })}
+            {turn.status === "failed" && (
+              <div className="query-turn__failure" role="status">
+                <strong>Generation failed</strong>
+                <p>{turn.failure?.message ?? "The generation did not complete."}</p>
+              </div>
+            )}
+            <Button
+              type="button"
+              kind="ghost"
+              size="sm"
+              disabled={evidenceLoadingTurnId === turn.turnId}
+              onClick={() => onShowEvidence(turn.turnId)}
+            >
+              {evidenceLoadingTurnId === turn.turnId
+                ? "Loading generation evidence…"
+                : "View generation evidence"}
+            </Button>
+          </section>
+        )}
+      </article>
+    );
+  };
+
+  const earlierTurns = turns.slice(0, -1);
+  const latestTurn = turns.at(-1);
+
   return (
     <section className="turn-notebook" aria-label="Iterative query notebook">
       <div className="turn-notebook__timeline">
-        {turns.map((turn) => {
-          const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
-          const regionId = `query-turn-${turn.turnId}`;
-          return (
-            <article className="query-turn" key={turn.turnId}>
-              <button
-                type="button"
-                className="query-turn__disclosure"
-                aria-expanded={expanded}
-                aria-controls={regionId}
-                onClick={() => toggleTurn(turn.turnId)}
-              >
-                <span className="query-turn__summary">
-                  <strong>Query turn {turn.ordinal}</strong>
-                  <span>{turn.instruction}</span>
-                </span>
-                {turn.dataSourceLabel && (
-                  <span className="query-turn__source">
-                    {turn.dataSourceLabel}
-                  </span>
-                )}
-                <span>{turn.status}</span>
-              </button>
-              {expanded && (
-                <section
-                  id={regionId}
-                  className="query-turn__detail"
-                  aria-label={`Query turn ${turn.ordinal}`}
-                >
-                  <p className="query-turn__instruction">{turn.instruction}</p>
-                  <p className="query-turn__profile">
-                    {turn.profileSnapshot.profileName ?? "Profile unavailable"}
-                  </p>
-                  {turn.outputVersions.map((output, index) => {
-                    const version = output.version;
-                    if (!version) return null;
-                    let summary: string;
-                    if (turn.status === "failed" && output.role === "writer") {
-                      summary = `Structured writer output — Query v${version.ordinal} — not selected`;
-                    } else if (output.selected) {
-                      summary = `Query v${version.ordinal} — selected ${output.role} output`;
-                    } else {
-                      summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
-                    }
-                    return <p key={`${version.versionId}-${index}`}>{summary}</p>;
-                  })}
-                  {turn.status === "failed" && (
-                    <div className="query-turn__failure" role="status">
-                      <strong>Generation failed</strong>
-                      <p>{turn.failure?.message ?? "The generation did not complete."}</p>
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    kind="ghost"
-                    size="sm"
-                    disabled={evidenceLoadingTurnId === turn.turnId}
-                    onClick={() => onShowEvidence(turn.turnId)}
-                  >
-                    {evidenceLoadingTurnId === turn.turnId
-                      ? "Loading generation evidence…"
-                      : "View generation evidence"}
-                  </Button>
-                </section>
-              )}
-            </article>
-          );
-        })}
+        {earlierTurns.length > 0 && (
+          <details className="turn-notebook__history">
+            <summary>Earlier turns ({earlierTurns.length}) · read-only summaries</summary>
+            <div>{earlierTurns.map(renderTurn)}</div>
+          </details>
+        )}
+        {latestTurn && (
+          <div className="query-turn__message">{latestTurn.instruction}</div>
+        )}
+        {latestTurn && renderTurn(latestTurn)}
       </div>
 
       <section

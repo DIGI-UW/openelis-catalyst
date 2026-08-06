@@ -192,7 +192,8 @@ afterEach(() => {
 });
 
 describe("TurnNotebook", () => {
-  it("shows the data-source badge on a turn that has one and omits it otherwise", () => {
+  it("shows the data-source badge on a turn that has one and omits it otherwise", async () => {
+    const user = userEvent.setup();
     render(
       <TurnNotebook
         {...defaultProps}
@@ -202,6 +203,8 @@ describe("TurnNotebook", () => {
         ]}
       />,
     );
+
+    await user.click(screen.getByText(/Earlier turns \(1\)/i));
 
     const withSource = screen.getByRole("button", { name: /query turn 1/i });
     expect(
@@ -218,6 +221,10 @@ describe("TurnNotebook", () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
 
+    const history = screen.getByText(/Earlier turns \(1\)/i);
+    expect(history.closest("details")).not.toHaveAttribute("open");
+    await user.click(history);
+
     const priorDisclosure = screen.getByRole("button", {
       name: /query turn 1/i,
     });
@@ -226,8 +233,8 @@ describe("TurnNotebook", () => {
     });
     expect(priorDisclosure).toHaveAttribute("aria-expanded", "false");
     expect(latestDisclosure).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText(initialTurn.instruction)).toBeVisible();
-    expect(screen.getByText(followupTurn.instruction)).toBeVisible();
+    expect(screen.getAllByText(initialTurn.instruction).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(followupTurn.instruction).length).toBeGreaterThan(0);
     expect(
       screen.getAllByRole("textbox", { name: "Follow-up instruction" }),
     ).toHaveLength(1);
@@ -542,6 +549,8 @@ describe("TurnNotebook", () => {
         onInstructionChange={onInstructionChange}
       />,
     );
+
+    await user.click(screen.getByText(/Earlier turns \(1\)/i));
 
     const priorDisclosure = screen.getByRole("button", {
       name: /query turn 1/i,

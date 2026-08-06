@@ -54,12 +54,12 @@ interface WorkbenchPanelProps {
   error?: string | null;
   announcement?: string;
   sqlEditorFocusRequestId?: number;
+  showExecutionResult?: boolean;
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
   onClearDraft: () => void;
   onRestoreCurrentVersion: () => void;
-  onNewSession: () => void;
   onValidate: () => void;
   onRun: () => void;
 }
@@ -692,7 +692,7 @@ const latestExecution = (executions: WorkbenchExecution[]) =>
     null,
   );
 
-const ExecutionResult = ({
+export const ExecutionResult = ({
   session,
   sql,
   parameters,
@@ -871,12 +871,12 @@ export const WorkbenchPanel = ({
   error = null,
   announcement = "",
   sqlEditorFocusRequestId = 0,
+  showExecutionResult = true,
   onSqlChange,
   onParametersChange,
   onWrapLinesChange,
   onClearDraft,
   onRestoreCurrentVersion,
-  onNewSession,
   onValidate,
   onRun,
 }: WorkbenchPanelProps) => {
@@ -896,18 +896,7 @@ export const WorkbenchPanel = ({
             OpenELIS data projection.
           </p>
         </div>
-        <div className="workbench-panel__session-actions">
-          <Tag type="blue">Session active</Tag>
-          <Button
-            type="button"
-            kind="ghost"
-            size="sm"
-            disabled={busy !== null}
-            onClick={onNewSession}
-          >
-            New session
-          </Button>
-        </div>
+        <Tag type="blue">Session active</Tag>
       </div>
 
       {error && (
@@ -1004,7 +993,9 @@ export const WorkbenchPanel = ({
       />
       <ValidationSummary session={session} />
 
-      <ExecutionResult session={session} sql={sql} parameters={parameters} />
+      {showExecutionResult && (
+        <ExecutionResult session={session} sql={sql} parameters={parameters} />
+      )}
       <GenerationEvidence session={session} />
       <div className="workbench-records">
         <ProvenanceSummary session={session} />

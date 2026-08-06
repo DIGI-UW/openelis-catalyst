@@ -2,173 +2,169 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CatalystApi } from "../api";
-import type { WorkbenchSession } from "../types";
+import type { DashboardBuilderEntity, WorkbenchSession } from "../types";
 import { DashboardPublishPanel } from "./DashboardPublishPanel";
+
+const queryVersion = {
+  versionId: "query-v1",
+  ordinal: 1,
+  sql: "SELECT 1 AS value",
+  parameters: [],
+  expectedColumns: [{ name: "value", logicalType: "integer", nullable: false }],
+};
 
 const session = {
   sessionId: "session-1",
-  currentVersion: { versionId: "query-v1" },
+  currentVersionId: "query-v1",
+  currentVersion: queryVersion,
   executions: [
     {
       executionId: "execution-1",
       versionId: "query-v1",
       status: "succeeded",
       ordinal: 1,
+      durationMs: 4,
+      query: { sql: queryVersion.sql, parameters: [] },
+      result: {
+        columns: [
+          {
+            ordinal: 1,
+            name: "value",
+            databaseType: "int4",
+            typeOid: 23,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "integer", value: 1 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
     },
   ],
+  versions: [queryVersion],
 } as unknown as WorkbenchSession;
 
-const savedDataset = {
+const savedDataset: DashboardBuilderEntity = {
   id: "dataset-1",
   versionId: "dataset-v1",
   ordinal: 1,
-  configuration: {},
+  configuration: {
+    title: "Count result",
+    source: {
+      sessionId: "session-1",
+      executionId: "execution-1",
+      dataSourceId: "openelis",
+    },
+    columns: [{ name: "value" }],
+    rowCount: { returned: 1 },
+  },
   configurationDigest: "a".repeat(64),
   createdAt: "2026-08-06T00:00:00Z",
 };
 
-const savedWidget = {
+const savedWidget: DashboardBuilderEntity = {
   id: "widget-1",
   versionId: "widget-v1",
   ordinal: 1,
-  configuration: {},
+  configuration: {
+    title: "Count KPI",
+    datasetVersionId: "dataset-v1",
+    presentationKind: "big_number",
+  },
   configurationDigest: "b".repeat(64),
-  createdAt: "2026-08-06T00:00:00Z",
+  createdAt: "2026-08-06T00:00:01Z",
 };
 
-describe("DashboardPublishPanel", () => {
-  it("adds a chart widget from the saved query table", async () => {
+const savedDashboard: DashboardBuilderEntity = {
+  id: "dashboard-1",
+  versionId: "dashboard-v1",
+  ordinal: 1,
+  configuration: {
+    title: "Laboratory dashboard",
+    widgets: [{ versionId: "widget-v1" }],
+  },
+  configurationDigest: "c".repeat(64),
+  createdAt: "2026-08-06T00:00:02Z",
+};
+
+const collection = (kind: "dataset" | "widget" | "dashboard", items: DashboardBuilderEntity[]) => ({
+  contractVersion: "catalyst.dashboard-builder.v1" as const,
+  kind,
+  items,
+});
+
+const makeApi = (withSavedArtifacts = false) => ({
+  listDashboardDatasets: vi.fn().mockResolvedValue(collection("dataset", withSavedArtifacts ? [savedDataset] : [])),
+  listDashboardWidgets: vi.fn().mockResolvedValue(collection("widget", withSavedArtifacts ? [savedWidget] : [])),
+  listDashboards: vi.fn().mockResolvedValue(collection("dashboard", withSavedArtifacts ? [savedDashboard] : [])),
+  saveDashboardDataset: vi.fn().mockResolvedValue(savedDataset),
+  saveDashboardWidget: vi.fn().mockResolvedValue(savedWidget),
+  saveDashboard: vi.fn().mockResolvedValue(savedDashboard),
+  publishDashboard: vi.fn().mockResolvedValue({
+    status: "bundle_ready",
+    dashboard: savedDashboard,
+    pointer: { bundle: { fileName: "bundle.zip", sha256: "d".repeat(64), bytes: 1 } },
+    downloadPath: "/bundle",
+  }),
+}) as unknown as CatalystApi;
+
+describe("Dashboard Builder supervised promotion", () => {
+  it("reviews and explicitly saves a Dataset before creating a Widget", async () => {
     const user = userEvent.setup();
-    const api = {
-      saveDashboardDataset: vi.fn().mockResolvedValue(savedDataset),
-      saveDashboardWidget: vi.fn().mockResolvedValue(savedWidget),
-      saveDashboard: vi.fn().mockResolvedValue({
-        ...savedWidget,
-        id: "dashboard-1",
-        versionId: "dashboard-v1",
-      }),
-      publishDashboard: vi.fn().mockResolvedValue({
-        status: "bundle_ready",
-        dashboard: savedWidget,
-        pointer: { bundle: { fileName: "bundle.zip", sha256: "c".repeat(64), bytes: 1 } },
-        downloadPath: "/bundle",
-      }),
-    } as unknown as CatalystApi;
-
-    render(<DashboardPublishPanel api={api} session={session} />);
-
-    await user.selectOptions(
-      screen.getByLabelText("Visualization"),
-      "time_series_line",
+    const api = makeApi();
+    render(
+      <DashboardPublishPanel
+        api={api}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="ask"
+        onNavigate={vi.fn()}
+      />,
     );
-    await user.click(screen.getByRole("button", { name: "Add widget" }));
+
+    await user.click(screen.getByRole("button", { name: "Review dataset draft" }));
+    expect(screen.getByRole("heading", { name: "Results from Query v1" })).toBeVisible();
+    await user.type(screen.getByLabelText("Dataset name"), "Count result");
+    await user.click(screen.getByRole("button", { name: "Save Dataset" }));
 
     expect(api.saveDashboardDataset).toHaveBeenCalledWith({
       sessionId: "session-1",
       executionId: "execution-1",
+      title: "Count result",
     });
+    expect(await screen.findByRole("button", { name: "Review widget draft" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Review widget draft" }));
+    await user.selectOptions(screen.getByLabelText("Visualization"), "big_number");
+    await user.type(screen.getByLabelText("Widget name"), "Count KPI");
+    await user.click(screen.getByRole("button", { name: "Save Widget" }));
+
     expect(api.saveDashboardWidget).toHaveBeenCalledWith({
       datasetVersionId: "dataset-v1",
-      presentationKind: "time_series_line",
+      presentationKind: "big_number",
+      title: "Count KPI",
     });
-    expect(screen.getByText("1 widget ready")).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Publish to Superset" }));
-    expect(api.saveDashboard).toHaveBeenCalledWith({
-      widgetVersionIds: ["widget-v1"],
-    });
-    expect(api.publishDashboard).toHaveBeenCalledWith("dashboard-v1");
   });
 
-  it("restores the saved table and chart widgets for the current execution", async () => {
+  it("lists saved artifacts and publishes a selected Dashboard to the outbox", async () => {
     const user = userEvent.setup();
-    const restoredDataset = {
-      ...savedDataset,
-      configuration: {
-        source: { sessionId: "session-1", executionId: "execution-1" },
-      },
-      createdAt: "2026-08-06T00:00:01Z",
-    };
-    const tableWidget = {
-      ...savedWidget,
-      versionId: "widget-table-v1",
-      configuration: {
-        title: "Laboratory result table",
-        datasetVersionId: "dataset-v1",
-        presentationKind: "table",
-      },
-      createdAt: "2026-08-06T00:00:02Z",
-    };
-    const chartWidget = {
-      ...savedWidget,
-      versionId: "widget-chart-v1",
-      configuration: {
-        title: "Laboratory result trend",
-        datasetVersionId: "dataset-v1",
-        presentationKind: "time_series_line",
-      },
-      createdAt: "2026-08-06T00:00:03Z",
-    };
-    const api = {
-      listDashboardDatasets: vi.fn().mockResolvedValue({
-        contractVersion: "catalyst.dashboard-builder.v1",
-        kind: "dataset",
-        items: [restoredDataset],
-      }),
-      listDashboardWidgets: vi.fn().mockResolvedValue({
-        contractVersion: "catalyst.dashboard-builder.v1",
-        kind: "widget",
-        items: [chartWidget, tableWidget],
-      }),
-      listDashboards: vi.fn().mockResolvedValue({
-        contractVersion: "catalyst.dashboard-builder.v1",
-        kind: "dashboard",
-        items: [
-          {
-            ...savedWidget,
-            id: "dashboard-1",
-            versionId: "dashboard-v1",
-            configuration: {
-              title: "Laboratory dashboard",
-              widgets: [
-                { versionId: "widget-table-v1" },
-                { versionId: "widget-chart-v1" },
-              ],
-            },
-            createdAt: "2026-08-06T00:00:04Z",
-          },
-        ],
-      }),
-      saveDashboardDataset: vi.fn(),
-      saveDashboardWidget: vi.fn(),
-      saveDashboard: vi.fn().mockResolvedValue({
-        ...savedWidget,
-        id: "dashboard-1",
-        versionId: "dashboard-v1",
-      }),
-      publishDashboard: vi.fn().mockResolvedValue({
-        status: "bundle_ready",
-        dashboard: savedWidget,
-        pointer: { bundle: { fileName: "bundle.zip", sha256: "c".repeat(64), bytes: 1 } },
-        downloadPath: "/bundle",
-      }),
-    } as unknown as CatalystApi;
-
-    render(<DashboardPublishPanel api={api} session={session} />);
-
-    expect(await screen.findByText("2 widgets ready")).toBeVisible();
-    expect(screen.getByText("Laboratory result table")).toBeVisible();
-    expect(screen.getByText("Laboratory result trend")).toBeVisible();
-    expect(screen.getAllByText("Time-series line")).toHaveLength(2);
-    expect(screen.getByLabelText("Dashboard title")).toHaveValue(
-      "Laboratory dashboard",
+    const api = makeApi(true);
+    render(
+      <DashboardPublishPanel
+        api={api}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="dashboards"
+        onNavigate={vi.fn()}
+      />,
     );
 
+    expect(await screen.findByRole("heading", { name: "Laboratory dashboard" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Publish to Superset" }));
-    expect(api.saveDashboardDataset).not.toHaveBeenCalled();
-    expect(api.saveDashboard).toHaveBeenCalledWith({
-      widgetVersionIds: ["widget-table-v1", "widget-chart-v1"],
-      title: "Laboratory dashboard",
-    });
+
+    expect(api.publishDashboard).toHaveBeenCalledWith("dashboard-v1");
+    expect(await screen.findByText("Superset bundle ready")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download bundle" })).toHaveAttribute("href", "/bundle");
   });
 });

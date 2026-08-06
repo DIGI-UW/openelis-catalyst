@@ -12,6 +12,7 @@ interface DatasetBrowserProps {
   catalog?: WorkbenchEditorCatalog | null;
   catalogLoadingFailed?: boolean;
   dataSourceId?: string;
+  compact?: boolean;
 }
 
 const displayDate = (value: string | null) => {
@@ -43,6 +44,7 @@ export const DatasetBrowser = ({
   catalog = null,
   catalogLoadingFailed = false,
   dataSourceId,
+  compact = false,
 }: DatasetBrowserProps) => {
   const [overview, setOverview] = useState<DatasetOverview | null>(null);
   const [rows, setRows] = useState<DatasetRows | null>(null);
@@ -105,10 +107,21 @@ export const DatasetBrowser = ({
     return () => controller.abort();
   }, [api, dataSourceId]);
 
-  if (!api.getDatasetOverview) return null;
+  if (!api.getDatasetOverview && !catalog) return null;
+
+  const Container = compact ? "details" : "section";
 
   return (
-    <section className="query-card dataset-browser" aria-labelledby="dataset-title">
+    <Container
+      className={`query-card dataset-browser${compact ? " dataset-browser--compact" : ""}`}
+      aria-labelledby="dataset-title"
+    >
+      {compact && (
+        <summary>
+          Available data · {catalog?.schemas.length ?? 0} schemas · {catalogRelations.length} relations
+        </summary>
+      )}
+      <div className={compact ? "dataset-browser__compact-content" : undefined}>
       <div className="section-heading section-heading--row">
         <div>
           <p className="eyebrow">Know what to ask</p>
@@ -273,6 +286,7 @@ export const DatasetBrowser = ({
           </AccordionItem>
         </Accordion>
       )}
-    </section>
+      </div>
+    </Container>
   );
 };

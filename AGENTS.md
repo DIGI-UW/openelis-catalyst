@@ -20,6 +20,17 @@ Canonical architecture and planning:
 - `docs/roadmap.md`
 - `docs/med-agent-hub.md`
 
+For the Dashboard Builder MVP, the binding product contract is
+`docs/dashboard-builder-mvp-design.md` and the binding visual reference is
+`docs/prototypes/dashboard-builder-mvp/Catalyst Dashboard Builder 4c.dc.html`.
+The existing Gateway, Superset importer, and publication panel are reusable
+foundation; they do not by themselves satisfy a Dashboard Builder milestone.
+Do not reinterpret "lightweight" as reduced product scope, substitute backend
+or mock evidence for the required live browser workflow, or close a milestone
+while its user-facing UX tasks remain open. Any proposed change to milestone
+meaning or to the approved Ask → Dataset → Widget → Dashboard → Superset
+workflow must be surfaced for user approval before implementation continues.
+
 Do not duplicate product architecture in this file. This file is an environment
 and test runbook.
 

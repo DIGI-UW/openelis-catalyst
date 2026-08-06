@@ -622,6 +622,8 @@ describe("Catalyst query workflow", () => {
     vi.mocked(api.submitQuestion).mockResolvedValue(preview);
     render(<App api={api} />);
 
+    const user = userEvent.setup();
+    await user.click(await screen.findByText(/^Available data ·/));
     expect(await screen.findByText("1,152")).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "Available OpenELIS laboratory data" }),
@@ -663,7 +665,6 @@ describe("Catalyst query workflow", () => {
       }),
     ).not.toBeInTheDocument();
 
-    const user = userEvent.setup();
     const browserToggle = screen.getByRole("button", {
       name: "Preview available laboratory records",
     });
@@ -1742,7 +1743,7 @@ describe("Catalyst query workflow", () => {
     await waitFor(() => expect(api.submitQuestion).toHaveBeenCalledWith(QUESTION));
   });
 
-  it("hides the data-source switcher when only one source is registered", async () => {
+  it("keeps the selected data source visible when only one source is registered", async () => {
     const api = makeNotebookApi();
     api.getDataSources = vi.fn().mockResolvedValue({
       contractVersion: "catalyst.data-sources.v1",
@@ -1754,7 +1755,7 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     expect(await screen.findByLabelText("Model profile")).toBeEnabled();
-    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Data source")).toHaveValue("openelis");
   });
 
   it("shows the switcher for multiple sources, defaults to it, and filters unavailable ones", async () => {
