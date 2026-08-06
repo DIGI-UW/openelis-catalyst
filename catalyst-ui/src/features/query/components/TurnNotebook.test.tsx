@@ -299,6 +299,25 @@ describe("TurnNotebook", () => {
       .not.toBeInTheDocument();
   });
 
+  it("loads evidence for the latest turn without reopening a duplicate turn card", async () => {
+    const user = userEvent.setup();
+    const onShowEvidence = vi.fn();
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        onShowEvidence={onShowEvidence}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /query turn 2/i }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "View latest generation evidence" }),
+    );
+    expect(onShowEvidence).toHaveBeenCalledWith(followupTurn.turnId);
+  });
+
   it("generates one complete successor from a focused follow-up instruction", async () => {
     const user = userEvent.setup();
     const onGenerate = vi.fn();

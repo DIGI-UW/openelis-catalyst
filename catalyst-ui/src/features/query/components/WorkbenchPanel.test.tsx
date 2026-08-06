@@ -546,6 +546,33 @@ describe("WorkbenchPanel", () => {
     expect(screen.getByText("model repair")).toBeVisible();
   });
 
+  it("can hide initial generation evidence when notebook turns own that evidence", () => {
+    const session = makeSession({
+      provenance: {
+        generationOutcome: {
+          modelCollaboration: {
+            writer: {
+              model: "gemma-4-12b",
+              candidate: { sql: SQL, parameters: [] },
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={session}
+        showInitialGenerationEvidence={false}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Generation evidence" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders a successful dynamic execution table", () => {
     const execution: WorkbenchExecution = {
       contractVersion: "catalyst.workbench.execution.v1",

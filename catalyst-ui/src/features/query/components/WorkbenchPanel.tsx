@@ -55,6 +55,7 @@ interface WorkbenchPanelProps {
   announcement?: string;
   sqlEditorFocusRequestId?: number;
   showExecutionResult?: boolean;
+  showInitialGenerationEvidence?: boolean;
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
@@ -872,6 +873,7 @@ export const WorkbenchPanel = ({
   announcement = "",
   sqlEditorFocusRequestId = 0,
   showExecutionResult = true,
+  showInitialGenerationEvidence = true,
   onSqlChange,
   onParametersChange,
   onWrapLinesChange,
@@ -996,7 +998,7 @@ export const WorkbenchPanel = ({
       {showExecutionResult && (
         <ExecutionResult session={session} sql={sql} parameters={parameters} />
       )}
-      <GenerationEvidence session={session} />
+      {showInitialGenerationEvidence && <GenerationEvidence session={session} />}
       <div className="workbench-records">
         <ProvenanceSummary session={session} />
         <VersionHistory session={session} />

@@ -1143,6 +1143,7 @@ export const QueryWorkspace = ({
                 ...workbenchSession.executions.map((candidate) => candidate.ordinal),
               ),
           )}
+          showInitialGenerationEvidence={!usesNotebook}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}

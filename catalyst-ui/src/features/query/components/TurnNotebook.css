@@ -41,10 +41,18 @@
 }
 
 .query-turn__latest-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: -0.25rem 0 0;
   color: #6f6f6f;
   font-size: 0.75rem;
   line-height: 1.4;
+  gap: 0.75rem;
+}
+
+.query-turn__latest-meta p {
+  margin: 0;
 }
 
 .query-turn__disclosure {
