@@ -377,6 +377,16 @@
     flex-direction: column;
   }
 
+  .builder-dashboard-row__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .builder-dashboard-row__actions .cds--btn {
+    width: 100%;
+    max-width: 100%;
+  }
+
   .builder-review {
     width: calc(100vw - var(--dashboard-nav-width));
   }

@@ -893,6 +893,16 @@ test("question to iterative notebook to imported dashboard", async ({
       .toBeVisible();
   }
 
+  if (useMockApi) {
+    await page.getByRole("button", { name: "Datasets", exact: true }).click();
+    await expect(page.getByText("No Datasets saved yet.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Widgets", exact: true }).click();
+    await expect(page.getByText("No Widgets saved yet.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Dashboards", exact: true }).click();
+    await expect(page.getByText("No Dashboards saved yet.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Workbench", exact: true }).click();
+  }
+
   const availableData = page.getByText(/^Available data ·/);
   await expect(availableData).toBeVisible();
   await availableData.click();
@@ -986,6 +996,7 @@ test("question to iterative notebook to imported dashboard", async ({
     await expect(datasetReview.locator("pre")).toContainText("LIMIT 1");
     await datasetReview.getByLabel("Dataset name").fill("Initial viral load result");
     await datasetReview.getByRole("button", { name: "Save Dataset" }).click();
+    await expect(page.getByText(/saved to Datasets\./)).toBeVisible();
     await expect(page.getByRole("button", { name: "Review widget draft" }))
       .toBeVisible();
 
@@ -1044,12 +1055,14 @@ test("question to iterative notebook to imported dashboard", async ({
       .toBeVisible();
     await successorReview.getByLabel("Dataset name").fill("Viral load with units");
     await successorReview.getByRole("button", { name: "Save Dataset" }).click();
+    await expect(page.getByText(/Viral load with units.*saved to Datasets\./)).toBeVisible();
 
     await page.getByRole("button", { name: "Review widget draft" }).click();
     const widgetReview = page.getByRole("dialog", { name: "Review panel" });
     await widgetReview.getByLabel("Widget name").fill("Latest viral load results");
     await widgetReview.getByLabel("Visualization").selectOption("time_series_line");
     await widgetReview.getByRole("button", { name: "Save Widget" }).click();
+    await expect(page.getByText(/Latest viral load results.*saved to Widgets\./)).toBeVisible();
 
     await page.getByRole("button", { name: "Widgets", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Widgets", exact: true }))
@@ -1066,6 +1079,7 @@ test("question to iterative notebook to imported dashboard", async ({
       dashboardReview.getByRole("checkbox", { name: "Latest viral load results" }),
     ).toBeChecked();
     await dashboardReview.getByRole("button", { name: "Save Dashboard" }).click();
+    await expect(page.getByText(/Virology dashboard.*saved to Dashboards\./)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Virology dashboard" }))
       .toBeVisible();
     await page.getByRole("button", { name: "Publish to Superset" }).click();
@@ -1137,6 +1151,15 @@ test("question to iterative notebook to imported dashboard", async ({
     await expect(page.getByRole("button", { name: "Review dataset draft" }))
       .toBeFocused();
 
+    const expectNoHorizontalOverflow = async (label: string) => {
+      const layout = await page.evaluate<{
+        innerWidth: number;
+        scrollWidth: number;
+      }>("({ innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth })");
+      expect(layout.scrollWidth, `horizontal overflow in ${label}`)
+        .toBeLessThanOrEqual(layout.innerWidth);
+    };
+
     for (const width of [320, 640]) {
       await page.setViewportSize({ width, height: 720 });
       await page.evaluate("window.scrollTo(0, window.scrollY)");
@@ -1144,12 +1167,7 @@ test("question to iterative notebook to imported dashboard", async ({
         (element) => element.ownerDocument.defaultView!
           .getComputedStyle(element).paddingLeft,
       )).toBe("64px");
-      const layout = await page.evaluate<{
-        innerWidth: number;
-        scrollWidth: number;
-      }>("({ innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth })");
-      expect(layout.scrollWidth, `horizontal overflow at ${width}px`)
-        .toBeLessThanOrEqual(layout.innerWidth);
+      await expectNoHorizontalOverflow(`${width}px Workbench`);
       await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
         .toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
@@ -1157,6 +1175,47 @@ test("question to iterative notebook to imported dashboard", async ({
       await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Datasets", exact: true }))
         .toBeVisible();
+
+      const responsiveDatasetTrigger = page.getByRole("button", {
+        name: "Review dataset draft",
+      });
+      await responsiveDatasetTrigger.click();
+      await expect(page.getByRole("dialog", { name: "Review panel" })).toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Dataset review`);
+      await page.keyboard.press("Escape");
+      await expect(responsiveDatasetTrigger).toBeFocused();
+
+      await page.getByRole("button", { name: "Datasets", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Datasets", exact: true }))
+        .toBeVisible();
+      await expect(page.getByText("Viral load with units", { exact: true })).toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Dataset library`);
+
+      await page.getByRole("button", { name: "Widgets", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Widgets", exact: true }))
+        .toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Widget library`);
+      const responsiveWidgetTrigger = page.getByRole("button", { name: "New Widget" });
+      await responsiveWidgetTrigger.click();
+      await expect(page.getByRole("dialog", { name: "Review panel" })).toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Widget review`);
+      await page.keyboard.press("Escape");
+      await expect(responsiveWidgetTrigger).toBeFocused();
+
+      await page.getByRole("button", { name: "Dashboards", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Dashboards", exact: true }))
+        .toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Dashboard library`);
+      const responsiveDashboardTrigger = page.getByRole("button", {
+        name: "New Dashboard",
+      });
+      await responsiveDashboardTrigger.click();
+      await expect(page.getByRole("dialog", { name: "Review panel" })).toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px Dashboard review`);
+      await page.keyboard.press("Escape");
+      await expect(responsiveDashboardTrigger).toBeFocused();
+
+      await page.getByRole("button", { name: "Workbench", exact: true }).click();
     }
 
     await page.emulateMedia({ reducedMotion: "reduce" });
