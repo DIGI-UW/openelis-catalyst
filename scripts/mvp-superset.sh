@@ -35,10 +35,16 @@ usage() {
 case "${1:-}" in
   status)
     "${compose[@]}" ps superset superset-metadata-db
-    "${compose[@]}" run --rm superset-importer status
+    # Status reads only the outbox and receipt mounts. It must not start or
+    # recreate the application, analytics, or metadata services.
+    "${compose[@]}" run --rm --no-deps superset-importer status
     ;;
   import)
-    "${compose[@]}" run --rm superset-importer import
+    # Make dependency readiness explicit instead of letting `compose run`
+    # race an implicit dependency startup. The one-shot importer itself then
+    # joins the existing project network without changing service state.
+    "${compose[@]}" up -d --wait --wait-timeout 180 analytics-db superset
+    "${compose[@]}" run --rm --no-deps superset-importer import
     ;;
   reset)
     echo "ERROR: reset requires the validated last-verified importer implementation" >&2

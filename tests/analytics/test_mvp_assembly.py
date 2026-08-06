@@ -387,8 +387,16 @@ class MvpComposeContractTests(unittest.TestCase):
             'CATALYST_IMPORTER_REVISION: "${CATALYST_IMPORTER_REVISION:-}"',
             self.compose,
         )
-        self.assertIn('run --rm superset-importer status', self.superset_script)
-        self.assertIn('run --rm superset-importer import', self.superset_script)
+        self.assertIn(
+            'run --rm --no-deps superset-importer status', self.superset_script
+        )
+        self.assertIn(
+            'up -d --wait --wait-timeout 180 analytics-db superset',
+            self.superset_script,
+        )
+        self.assertIn(
+            'run --rm --no-deps superset-importer import', self.superset_script
+        )
         self.assertIn("./runtime/superset/outbox:/opt/catalyst/outbox:ro", self.compose)
         self.assertIn(
             "./runtime/superset/receipts:/opt/catalyst/receipts:rw", self.compose
