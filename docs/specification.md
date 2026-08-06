@@ -1,8 +1,9 @@
 # Catalyst Product Specification
 
 **Status:** Iterative query notebook foundation accepted; M3 integrated 4c
-implementation live with T150/T174/T151 complete, user acceptance and the
-remaining D1d checks open; M4 not started
+implementation live and the focused automated D1d checks pass. Actual 200%
+browser review, focused task closure, durable visual/acceptance evidence, and
+explicit user acceptance remain open; M4 has not started
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -744,10 +745,10 @@ MVP requires an end-to-end deployment that demonstrates:
 12. Independent PostgreSQL comparison for live acceptance, with model
     nondeterminism recorded rather than treated as test determinism.
 
-The deterministic component, mocked-browser, real-model, and independent
-PostgreSQL checks have supporting evidence. The complete Dashboard Builder
-keyboard/reflow/accessibility matrix, actual 200% zoom, and explicit user
-acceptance remain open for M3. Failed model candidates and temperature-zero
+The deterministic component, mocked-browser keyboard/reflow/accessibility,
+real-model, and independent PostgreSQL checks have supporting evidence. Actual
+200% browser zoom, durable visual/acceptance evidence, focused D1d task closure,
+and explicit user acceptance remain open for M3. Failed model candidates and temperature-zero
 output differences remain retained evidence; syntactic validity alone is not
 correctness. An optional report demonstration does not substitute for
 table/notebook acceptance.
@@ -758,9 +759,10 @@ The full acceptance below remains the D1 product standard. The current local M3
 implementation preserves the accepted Ask workflow in the binding 4c shell and has
 live evidence for real configured writer/reviewer turns, manual versions,
 execution, contextual follow-up, Dataset/Widget/Dashboard promotion, native
-Superset import, and refresh restoration. It is not an accepted milestone: the
-remaining D1d matrix and explicit user
-acceptance are open, and M4 release hardening has not started.
+Superset import, and refresh restoration. It is not an accepted milestone:
+actual 200% browser zoom, durable visual/acceptance evidence, focused D1d task
+closure, and explicit user acceptance are open, and M4 release hardening has
+not started.
 
 The live Dashboard library also restores publication state from importer-owned
 read-only receipts. `Open Superset` is available only for an exact verified

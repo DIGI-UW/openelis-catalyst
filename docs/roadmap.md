@@ -1,8 +1,9 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; M3 integrated 4c implementation is live,
-with T150/T174/T151 complete while explicit user acceptance and the remaining
-D1d matrix are open; M4 has not started
+**Status:** Active pathway roadmap; M3 integrated 4c implementation is live and
+the focused D1d automated checks pass. Actual 200% browser review, focused task
+closure, durable visual/acceptance evidence, and explicit user acceptance are
+open; M4 has not started
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -56,13 +57,13 @@ The repository currently contains:
 The original table-only path was a **Superset import spike**. The live M3
 implementation now integrates the real Gemma/Qwen notebook path with the 4c
 shell and the Dataset → Widget → Dashboard → Superset workflow. T150/T174/T151
-are complete; M3 still requires explicit user acceptance and the remaining D1d
-checks:
+are complete, and the focused T175/T152, T176/T177, T178/T153, and T179
+automated behavior passes. Their task boxes remain open for the live closure
+checkpoint; M3 still requires:
 
-- complete Dataset/Widget/publication behavior under T175/T152, T176/T177, and
-  T178/T153;
-- the remaining accessibility/status-announcement matrix and actual 200% zoom
-  under T179/T154;
+- actual 200% browser zoom under T179/T154;
+- durable visual/acceptance evidence and explicit closure of the focused D1d
+  task pairs;
 - explicit user acceptance of the live 4c experience.
 
 Five-family clean-import coverage, complete reset/reimport recovery, repeated
@@ -82,7 +83,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **M3 integrated 4c implementation live; T150/T174/T151 complete; remaining D1d checks and user acceptance open; M4 not started** | Accepted query/workbench foundation only | Finish T175/T152, T176/T177, T178/T153, and T179/T154 individually, then obtain explicit M3 acceptance |
+| **Superset-backed Dashboard Builder (D1)** | **M3 integrated 4c implementation live; focused automated D1d checks pass; actual 200% review, task closure, visual evidence, and user acceptance open; M4 not started** | Accepted query/workbench foundation only | Complete the live closure checkpoint for T175/T152, T176/T177, T178/T153, and T179/T154 individually, then obtain explicit M3 acceptance |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -332,8 +333,9 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** M3 integrated 4c implementation live; T150/T174/T151 complete;
-explicit user acceptance and remaining D1d checks open; M4 not started
+**Status:** M3 integrated 4c implementation live; focused automated D1d checks
+pass; actual 200% review, task closure, durable visual/acceptance evidence, and
+explicit user acceptance remain open; M4 has not started
 
 **Current delivery boundary:** The active branches implement a manually testable
 M3 implementation in the binding 4c shell—real Gemma E4B → Qwen 14B generation,
@@ -341,8 +343,9 @@ manual SQL versions, explicit Run, contextual follow-up, exact Dataset review,
 Widget/Dashboard libraries, native ZIP publication, explicit local Superset
 import, PostgreSQL reconciliation, and refresh restoration. The original
 table-only path remains correctly described as the import spike it was. M3
-remains open until the user accepts the live product and the remaining D1d
-checks pass; M4 release hardening has not started.
+remains open until the actual 200% review, durable visual/acceptance evidence,
+focused D1d task closure, and explicit user acceptance; M4 release hardening
+has not started.
 
 One supporting M3 corrective pass removed the obsolete Gateway A2A
 `/v1/chat/completions` relay and dependency, removed its dead
@@ -456,7 +459,7 @@ implementation to continue through a working local MVP; T138 is complete.
 | Checkpoint | Entry | Testable exit evidence | Pause rule |
 | --- | --- | --- | --- |
 | **D1a — grounded contracts** | Both feature branches based on current `main`; accepted query-workbench baseline | T137 → T158 → T159 → T138; reconciled API/bundle/pointer/receipt/per-Dashboard-last-verified/event/acceptance schemas; bounded-result and exact `dataSourceId` + `catalogVersion` rules; stable logical-ID slug; scoped failure/recovery; preimplementation PCCP; byte-identical contract copies; valid JSON Schemas; zero unresolved CRITICAL/HIGH findings | After T138, pause for explicit user acceptance; no product code starts before it |
-| **D1d — integrated product UX (active M3)** | User accepts D1a; foundation inventory confirms the happy-path runtime/import and builder/export contracts used by the UI | T150/T174/T151 complete; finish T175/T152, T176/T177, T178/T153, and T179/T154 while preserving the accepted Ask characterization, one active SQL editor, Available data and sole full Dataset result panel, Dataset/Widget/Dashboard libraries, publication controls, scoped recovery, desktop/390×844/320-CSS-px/actual-200%-zoom, and keyboard behavior | Pause for explicit user UX acceptance; M3 remains open while any required D1d task is open |
+| **D1d — integrated product UX (active M3)** | User accepts D1a; foundation inventory confirms the happy-path runtime/import and builder/export contracts used by the UI | T150/T174/T151 complete; focused automated behavior for T175/T152, T176/T177, T178/T153, and T179 passes. Complete their individual live closure plus T154 actual-200%-zoom/visual evidence while preserving the accepted Ask characterization, one active SQL editor, Available data and sole full Dataset result panel, Dataset/Widget/Dashboard libraries, publication controls, scoped recovery, and keyboard behavior | Pause for explicit user UX acceptance; M3 remains open while any required D1d task is open |
 | **D1b — Superset runtime/import hardening** | User accepts D1d/M3 | T139–T144 and T160–T165; Catalyst-owned `/runtime/superset/` gitignore boundary and clean-target guard; pinned Superset 6.1.0/driver; clean fixture import for all five visualization families; standalone Python-3.10 importer/state scripts with no Catalyst-package import, Gateway-CI discovery, `rfc8785` parity, and pinned-container smoke; persistence/read-only access; restart/no-op/lock/credential matrix; scoped failure handling; validated per-Dashboard last-verified projection and full Superset-local metadata DB/home-volume reset/reimport recovery with no asset-selective delete, ORM/REST mutation, or automatic retry | Stop on schema, image/driver, transaction, permission, projection, canonical-JSON, clean-target, or verification drift before deployed acceptance |
 | **D1c — builder backend/export hardening** | D1b passed | T145–T149 and T166–T173; red-first immutable storage/routes, lossless execution adapter/compiler, visualization, serializer, and publication tests; exact source+catalog locking; deterministic full-width layout; root-wrapped byte-identical ZIP; stable Superset UUID and `catalyst-<lowercase-dashboard-id>` slug; exact child reuse/change behavior; real round trip; zero post-execution model/DB calls | Stop on API, manifest, identity, or source-lineage drift before deployed acceptance |
 | **D1e — deployed MVP acceptance** | D1b and D1c pass after user acceptance of D1d/M3 | T180–T182 → T155–T157; validate structured `query_turn`/`query_version`/`query_execution` plus builder event emission and fixed six-step `orderedWorkflow` before the real writer/reviewer run; initial Run → Save Dataset v1 while current → contextual follow-up → rerun → Save Dataset v2 while successor current; heterogeneous Widgets; imported stable slug URL; PostgreSQL reconciliation; repetition/failure/recovery; schema-valid `run_manifest.json`, `events.jsonl`, and `acceptance.json`; green CI and final user acceptance | D1 remains open until the deployed dashboard and evidence are inspected and accepted |
