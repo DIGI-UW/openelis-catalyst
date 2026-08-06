@@ -56,6 +56,16 @@ const configurationRecord = (entity: DashboardBuilderEntity, key: string) => {
     : null;
 };
 
+const dashboardWidgetVersionIds = (entity: DashboardBuilderEntity) => {
+  const widgets = configurationValue(entity, "widgets");
+  if (!Array.isArray(widgets)) return [];
+  return widgets.flatMap((widget) => {
+    if (typeof widget !== "object" || widget === null) return [];
+    const versionId = (widget as Record<string, unknown>).versionId;
+    return typeof versionId === "string" ? [versionId] : [];
+  });
+};
+
 const entityTitle = (entity: DashboardBuilderEntity) => {
   const title = configurationValue(entity, "title");
   return typeof title === "string" && title.trim() ? title : "Untitled widget";
@@ -109,8 +119,9 @@ const DashboardPublishPanelContent = ({
     Promise.all([
       api.listDashboardDatasets(controller.signal),
       api.listDashboardWidgets(controller.signal),
+      api.listDashboards?.(controller.signal) ?? Promise.resolve(null),
     ])
-      .then(([datasetCollection, widgetCollection]) => {
+      .then(([datasetCollection, widgetCollection, dashboardCollection]) => {
         const matchingDataset = datasetCollection.items.find((candidate) => {
           const source = configurationRecord(candidate, "source");
           return (
@@ -120,15 +131,31 @@ const DashboardPublishPanelContent = ({
         });
         if (!matchingDataset) return;
         setDataset(matchingDataset);
-        setWidgets(
-          widgetCollection.items
-            .filter(
-              (candidate) =>
-                configurationValue(candidate, "datasetVersionId") ===
-                matchingDataset.versionId,
-            )
-            .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
-        );
+        const matchingWidgets = widgetCollection.items
+          .filter(
+            (candidate) =>
+              configurationValue(candidate, "datasetVersionId") ===
+              matchingDataset.versionId,
+          )
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+        setWidgets(matchingWidgets);
+
+        const widgetVersionIds = matchingWidgets.map((widget) => widget.versionId);
+        const matchingDashboard = dashboardCollection?.items
+          .filter((candidate) => {
+            const candidateWidgetIds = dashboardWidgetVersionIds(candidate);
+            return (
+              candidateWidgetIds.length === widgetVersionIds.length &&
+              candidateWidgetIds.every(
+                (versionId, index) => versionId === widgetVersionIds[index],
+              )
+            );
+          })
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+        if (matchingDashboard) {
+          const restoredTitle = configurationValue(matchingDashboard, "title");
+          if (typeof restoredTitle === "string") setDashboardTitle(restoredTitle);
+        }
       })
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) {

@@ -120,6 +120,25 @@ describe("DashboardPublishPanel", () => {
         kind: "widget",
         items: [chartWidget, tableWidget],
       }),
+      listDashboards: vi.fn().mockResolvedValue({
+        contractVersion: "catalyst.dashboard-builder.v1",
+        kind: "dashboard",
+        items: [
+          {
+            ...savedWidget,
+            id: "dashboard-1",
+            versionId: "dashboard-v1",
+            configuration: {
+              title: "Laboratory dashboard",
+              widgets: [
+                { versionId: "widget-table-v1" },
+                { versionId: "widget-chart-v1" },
+              ],
+            },
+            createdAt: "2026-08-06T00:00:04Z",
+          },
+        ],
+      }),
       saveDashboardDataset: vi.fn(),
       saveDashboardWidget: vi.fn(),
       saveDashboard: vi.fn().mockResolvedValue({
@@ -141,11 +160,15 @@ describe("DashboardPublishPanel", () => {
     expect(screen.getByText("Laboratory result table")).toBeVisible();
     expect(screen.getByText("Laboratory result trend")).toBeVisible();
     expect(screen.getAllByText("Time-series line")).toHaveLength(2);
+    expect(screen.getByLabelText("Dashboard title")).toHaveValue(
+      "Laboratory dashboard",
+    );
 
     await user.click(screen.getByRole("button", { name: "Publish to Superset" }));
     expect(api.saveDashboardDataset).not.toHaveBeenCalled();
     expect(api.saveDashboard).toHaveBeenCalledWith({
       widgetVersionIds: ["widget-table-v1", "widget-chart-v1"],
+      title: "Laboratory dashboard",
     });
   });
 });
