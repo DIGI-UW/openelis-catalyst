@@ -12,6 +12,7 @@ from src.catalyst.dashboard_builder import (
     DashboardBuilder,
     DashboardBuilderError,
     compile_parameterized_sql,
+    suggest_presentation,
 )
 
 
@@ -121,6 +122,13 @@ def test_compile_parameterized_sql_preserves_typed_literals() -> None:
         )
         == "SELECT DATE '2026-01-01'::date, 'O''Brien', (2, 3)"
     )
+
+
+def test_empty_numeric_dataset_does_not_suggest_an_invalid_big_number() -> None:
+    columns = [{"ordinal": 0, "name": "count", "logicalType": "integer"}]
+
+    assert suggest_presentation(columns, 0) == "table"
+    assert suggest_presentation(columns, 1) == "big_number"
 
 
 def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) -> None:
@@ -248,6 +256,10 @@ def test_publication_projects_only_an_exact_verified_import(tmp_path: Path) -> N
     assert failed is not None
     assert failed["status"] == "import_failed"
     assert failed["importState"]["errorCode"] == "last_verified_mismatch"
+    assert (
+        failed["importState"]["recoveryAction"]
+        == "full_reset_then_reimport_last_verified_bundle"
+    )
     assert "dashboardUrl" not in failed["importState"]
 
 

@@ -1,4 +1,5 @@
 import { Button, InlineNotification, Tag } from "@carbon/react";
+import { useState } from "react";
 import type {
   BoundParameter,
   ParameterType,
@@ -697,13 +698,20 @@ export const ExecutionResult = ({
   session,
   sql,
   parameters,
+  executionOverride,
+  pageSize,
 }: {
   session: WorkbenchSession;
   sql: string;
   parameters: BoundParameter[];
+  executionOverride?: WorkbenchExecution;
+  pageSize?: number;
 }) => {
-  const execution = latestExecution(session.executions);
+  const execution = executionOverride ?? latestExecution(session.executions);
+  const [pageState, setPageState] = useState({ executionId: "", page: 0 });
   if (!execution) return null;
+  const page =
+    pageState.executionId === execution.executionId ? pageState.page : 0;
   const executionVersion = session.versions.find(
     (version) => version.versionId === execution.versionId,
   ) ?? null;
@@ -787,6 +795,11 @@ export const ExecutionResult = ({
     .map((_, index) => index)
     .sort((left, right) => result.columns[left]!.ordinal - result.columns[right]!.ordinal);
   const resultWarnings = executionResultWarnings(result);
+  const boundedPageSize = pageSize && pageSize > 0 ? pageSize : result.rows.length;
+  const pageCount = Math.max(1, Math.ceil(result.rows.length / Math.max(1, boundedPageSize)));
+  const safePage = Math.min(page, pageCount - 1);
+  const firstVisibleRow = safePage * boundedPageSize;
+  const visibleRows = result.rows.slice(firstVisibleRow, firstVisibleRow + boundedPageSize);
 
   return (
     <section className="workbench-execution" aria-label="Latest execution">
@@ -844,10 +857,10 @@ export const ExecutionResult = ({
               </tr>
             </thead>
             <tbody>
-              {result.rows.map((row, rowIndex) => (
-                <tr key={`${execution.executionId}-${rowIndex}`}>
+              {visibleRows.map((row, rowIndex) => (
+                <tr key={`${execution.executionId}-${firstVisibleRow + rowIndex}`}>
                   {columnOrder.map((sourceIndex) => (
-                    <td key={`${sourceIndex}-${rowIndex}`}>
+                    <td key={`${sourceIndex}-${firstVisibleRow + rowIndex}`}>
                       {renderTaggedCell(row[sourceIndex])}
                     </td>
                   ))}
@@ -856,6 +869,41 @@ export const ExecutionResult = ({
             </tbody>
           </table>
         </div>
+      )}
+      {result.rows.length > boundedPageSize && (
+        <nav className="workbench-execution__pagination" aria-label="Result pages">
+          <p>
+            Showing {firstVisibleRow + 1}–{Math.min(firstVisibleRow + boundedPageSize, result.rows.length)} of {result.rows.length} returned rows
+          </p>
+          <Button
+            type="button"
+            kind="ghost"
+            size="sm"
+            disabled={safePage === 0}
+            onClick={() =>
+              setPageState({
+                executionId: execution.executionId,
+                page: Math.max(0, safePage - 1),
+              })
+            }
+          >
+            Previous result page
+          </Button>
+          <Button
+            type="button"
+            kind="ghost"
+            size="sm"
+            disabled={safePage >= pageCount - 1}
+            onClick={() =>
+              setPageState({
+                executionId: execution.executionId,
+                page: Math.min(pageCount - 1, safePage + 1),
+              })
+            }
+          >
+            Next result page
+          </Button>
+        </nav>
       )}
     </section>
   );

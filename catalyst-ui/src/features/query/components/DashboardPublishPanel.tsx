@@ -39,6 +39,19 @@ const presentations: Array<{ value: DashboardPresentationKind; label: string }> 
 const configurationValue = (entity: DashboardBuilderEntity, key: string) =>
   entity.configuration[key];
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const recordValue = (source: Record<string, unknown> | undefined, key: string) => {
+  const value = source?.[key];
+  return isRecord(value) ? value : undefined;
+};
+
+const textValue = (source: Record<string, unknown> | undefined, key: string) => {
+  const value = source?.[key];
+  return typeof value === "string" && value ? value : undefined;
+};
+
 const configurationRecord = (entity: DashboardBuilderEntity, key: string) => {
   const value = configurationValue(entity, key);
   return typeof value === "object" && value !== null
@@ -71,11 +84,111 @@ const newestSuccessfulExecution = (session: WorkbenchSession | null) =>
     .filter((execution) => execution.status === "succeeded")
     .sort((left, right) => right.ordinal - left.ordinal)[0] ?? null;
 
+const displayParameterValue = (value: BoundParameter["value"]) =>
+  Array.isArray(value) ? JSON.stringify(value) : String(value);
+
 const presentationPreview = (kind: DashboardPresentationKind) => {
   if (kind === "table") return "Table preview using every returned column";
   if (kind === "big_number") return "Single-value KPI preview";
   if (kind.startsWith("time_series")) return "Time-series preview using the temporal and numeric columns";
   return "Bar chart preview using the categorical and numeric columns";
+};
+
+interface PresentationAssessment {
+  kind: DashboardPresentationKind;
+  compatible: boolean;
+  reason: string;
+}
+
+const datasetColumns = (dataset: DashboardBuilderEntity | null) => {
+  const columns = dataset ? configurationValue(dataset, "columns") : null;
+  return Array.isArray(columns) ? columns.filter(isRecord) : [];
+};
+
+const presentationAssessments = (
+  dataset: DashboardBuilderEntity | null,
+): PresentationAssessment[] => {
+  const columns = datasetColumns(dataset);
+  const rowCount = Number(
+    (dataset ? configurationRecord(dataset, "rowCount") : null)?.returned ?? 0,
+  );
+  const numeric = columns.filter((column) =>
+    ["integer", "decimal"].includes(String(column.logicalType)),
+  );
+  const temporal = columns.filter((column) =>
+    ["date", "date-time"].includes(String(column.logicalType)),
+  );
+  const categorical = columns.filter((column) =>
+    ["string", "boolean"].includes(String(column.logicalType)),
+  );
+  const compatible = (kind: DashboardPresentationKind) => {
+    if (kind === "table") return true;
+    if (kind === "big_number") return rowCount === 1 && columns.length === 1 && numeric.length === 1;
+    if (kind === "time_series_line" || kind === "time_series_area") {
+      return temporal.length > 0 && numeric.length > 0;
+    }
+    if (kind === "proportion_bar") return categorical.length > 1 && numeric.length > 0;
+    return categorical.length > 0 && numeric.length > 0;
+  };
+  const reason = (kind: DashboardPresentationKind) => {
+    if (kind === "table") return "Table supports every returned schema.";
+    if (kind === "big_number") return "Big number requires exactly one returned numeric cell.";
+    if (kind === "time_series_line" || kind === "time_series_area") {
+      return `${presentations.find((item) => item.value === kind)?.label} requires a temporal and numeric column.`;
+    }
+    if (kind === "proportion_bar") {
+      return "100% stacked bar requires two categorical columns and a numeric column.";
+    }
+    return `${presentations.find((item) => item.value === kind)?.label} requires a categorical and numeric column.`;
+  };
+  return presentations.map(({ value }) => ({
+    kind: value,
+    compatible: compatible(value),
+    reason: reason(value),
+  }));
+};
+
+const suggestedPresentation = (dataset: DashboardBuilderEntity | null) => {
+  const assessments = presentationAssessments(dataset);
+  const columns = datasetColumns(dataset);
+  const rowCount = Number(
+    (dataset ? configurationRecord(dataset, "rowCount") : null)?.returned ?? 0,
+  );
+  const numeric = columns.filter((column) =>
+    ["integer", "decimal"].includes(String(column.logicalType)),
+  );
+  const temporal = columns.some((column) =>
+    ["date", "date-time"].includes(String(column.logicalType)),
+  );
+  const categorical = columns.some((column) => String(column.logicalType) === "string");
+  if (columns.length === 1 && numeric.length === 1 && rowCount === 1) return "big_number";
+  if (temporal && numeric.length > 0) return "time_series_line";
+  if (categorical && numeric.length > 0 && columns.length <= 4) return "grouped_bar";
+  return assessments.find((assessment) => assessment.compatible)?.kind ?? "table";
+};
+
+const presentationBindingSummary = (
+  dataset: DashboardBuilderEntity | null,
+  kind: DashboardPresentationKind,
+) => {
+  const columns = datasetColumns(dataset);
+  const names = (items: Record<string, unknown>[]) =>
+    items.map((column) => String(column.name ?? "unnamed")).join(", ");
+  const numeric = columns.filter((column) =>
+    ["integer", "decimal"].includes(String(column.logicalType)),
+  );
+  const temporal = columns.filter((column) =>
+    ["date", "date-time"].includes(String(column.logicalType)),
+  );
+  const categorical = columns.filter((column) =>
+    ["string", "boolean"].includes(String(column.logicalType)),
+  );
+  if (kind === "table") return `Columns: ${names(columns) || "none"}`;
+  if (kind === "big_number") return `Metric: ${names(numeric.slice(0, 1))}`;
+  if (kind === "time_series_line" || kind === "time_series_area") {
+    return `Time: ${names(temporal.slice(0, 1))} · Metric: ${names(numeric.slice(0, 1))}`;
+  }
+  return `Category: ${names(categorical.slice(0, 1))} · Metric: ${names(numeric.slice(0, 1))}`;
 };
 
 const dateLabel = (value: string) => {
@@ -88,6 +201,29 @@ const dateLabel = (value: string) => {
         hour: "2-digit",
         minute: "2-digit",
       }).format(date);
+};
+
+const hasExactImportedEvidence = (publication: DashboardPublication | undefined) =>
+  publication?.status === "imported" &&
+  publication.importState?.outcome === "imported" &&
+  Boolean(publication.importState.receiptId) &&
+  Boolean(publication.importState.receiptDigest) &&
+  Boolean(publication.importState.dashboardUrl);
+
+const publicationFailureGuidance = (
+  publication: DashboardPublication,
+  importEvidenceIncomplete: boolean,
+) => {
+  if (importEvidenceIncomplete) {
+    return "The import receipt does not exactly match this Dashboard version. Run the local Superset status/import helper for this exact bundle, then reload.";
+  }
+  if (
+    publication.importState?.recoveryAction ===
+    "full_reset_then_reimport_last_verified_bundle"
+  ) {
+    return "Stop the local Superset stack, fully reset only its metadata database and home volumes, then reimport and verify this Dashboard's last-verified bundle. Do not delete individual assets.";
+  }
+  return "Run the local Superset import helper again for this exact bundle, then reload this page.";
 };
 
 export const DashboardPublishPanel = ({
@@ -104,11 +240,17 @@ export const DashboardPublishPanel = ({
   const [dashboards, setDashboards] = useState<DashboardBuilderEntity[]>([]);
   const [panel, setPanel] = useState<ReviewPanel>(null);
   const [datasetTitle, setDatasetTitle] = useState("");
+  const [hydratedDatasetSession, setHydratedDatasetSession] = useState<{
+    datasetVersionId: string;
+    session: WorkbenchSession;
+  } | null>(null);
+  const [datasetEvidenceLoading, setDatasetEvidenceLoading] = useState(false);
   const [widgetTitle, setWidgetTitle] = useState("");
   const [dashboardTitle, setDashboardTitle] = useState("");
   const [presentationKind, setPresentationKind] =
     useState<DashboardPresentationKind>("table");
   const [selectedDatasetVersionId, setSelectedDatasetVersionId] = useState("");
+  const [reviewedDatasetVersionId, setReviewedDatasetVersionId] = useState("");
   const [selectedWidgetVersionIds, setSelectedWidgetVersionIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(
@@ -122,7 +264,7 @@ export const DashboardPublishPanel = ({
   >({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [returnFocusTarget, setReturnFocusTarget] = useState<HTMLElement | null>(null);
 
   const execution = newestSuccessfulExecution(session);
   const executionVersion = execution
@@ -168,6 +310,58 @@ export const DashboardPublishPanel = ({
         : null,
     [datasets, execution, session],
   );
+
+  const reviewedDataset = reviewedDatasetVersionId
+    ? datasets.find((candidate) => candidate.versionId === reviewedDatasetVersionId) ?? null
+    : currentDataset;
+  const reviewedDatasetSource = reviewedDataset
+    ? configurationRecord(reviewedDataset, "source")
+    : null;
+  const reviewedSession = reviewedDatasetSource
+    ? reviewedDatasetSource.sessionId === session?.sessionId
+      ? session
+      : hydratedDatasetSession &&
+          hydratedDatasetSession.datasetVersionId === reviewedDataset?.versionId
+        ? hydratedDatasetSession.session
+        : null
+    : session;
+  const reviewedExecution = reviewedDatasetSource && reviewedSession
+    ? reviewedSession.executions.find(
+        (candidate) =>
+          candidate.executionId === reviewedDatasetSource.executionId,
+      ) ?? null
+    : execution;
+  const reviewedVersion = reviewedExecution && reviewedSession
+    ? reviewedSession.versions.find((version) => version.versionId === reviewedExecution.versionId) ?? null
+    : null;
+  const reviewedValidation = reviewedExecution && reviewedSession
+    ? (reviewedSession.validations ?? [])
+        .filter(
+          (validation) =>
+            validation.versionId === reviewedExecution.versionId &&
+            validation.queryDigest === reviewedExecution.queryDigest,
+        )
+        .sort((left, right) => right.ordinal - left.ordinal)[0] ?? null
+    : null;
+  const reviewedProvenance = reviewedVersion?.provenance;
+  const sessionProvenance = reviewedSession?.provenance;
+  const profileSnapshot =
+    recordValue(reviewedProvenance, "profileSnapshot") ??
+    (recordValue(reviewedProvenance, "roleModels") ? reviewedProvenance : undefined) ??
+    recordValue(sessionProvenance, "profileSnapshot");
+  const roleModels = recordValue(profileSnapshot, "roleModels");
+  const profileLabel =
+    textValue(profileSnapshot, "profileLabel") ??
+    textValue(profileSnapshot, "profileName") ??
+    textValue(reviewedProvenance, "profileLabel") ??
+    reviewedSession?.profileId ??
+    "Unknown profile";
+  const catalystTraceId =
+    textValue(reviewedProvenance, "catalystTraceId") ??
+    textValue(sessionProvenance, "catalystTraceId");
+  const hubTraceId =
+    textValue(reviewedProvenance, "hubTraceId") ??
+    textValue(sessionProvenance, "hubTraceId");
 
   useEffect(() => {
     if (!api.listDashboardDatasets || !api.listDashboardWidgets || !api.listDashboards) {
@@ -235,6 +429,13 @@ export const DashboardPublishPanel = ({
 
   const effectiveDatasetVersionId =
     selectedDatasetVersionId || currentDataset?.versionId || datasets[0]?.versionId || "";
+  const selectedDataset =
+    datasets.find((candidate) => candidate.versionId === effectiveDatasetVersionId) ?? null;
+  const selectedPresentationAssessments = presentationAssessments(selectedDataset);
+  const compatiblePresentations = selectedPresentationAssessments.filter(
+    (assessment) => assessment.compatible,
+  );
+  const suggestedKind = suggestedPresentation(selectedDataset);
 
   useEffect(() => {
     if (!panel) return;
@@ -242,7 +443,7 @@ export const DashboardPublishPanel = ({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setPanel(null);
-        window.setTimeout(() => returnFocusRef.current?.focus(), 0);
+        window.setTimeout(() => returnFocusTarget?.focus(), 0);
         return;
       }
       if (event.key !== "Tab" || !reviewRef.current) return;
@@ -264,7 +465,7 @@ export const DashboardPublishPanel = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [panel]);
+  }, [panel, returnFocusTarget]);
 
   useEffect(() => {
     if (!toast) return;
@@ -272,26 +473,70 @@ export const DashboardPublishPanel = ({
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const openPanel = (next: Exclude<ReviewPanel, null>, trigger?: HTMLElement) => {
-    returnFocusRef.current = trigger ?? document.activeElement as HTMLElement | null;
+  const openPanel = (
+    next: Exclude<ReviewPanel, null>,
+    entityVersionId?: string,
+  ) => {
     setError(null);
     setPublication(null);
     if (next === "dataset") {
-      setDatasetTitle(currentDataset ? entityTitle(currentDataset, "Dataset") : "");
+      const selected = entityVersionId
+        ? datasets.find((candidate) => candidate.versionId === entityVersionId) ?? null
+        : currentDataset;
+      setReviewedDatasetVersionId(selected?.versionId ?? "");
+      setDatasetTitle(selected ? entityTitle(selected, "Dataset") : "");
+      setHydratedDatasetSession(null);
+      setDatasetEvidenceLoading(false);
+      const source = selected ? configurationRecord(selected, "source") : null;
+      const sourceSessionId =
+        typeof source?.sessionId === "string" ? source.sessionId : null;
+      if (
+        selected &&
+        sourceSessionId &&
+        sourceSessionId !== session?.sessionId &&
+        api.getWorkbenchSession
+      ) {
+        setDatasetEvidenceLoading(true);
+        void api.getWorkbenchSession(sourceSessionId)
+          .then((sourceSession) => {
+            setHydratedDatasetSession({
+              datasetVersionId: selected.versionId,
+              session: sourceSession,
+            });
+          })
+          .catch((caught: unknown) => {
+            setError(
+              caught instanceof Error
+                ? caught.message
+                : "Catalyst could not load the Dataset's source execution.",
+            );
+          })
+          .finally(() => setDatasetEvidenceLoading(false));
+      }
     }
     if (next === "widget") {
-      setSelectedDatasetVersionId(currentDataset?.versionId ?? datasets[0]?.versionId ?? "");
+      const datasetVersionId = currentDataset?.versionId ?? datasets[0]?.versionId ?? "";
+      const dataset =
+        datasets.find((candidate) => candidate.versionId === datasetVersionId) ?? null;
+      setSelectedDatasetVersionId(datasetVersionId);
+      setPresentationKind(suggestedPresentation(dataset));
     }
     if (next === "dashboard") {
       setDashboardTitle("");
-      setSelectedWidgetVersionIds(widgets[0] ? [widgets[0].versionId] : []);
+      setSelectedWidgetVersionIds(
+        entityVersionId
+          ? [entityVersionId]
+          : widgets[0]
+            ? [widgets[0].versionId]
+            : [],
+      );
     }
     setPanel(next);
   };
 
   const closePanel = () => {
     setPanel(null);
-    window.setTimeout(() => returnFocusRef.current?.focus(), 0);
+    window.setTimeout(() => returnFocusTarget?.focus(), 0);
   };
 
   const saveDataset = async () => {
@@ -410,7 +655,10 @@ export const DashboardPublishPanel = ({
           type="button"
           className="builder-artifact-tile"
           disabled={disabled}
-          onClick={(event) => openPanel("dataset", event.currentTarget)}
+          onClick={(event) => {
+            setReturnFocusTarget(event.currentTarget);
+            openPanel("dataset", currentDataset?.versionId);
+          }}
           aria-label="Review dataset draft"
         >
           <DataBase size={20} aria-hidden="true" />
@@ -433,7 +681,10 @@ export const DashboardPublishPanel = ({
             type="button"
             className="builder-artifact-tile"
             disabled={disabled}
-            onClick={(event) => openPanel("widget", event.currentTarget)}
+            onClick={(event) => {
+              setReturnFocusTarget(event.currentTarget);
+              openPanel("widget");
+            }}
             aria-label="Review widget draft"
           >
             <span className="builder-artifact-tile__chart" aria-hidden="true">↗</span>
@@ -463,19 +714,40 @@ export const DashboardPublishPanel = ({
       ) : (
         <div className="builder-table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Source</th><th>Columns</th><th>Rows</th><th>Saved</th></tr></thead>
+            <thead><tr><th>Name</th><th>Source</th><th>Columns</th><th>Rows</th><th>Parameters</th><th>Widgets</th><th>Status</th><th>Saved</th><th>Action</th></tr></thead>
             <tbody>
               {datasets.map((dataset) => {
                 const source = configurationRecord(dataset, "source");
                 const columns = configurationValue(dataset, "columns");
                 const rowCount = configurationRecord(dataset, "rowCount");
+                const savedParameters = configurationValue(dataset, "parameters");
+                const widgetCount = widgets.filter(
+                  (widget) =>
+                    configurationValue(widget, "datasetVersionId") === dataset.versionId,
+                ).length;
                 return (
                   <tr key={dataset.versionId}>
                     <td><strong>{entityTitle(dataset, "Dataset")}</strong></td>
                     <td>{String(source?.dataSourceId ?? "Unknown")}</td>
                     <td>{Array.isArray(columns) ? columns.length : "—"}</td>
                     <td>{String(rowCount?.returned ?? "—")}</td>
+                    <td>{Array.isArray(savedParameters) ? savedParameters.length : "—"}</td>
+                    <td>{widgetCount}</td>
+                    <td><Tag type="green">Ready</Tag></td>
                     <td>{dateLabel(dataset.createdAt)}</td>
+                    <td>
+                      <Button
+                        type="button"
+                        kind="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          setReturnFocusTarget(event.currentTarget);
+                          openPanel("dataset", dataset.versionId);
+                        }}
+                      >
+                        Review {entityTitle(dataset, "Dataset")}
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
@@ -497,7 +769,10 @@ export const DashboardPublishPanel = ({
         <Button
           type="button"
           disabled={datasets.length === 0}
-          onClick={(event) => openPanel("widget", event.currentTarget)}
+          onClick={(event) => {
+            setReturnFocusTarget(event.currentTarget);
+            openPanel("widget");
+          }}
         >
           New Widget
         </Button>
@@ -512,6 +787,18 @@ export const DashboardPublishPanel = ({
               <h2>{entityTitle(widget, "Widget")}</h2>
               <p>{entityPresentation(widget)}</p>
               <small>Dataset {String(configurationValue(widget, "datasetVersionId")).slice(0, 8)}</small>
+              <Button
+                type="button"
+                kind="ghost"
+                size="sm"
+                className="builder-widget-card__action"
+                onClick={(event) => {
+                  setReturnFocusTarget(event.currentTarget);
+                  openPanel("dashboard", widget.versionId);
+                }}
+              >
+                Add {entityTitle(widget, "Widget")} to dashboard
+              </Button>
             </article>
           ))}
         </div>
@@ -530,7 +817,10 @@ export const DashboardPublishPanel = ({
         <Button
           type="button"
           disabled={widgets.length === 0}
-          onClick={(event) => openPanel("dashboard", event.currentTarget)}
+          onClick={(event) => {
+            setReturnFocusTarget(event.currentTarget);
+            openPanel("dashboard");
+          }}
         >
           New Dashboard
         </Button>
@@ -541,22 +831,37 @@ export const DashboardPublishPanel = ({
         <div className="builder-dashboard-list">
           {dashboards.map((dashboard) => {
             const savedPublication = publicationsByVersion[dashboard.versionId];
+            const exactImported = hasExactImportedEvidence(savedPublication);
+            const importEvidenceIncomplete = Boolean(
+              savedPublication?.status === "imported" && !exactImported,
+            );
+            const displayStatus = importEvidenceIncomplete
+              ? "import_failed"
+              : savedPublication?.status;
             return (
               <article key={dashboard.versionId} className="builder-dashboard-row">
                 <div>
                   <h2>{entityTitle(dashboard, "Dashboard")}</h2>
                   <p>{dashboardWidgetVersionIds(dashboard).length} Widgets · saved {dateLabel(dashboard.createdAt)}</p>
-                  {savedPublication?.status === "imported" && <Tag type="green">Imported</Tag>}
-                  {savedPublication?.status === "bundle_ready" && <Tag type="blue">Superset bundle ready</Tag>}
-                  {savedPublication?.status === "import_failed" && (
+                  {displayStatus === "imported" && <Tag type="green">Imported</Tag>}
+                  {displayStatus === "bundle_ready" && <Tag type="blue">Superset bundle ready</Tag>}
+                  {displayStatus === "import_failed" && savedPublication && (
                     <>
                       <Tag type="red">Import failed</Tag>
-                      <small>Run the local Superset import helper, then reload this page.</small>
+                      <small className="builder-dashboard-row__diagnostic">
+                        {savedPublication.importState?.errorCode ??
+                          (importEvidenceIncomplete ? "import_evidence_incomplete" : "import_failed")}
+                        {" — "}
+                        {publicationFailureGuidance(
+                          savedPublication,
+                          importEvidenceIncomplete,
+                        )}
+                      </small>
                     </>
                   )}
                 </div>
                 <div className="builder-dashboard-row__actions">
-                  {savedPublication?.status === "imported" && savedPublication.importState?.dashboardUrl ? (
+                  {exactImported && savedPublication?.importState?.dashboardUrl ? (
                     <Button
                       as="a"
                       kind="primary"
@@ -566,7 +871,7 @@ export const DashboardPublishPanel = ({
                     >
                       Open Superset
                     </Button>
-                  ) : !savedPublication || savedPublication.status === "import_failed" ? (
+                  ) : !savedPublication || displayStatus === "import_failed" ? (
                     <Button
                       type="button"
                       disabled={disabled || busy}
@@ -628,7 +933,7 @@ export const DashboardPublishPanel = ({
                 </p>
                 <h2>
                   {panel === "dataset"
-                    ? currentDataset ? "Review saved Dataset" : "Review Dataset draft"
+                    ? reviewedDataset ? "Review saved Dataset" : "Review Dataset draft"
                     : panel === "widget"
                       ? "Review Widget draft"
                       : "Create Dashboard"}
@@ -646,14 +951,14 @@ export const DashboardPublishPanel = ({
             </header>
 
             <div className="builder-review__body">
-              {panel === "dataset" && session && execution && (
+              {panel === "dataset" && reviewedSession && reviewedExecution && (
                 <>
                   <TextInput
                     id="builder-dataset-title"
                     labelText="Dataset name"
                     value={datasetTitle}
-                    disabled={busy || Boolean(currentDataset)}
-                    placeholder={`Dataset from Query v${executionVersionOrdinal}`}
+                    disabled={busy || Boolean(reviewedDataset)}
+                    placeholder={`Dataset from Query v${reviewedVersion?.ordinal ?? "?"}`}
                     onChange={(event) => setDatasetTitle(event.currentTarget.value)}
                   />
                   {resultIsStale && (
@@ -666,17 +971,86 @@ export const DashboardPublishPanel = ({
                     />
                   )}
                   <dl className="builder-review__metrics">
-                    <div><dt>Exact query</dt><dd>Query v{executionVersionOrdinal}</dd></div>
-                    <div><dt>Execution</dt><dd>Run {execution.ordinal}</dd></div>
-                    <div><dt>Source</dt><dd>{session.dataSourceId ?? "OpenELIS"}</dd></div>
-                    <div><dt>Status</dt><dd>{execution.status}</dd></div>
+                    <div><dt>Exact query</dt><dd>Query v{reviewedVersion?.ordinal ?? "?"}</dd></div>
+                    <div><dt>Execution</dt><dd>Run {reviewedExecution.ordinal}</dd></div>
+                    <div><dt>Source</dt><dd>{reviewedSession.dataSourceId ?? "OpenELIS"}</dd></div>
+                    <div><dt>Status</dt><dd>{reviewedExecution.status}</dd></div>
+                    <div><dt>Catalog</dt><dd>{reviewedSession.catalogVersion ?? "Unknown"}</dd></div>
+                    <div><dt>Profile</dt><dd>{profileLabel}</dd></div>
+                    {roleModels && Object.entries(roleModels)
+                      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+                      .sort(([left], [right]) => left.localeCompare(right))
+                      .map(([role, model]) => (
+                        <div key={role}><dt>{role.replaceAll("_", " ")}</dt><dd>{model}</dd></div>
+                      ))}
+                    {catalystTraceId && <div><dt>Catalyst trace</dt><dd>{catalystTraceId}</dd></div>}
+                    {hubTraceId && <div><dt>Hub trace</dt><dd>{hubTraceId}</dd></div>}
+                    <div>
+                      <dt>Database diagnostic</dt>
+                      <dd>
+                        {reviewedExecution.databaseDiagnostic?.message ??
+                          (reviewedExecution.status === "succeeded"
+                            ? "None — run succeeded"
+                            : "Unavailable")}
+                      </dd>
+                    </div>
                   </dl>
-                  <ExecutionResult session={session} sql={sql} parameters={parameters} />
+                  <section className="builder-review__evidence" aria-labelledby="dataset-parameters-title">
+                    <h3 id="dataset-parameters-title">Typed parameters</h3>
+                    {reviewedExecution.query.parameters.length === 0 ? (
+                      <p>No bound parameters.</p>
+                    ) : (
+                      <dl>
+                        {reviewedExecution.query.parameters.map((parameter) => (
+                          <div key={parameter.name}>
+                            <dt>:{parameter.name}</dt>
+                            <dd>{parameter.type}</dd>
+                            <dd>{displayParameterValue(parameter.value)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </section>
+                  <section className="builder-review__evidence" aria-labelledby="dataset-findings-title">
+                    <h3 id="dataset-findings-title">Validation findings</h3>
+                    {!reviewedValidation || reviewedValidation.findings.length === 0 ? (
+                      <p>No validation findings recorded for this exact query.</p>
+                    ) : (
+                      <ul>
+                        {reviewedValidation.findings.map((finding) => (
+                          <li key={finding.findingId}>
+                            <strong>{finding.ruleCode}</strong> — {finding.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <ExecutionResult
+                    session={reviewedSession}
+                    sql={reviewedDataset ? reviewedExecution.query.sql : sql}
+                    parameters={
+                      reviewedDataset ? reviewedExecution.query.parameters : parameters
+                    }
+                    executionOverride={reviewedExecution}
+                    pageSize={25}
+                  />
                   <details className="builder-review__sql">
-                    <summary>Query v{executionVersionOrdinal} SQL snapshot</summary>
-                    <pre>{execution.query.sql}</pre>
+                    <summary>Query v{reviewedVersion?.ordinal ?? "?"} SQL snapshot</summary>
+                    <pre>{reviewedExecution.query.sql}</pre>
                   </details>
                 </>
+              )}
+              {panel === "dataset" && datasetEvidenceLoading && (
+                <p role="status">Loading exact Dataset execution evidence…</p>
+              )}
+              {panel === "dataset" && !datasetEvidenceLoading && (!reviewedSession || !reviewedExecution) && (
+                <InlineNotification
+                  kind="warning"
+                  lowContrast
+                  hideCloseButton
+                  title="Execution evidence is unavailable in this session"
+                  subtitle="Return to the source query session to review its typed rows and exact execution evidence."
+                />
               )}
 
               {panel === "widget" && (
@@ -698,7 +1072,13 @@ export const DashboardPublishPanel = ({
                     labelText="Reads Dataset"
                     value={effectiveDatasetVersionId}
                     disabled={busy}
-                    onChange={(event) => setSelectedDatasetVersionId(event.currentTarget.value)}
+                    onChange={(event) => {
+                      const datasetVersionId = event.currentTarget.value;
+                      const dataset =
+                        datasets.find((candidate) => candidate.versionId === datasetVersionId) ?? null;
+                      setSelectedDatasetVersionId(datasetVersionId);
+                      setPresentationKind(suggestedPresentation(dataset));
+                    }}
                   >
                     {datasets.map((dataset) => (
                       <SelectItem
@@ -715,10 +1095,32 @@ export const DashboardPublishPanel = ({
                     disabled={busy}
                     onChange={(event) => setPresentationKind(event.currentTarget.value as DashboardPresentationKind)}
                   >
-                    {presentations.map((presentation) => (
+                    {compatiblePresentations.map((assessment) => {
+                      const presentation = presentations.find(
+                        (candidate) => candidate.value === assessment.kind,
+                      )!;
+                      return (
                       <SelectItem key={presentation.value} value={presentation.value} text={presentation.label} />
-                    ))}
+                      );
+                    })}
                   </Select>
+                  <section className="builder-review__evidence" aria-labelledby="widget-binding-title">
+                    <h3 id="widget-binding-title">Chart binding</h3>
+                    <p>
+                      Suggested: {presentations.find((item) => item.value === suggestedKind)?.label}
+                    </p>
+                    <p>{presentationBindingSummary(selectedDataset, presentationKind)}</p>
+                  </section>
+                  <section className="builder-review__evidence" aria-labelledby="widget-compatibility-title">
+                    <h3 id="widget-compatibility-title">Compatibility</h3>
+                    <ul>
+                      {selectedPresentationAssessments
+                        .filter((assessment) => !assessment.compatible)
+                        .map((assessment) => (
+                          <li key={assessment.kind}>{assessment.reason}</li>
+                        ))}
+                    </ul>
+                  </section>
                 </>
               )}
 
@@ -741,8 +1143,9 @@ export const DashboardPublishPanel = ({
                           checked={selectedWidgetVersionIds.includes(widget.versionId)}
                           disabled={busy}
                           onChange={(event) => {
+                            const checked = event.currentTarget.checked;
                             setSelectedWidgetVersionIds((current) =>
-                              event.currentTarget.checked
+                              checked
                                 ? [...current, widget.versionId]
                                 : current.filter((versionId) => versionId !== widget.versionId),
                             );
@@ -760,10 +1163,10 @@ export const DashboardPublishPanel = ({
               {panel === "dataset" && (
                 <Button
                   type="button"
-                  disabled={busy || resultIsStale || Boolean(currentDataset)}
+                  disabled={busy || resultIsStale || Boolean(reviewedDataset) || !reviewedExecution || datasetEvidenceLoading}
                   onClick={() => void saveDataset()}
                 >
-                  {currentDataset ? "Dataset saved" : busy ? "Saving…" : "Save Dataset"}
+                  {reviewedDataset ? "Dataset saved" : busy ? "Saving…" : "Save Dataset"}
                 </Button>
               )}
               {panel === "widget" && (

@@ -166,7 +166,7 @@ def suggest_presentation(columns: Iterable[dict[str, Any]], row_count: int) -> s
         index for index, kind in enumerate(logical) if kind in {"integer", "decimal"}
     ]
     categorical = [index for index, kind in enumerate(logical) if kind == "string"]
-    if len(ordered) == 1 and len(numeric) == 1 and row_count <= 1:
+    if len(ordered) == 1 and len(numeric) == 1 and row_count == 1:
         return "big_number"
     if temporal and numeric:
         return "time_series_line"
@@ -917,7 +917,7 @@ class DashboardBuilder:
                 "importState": {
                     "outcome": "import_failed",
                     "errorCode": "import_receipt_invalid",
-                    "recoveryAction": "rerun_import",
+                    "recoveryAction": "retry_same_bundle",
                 },
             }
 
@@ -933,7 +933,7 @@ class DashboardBuilder:
                     "receiptId": receipt.get("receiptId"),
                     "receiptDigest": receipt.get("receiptDigest"),
                     "errorCode": receipt.get("errorCode") or "superset_import_failed",
-                    "recoveryAction": receipt.get("recoveryAction") or "rerun_import",
+                    "recoveryAction": receipt.get("recoveryAction") or "retry_same_bundle",
                 },
             }
 
@@ -969,7 +969,7 @@ class DashboardBuilder:
                     "receiptId": receipt.get("receiptId"),
                     "receiptDigest": receipt.get("receiptDigest"),
                     "errorCode": "last_verified_mismatch",
-                    "recoveryAction": "rerun_import",
+                    "recoveryAction": "full_reset_then_reimport_last_verified_bundle",
                 },
             }
 

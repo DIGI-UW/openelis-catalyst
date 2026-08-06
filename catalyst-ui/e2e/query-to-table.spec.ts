@@ -614,6 +614,7 @@ const installDeterministicApi = async (
         importState: {
           outcome: "imported",
           receiptId: "receipt-1",
+          receiptDigest: "receipt-digest-1",
           dashboardUrl:
             "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
         },
@@ -925,6 +926,7 @@ test("question to iterative notebook to imported dashboard", async ({
   await expect(page.getByRole("textbox", { name: "SQL query" })).toContainText(
     useMockApi ? "analytics.lab_result_fact_v1" : "SELECT",
   );
+  await expect(page.getByRole("textbox", { name: "SQL query" })).toHaveCount(1);
   await expect(page.getByRole("region", { name: "Iterative query notebook" }))
     .toBeVisible();
   await expect(page.getByLabel("Question")).toHaveCount(0);
@@ -996,7 +998,8 @@ test("question to iterative notebook to imported dashboard", async ({
     await expect(datasetReview.locator("pre")).toContainText("LIMIT 1");
     await datasetReview.getByLabel("Dataset name").fill("Initial viral load result");
     await datasetReview.getByRole("button", { name: "Save Dataset" }).click();
-    await expect(page.getByText(/saved to Datasets\./)).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /saved to Datasets\./ }))
+      .toBeVisible();
     await expect(page.getByRole("button", { name: "Review widget draft" }))
       .toBeVisible();
 
@@ -1160,7 +1163,7 @@ test("question to iterative notebook to imported dashboard", async ({
         .toBeLessThanOrEqual(layout.innerWidth);
     };
 
-    for (const width of [320, 640]) {
+    for (const width of [320, 390, 640]) {
       await page.setViewportSize({ width, height: 720 });
       await page.evaluate("window.scrollTo(0, window.scrollY)");
       await expect.poll(() => page.locator(".dashboard-builder-shell").evaluate(
@@ -1171,6 +1174,7 @@ test("question to iterative notebook to imported dashboard", async ({
       await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
         .toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "SQL query" })).toHaveCount(1);
       await expect(page.getByRole("button", { name: "Validate query" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Datasets", exact: true }))
@@ -1190,6 +1194,14 @@ test("question to iterative notebook to imported dashboard", async ({
         .toBeVisible();
       await expect(page.getByText("Viral load with units", { exact: true })).toBeVisible();
       await expectNoHorizontalOverflow(`${width}px Dataset library`);
+      const savedDatasetReview = page.getByRole("button", {
+        name: "Review Viral load with units",
+      });
+      await savedDatasetReview.click();
+      await expect(page.getByRole("dialog", { name: "Review panel" })).toBeVisible();
+      await expectNoHorizontalOverflow(`${width}px saved Dataset review`);
+      await page.keyboard.press("Escape");
+      await expect(savedDatasetReview).toBeFocused();
 
       await page.getByRole("button", { name: "Widgets", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Widgets", exact: true }))

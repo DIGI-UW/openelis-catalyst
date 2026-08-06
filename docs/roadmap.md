@@ -404,6 +404,21 @@ mismatched projection shows `Import failed` and never offers an Open link. The
 retained `Manual MVP verification` Dashboard was reloaded in the live 4c shell
 and exposed its verified Superset route without republishing or reseeding.
 
+The next focused D1d implementation pass now binds Dataset review to its exact
+successful execution, hydrates saved Datasets from their recorded source
+workbench sessions, displays bounded typed rows plus validation/diagnostic/model
+provenance, and supplies paging and library review. Widget review exposes only
+deterministically compatible presentation choices with derived bindings and
+incompatibility reasons; Dashboard composition preserves append order and
+surfaces source/catalog rejection. Publication requires exact receipt ID,
+receipt digest, and verified URL before displaying Imported/Open Superset and
+retains scoped same-bundle versus full-reset/reimport guidance. UI lint,
+typecheck, 143 component tests, eight focused Gateway tests, and the
+deterministic desktop/390/320/640-CSS-pixel browser matrix pass. The six focused
+task boxes and T179/T154 remain open until the explicit live closure checkpoint,
+actual 200% browser zoom, durable D1d evidence, and user acceptance; M4 has not
+started.
+
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local
