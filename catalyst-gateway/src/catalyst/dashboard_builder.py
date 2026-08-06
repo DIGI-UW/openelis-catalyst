@@ -28,7 +28,7 @@ from .storage import WorkbenchStore
 
 _NAMESPACE = uuid.UUID("8567e617-8772-585f-8f1a-c9e9a63b2f20")
 _PARAMETER = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
-_PRESENTATION_KINDS = {"table", "kpi", "line", "bar", "proportion_bar"}
+_VERIFIED_PRESENTATION_KINDS = {"table"}
 
 
 class DashboardBuilderError(RuntimeError):
@@ -371,10 +371,14 @@ class DashboardBuilder:
         suggestion = suggest_presentation(dataset.configuration["columns"], row_count)
         # The local MVP exports one verified native Superset table configuration.
         # Keep the heuristic as advisory metadata until the corresponding native
-        # chart mappings have real import coverage.
+        # chart mappings have real import coverage.  Accepting a non-table
+        # selection here would be misleading: the native serializer would still
+        # produce a table asset, not the requested visualisation.
         kind = presentation_kind or "table"
-        if kind not in _PRESENTATION_KINDS:
-            raise DashboardBuilderError("Unsupported presentation kind.")
+        if kind not in _VERIFIED_PRESENTATION_KINDS:
+            raise DashboardBuilderError(
+                "Only the verified table mapping is available in this local MVP."
+            )
         configuration = {
             "title": title.strip() or dataset.configuration["title"],
             "datasetVersionId": dataset.version_id,
@@ -614,13 +618,7 @@ class DashboardBuilder:
                     "versionId": item.version_id,
                     "configurationDigest": item.configuration_digest,
                     "datasetVersionId": item.configuration["datasetVersionId"],
-                    "presentationKind": {
-                        "table": "table",
-                        "kpi": "big_number",
-                        "line": "time_series_line",
-                        "bar": "grouped_bar",
-                        "proportion_bar": "proportion_bar",
-                    }[item.configuration["presentationKind"]],
+                    "presentationKind": item.configuration["presentationKind"],
                     "compatibilityDigest": canonical_sha256(
                         {"suggestedKind": item.configuration["suggestedKind"]}
                     ),

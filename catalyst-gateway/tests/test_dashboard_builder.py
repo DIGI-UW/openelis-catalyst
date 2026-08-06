@@ -5,8 +5,14 @@ import uuid
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from src.catalyst.contracts import ContractRegistry
-from src.catalyst.dashboard_builder import DashboardBuilder, compile_parameterized_sql
+from src.catalyst.dashboard_builder import (
+    DashboardBuilder,
+    DashboardBuilderError,
+    compile_parameterized_sql,
+)
 
 
 def _id() -> str:
@@ -157,3 +163,27 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
     assert any("/charts/" in name for name in names)
     assert any("/dashboards/" in name for name in names)
     assert any(name.endswith("/catalyst/manifest.json") for name in names)
+
+
+def test_unverified_chart_kind_cannot_be_silently_exported_as_a_table(
+    tmp_path: Path,
+) -> None:
+    workbench = _Workbench()
+    builder = DashboardBuilder(
+        tmp_path / "state.sqlite3", workbench=workbench, outbox=tmp_path / "outbox"
+    )
+    dataset = builder.save_dataset(
+        session_id=workbench.session_id,
+        execution_id=workbench.execution_id,
+        title="Monthly result values",
+    )
+
+    with pytest.raises(
+        DashboardBuilderError,
+        match="Only the verified table mapping is available",
+    ):
+        builder.save_widget(
+            dataset_version_id=dataset["versionId"],
+            title="Result trend",
+            presentation_kind="line",
+        )
