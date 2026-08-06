@@ -193,16 +193,16 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 - Expanded width `16rem`; collapsed width `3rem`; `transition: width 140ms`. Background `#fff`, right border `1px solid #e0e0e0`, padding `0.5rem 0 1rem`.
 - Header (expanded only): "Catalyst" `0.875rem`/600 `#161616`; subtitle "Governed queries → dashboards" `0.75rem` `#6f6f6f`, `white-space: nowrap`.
 - Collapse toggle: 2.5rem square icon button, chevron-left 20×20 `#525252`, rotates 180° when collapsed (`transition: transform 140ms`), hover background `#e8e8e8`, `aria-label="Toggle navigation"`, `aria-expanded`.
-- Nav items: Ask · Datasets · Widgets · Dashboards. Each is a full-width button, `min-height: 2.5rem`, 16×16 Carbon icon, label `0.875rem`, right-aligned count `0.75rem` `#6f6f6f` with `font-variant-numeric: tabular-nums`. Collapsed: icon only, centered, `title` attribute carries the label.
+- Nav items: Workbench · Datasets · Widgets · Dashboards. Each is a full-width button, `min-height: 2.5rem`, 16×16 Carbon icon, label `0.875rem`, right-aligned count `0.75rem` `#6f6f6f` with `font-variant-numeric: tabular-nums`. Collapsed: icon only, centered, `title` attribute carries the label.
 - Active item: background `#e8e8e8`, `border-left: 3px solid #0f62fe`, color `#161616`, weight 600, `aria-current="page"`. Inactive: transparent background, transparent left border, `#525252`, weight 400. Hover: `#e8e8e8`.
 - Counts are live: Datasets and Widgets increment as objects are saved.
 - Footer (expanded only), above a `1px solid #e0e0e0` top border: label "Data source" `0.75rem` `#6f6f6f` and a Carbon Select — "OpenELIS laboratory (demo)" / "OpenMRS HIV/ART (demo)".
 
-**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); inner container `width: min(100% - 3rem, 60rem)`, centered. Padding top `2rem`; bottom `18rem` on Ask (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
+**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); inner container `width: min(100% - 3rem, 60rem)`, centered. Padding top `2rem`; bottom `18rem` on Workbench (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
 
 **Page header pattern** (all four screens): eyebrow `0.75rem`/600 `#0f62fe`, `letter-spacing: 0.08em`, uppercase; H1 `2rem`/400, `letter-spacing: -0.025em`, `line-height: 1.15`; description `0.875rem` `#525252`, `line-height: 1.5`. Primary action, when present, sits top-right.
 
-### 1. Ask — populated thread
+### 1. Workbench — populated thread
 
 Purpose: ask a question, review what came back, save it.
 
@@ -267,9 +267,9 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
   shortcut help, and a documented `Cmd/Ctrl+Enter` action. Empty input disables
   generation. Tab order is textarea → profile → action; focus and error status
   remain visible above the fixed region, and the region reflows at 200% zoom.
-- Composer is present on Ask only.
+- Composer is present on Workbench only.
 
-### 2. Ask — first run / empty thread
+### 2. Workbench — first run / empty thread
 
 Same shell and composer, no thread.
 - H1 "What do you want to know?"; description "Ask in plain language. Catalyst
@@ -283,7 +283,7 @@ Same shell and composer, no thread.
 
 Purpose: find and reuse a saved governed query.
 
-- Header: eyebrow "Library", H1 "Datasets", description "Saved governed queries, ready for dashboard publication. One dataset can back many widgets." Primary button top-right: "New from question" (add-16 icon) → navigates to Ask.
+- Header: eyebrow "Library", H1 "Datasets", description "Saved governed queries, ready for dashboard publication. One dataset can back many widgets." Primary button top-right: "New from question" (add-16 icon) → navigates to Workbench.
 - Carbon `DataTable` on a `#fff` surface with `box-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 8%)`. Header row background `#e8e8e8`, cells padding `0.75rem 1rem`, `0.875rem`, row separators `1px solid #e0e0e0`, zebra `#fff` / `#f4f4f4`.
 - Columns: Name (weight 500) · Source · Columns · Widgets · Parameters (IBM Plex Mono `0.75rem` `#525252`) · Last run (`#525252`) · Status pill · row action "Review" (ghost button, `#0f62fe`, right-aligned).
 - **Widgets count is the governance affordance** — it shows downstream use so nothing is deleted blind.
@@ -373,7 +373,7 @@ Use Carbon `ToastNotification` if it can be positioned this way; otherwise match
 
 **Navigation**
 - Nav item click sets the active screen and closes any open panel. Collapse toggle animates nav `width`, and content `margin-left`, composer `left`, and scrim `left` all track it (140ms).
-- "New from question" (Datasets) → Ask. The single page-header "New session"
+- "New from question" (Datasets) → Workbench. The single page-header "New session"
   action clears the active thread and composer after the existing confirmation
   semantics. Neither the banner, workbench, nor composer provides another New
   session action.
@@ -412,7 +412,7 @@ Session-scoped state (prototype names in parentheses):
 
 | State | Type | Purpose / transitions |
 | --- | --- | --- |
-| `screen` | "Ask" \| "Datasets" \| "Widgets" \| "Dashboards" | nav selection; also closes the panel |
+| `screen` | "Workbench" \| "Datasets" \| "Widgets" \| "Dashboards" | user-facing nav selection; the internal route key may remain `ask`; selection also closes the panel |
 | `navExpanded` | boolean | nav rail collapsed/expanded |
 | `thread` | boolean (prototype) / message array (production) | empty vs. populated Ask screen |
 | `currentVersion` + `editorSnapshot` | immutable version reference + exact mutable SQL/typed-parameter buffer | drives the latest turn's single active workbench card; dirty/unresolved state is never duplicated in a Dataset draft |

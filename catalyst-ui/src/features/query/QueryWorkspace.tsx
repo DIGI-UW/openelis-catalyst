@@ -66,7 +66,7 @@ const dashboardSections: Array<{
   label: string;
   icon: typeof Chat;
 }> = [
-  { id: "ask", label: "Ask", icon: Chat },
+  { id: "ask", label: "Workbench", icon: Chat },
   { id: "datasets", label: "Datasets", icon: DataBase },
   { id: "widgets", label: "Widgets", icon: ChartLine },
   { id: "dashboards", label: "Dashboards", icon: Dashboard },

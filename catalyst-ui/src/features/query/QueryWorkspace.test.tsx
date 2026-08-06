@@ -170,7 +170,7 @@ describe("Dashboard Builder Ask shell", () => {
     render(<QueryWorkspace api={api()} />);
 
     const navigation = screen.getByRole("navigation", { name: "Catalyst" });
-    for (const name of ["Ask", "Datasets", "Widgets", "Dashboards"]) {
+    for (const name of ["Workbench", "Datasets", "Widgets", "Dashboards"]) {
       expect(within(navigation).getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
     }
     expect(screen.getByText(/^Available data ·/i)).toBeVisible();
