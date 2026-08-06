@@ -19,6 +19,15 @@ if [ -n "${compose_override_file}" ]; then
 fi
 compose+=(--profile superset-import)
 
+# Import receipts are durable evidence. Record the exact Catalyst source that
+# produced them rather than an ambiguous worktree label.
+catalyst_revision="$(git -C "${ROOT_DIR}" rev-parse --verify HEAD)"
+if ! [[ "${catalyst_revision}" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "ERROR: unable to resolve an exact Catalyst revision for Superset import" >&2
+  exit 1
+fi
+export CATALYST_IMPORTER_REVISION="${catalyst_revision}"
+
 usage() {
   echo "Usage: scripts/mvp-superset.sh {status|import|reset}" >&2
 }

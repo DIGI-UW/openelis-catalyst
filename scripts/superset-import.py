@@ -37,6 +37,7 @@ MAX_ZIP_MEMBERS = 512
 MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 MAX_DIAGNOSTIC_CHARS = 16384
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+GIT_REVISION_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 
 class ImportFailure(RuntimeError):
@@ -264,9 +265,24 @@ def redacted_diagnostic(message: str, *, secrets: list[str]) -> dict[str, Any]:
     }
 
 
-def _importer_metadata(command: list[str]) -> dict[str, Any]:
+def require_exact_importer_revision() -> str:
+    revision = os.environ.get("CATALYST_IMPORTER_REVISION", "")
+    if not GIT_REVISION_PATTERN.fullmatch(revision):
+        _fail(
+            "provenance_resolution",
+            "importer_revision_invalid",
+            "CATALYST_IMPORTER_REVISION must be the exact 40-character Catalyst commit",
+        )
+    return revision
+
+
+def _importer_metadata(
+    command: list[str], *, revision: str | None = None
+) -> dict[str, Any]:
     return {
-        "revision": os.environ.get("CATALYST_IMPORTER_REVISION", "worktree"),
+        # A failed attempt can be recorded before the operator provenance is
+        # available. Successful imports pass a validated exact revision.
+        "revision": revision or os.environ.get("CATALYST_IMPORTER_REVISION") or "unresolved",
         "supersetVersion": SUPERSET_VERSION,
         "imageDigest": os.environ.get(
             "CATALYST_SUPERSET_IMAGE_DIGEST", DEFAULT_IMAGE_DIGEST
@@ -320,13 +336,14 @@ def _base_receipt(
     started_at: str,
     finished_at: str,
     command: list[str],
+    importer_revision: str | None = None,
 ) -> dict[str, Any]:
     return {
         "schemaVersion": "catalyst.superset.import-receipt.v1",
         "receiptId": receipt_id,
         "startedAt": started_at,
         "finishedAt": finished_at,
-        "importer": _importer_metadata(command),
+        "importer": _importer_metadata(command, revision=importer_revision),
     }
 
 
@@ -478,6 +495,7 @@ def _successful_receipt(
     pointer: dict[str, Any],
     manifest: dict[str, Any],
     verification: dict[str, Any],
+    importer_revision: str,
 ) -> dict[str, Any]:
     receipt = {
         **_base_receipt(
@@ -485,6 +503,7 @@ def _successful_receipt(
             started_at=started_at,
             finished_at=state.utc_now(),
             command=command,
+            importer_revision=importer_revision,
         ),
         "publicationId": pointer["publicationId"],
         "bundleId": pointer["bundleId"],
@@ -525,6 +544,7 @@ def _last_verified_payload(
     receipt: dict[str, Any],
     receipt_digest: str,
     latest_path: Path,
+    importer_revision: str,
 ) -> dict[str, Any]:
     latest_digest = hashlib.sha256(latest_path.read_bytes()).hexdigest()
     logical_id = pointer["dashboard"]["id"]
@@ -570,9 +590,7 @@ def _last_verified_payload(
             "driverRevision": os.environ.get(
                 "CATALYST_SUPERSET_DRIVER_REVISION", "psycopg2-binary==2.9.9"
             ),
-            "importerRevision": os.environ.get(
-                "CATALYST_IMPORTER_REVISION", "worktree"
-            ),
+            "importerRevision": importer_revision,
         },
         "supersetDashboard": {
             "logicalDashboardId": logical_id,
@@ -653,6 +671,7 @@ def run_import(*, bootstrap: bool = False) -> int:
             bundle_path = resolve_bundle(outbox, pointer)
             manifest = inspect_bundle(bundle_path, pointer)
             validate_manifest(manifest, pointer, contracts)
+            importer_revision = require_exact_importer_revision()
             if not os.environ.get("CATALYST_ANALYTICS_DATABASE_URI"):
                 _fail(
                     "credential_resolution",
@@ -690,6 +709,7 @@ def run_import(*, bootstrap: bool = False) -> int:
                 pointer=pointer,
                 manifest=manifest,
                 verification=verification,
+                importer_revision=importer_revision,
             )
             _validate_contract(
                 receipt,
@@ -701,7 +721,12 @@ def run_import(*, bootstrap: bool = False) -> int:
                 receipts, bundle_digest, pointer["bundleId"], receipt
             )
             projection_payload = _last_verified_payload(
-                pointer, manifest, receipt, receipt_digest, latest_path
+                pointer,
+                manifest,
+                receipt,
+                receipt_digest,
+                latest_path,
+                importer_revision,
             )
             projection = state.update_last_verified(
                 receipts,

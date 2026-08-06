@@ -241,6 +241,7 @@
         "bundle_read",
         "bundle_validation",
         "manifest_validation",
+        "provenance_resolution",
         "credential_resolution",
         "cli_import",
         "post_import_verification",

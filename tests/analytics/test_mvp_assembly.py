@@ -22,6 +22,7 @@ class MvpComposeContractTests(unittest.TestCase):
         cls.env = (ROOT / "env.recommended").read_text()
         cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
+        cls.superset_script = (ROOT / "scripts/mvp-superset.sh").read_text()
         cls.model_config_script = (ROOT / "scripts/mvp-model-config.sh").read_text()
         cls.hub_bootstrap = (ROOT / "scripts/bootstrap-med-agent-hub.sh").read_text()
         cls.fhir_data_pipes_bootstrap = (
@@ -358,6 +359,20 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("CATALYST_SUPERSET_METADATA_DSN", config)
         self.assertIn("SQLALCHEMY_DATABASE_URI", config)
         self.assertNotIn("catalyst_readonly", config)
+
+    def test_superset_importer_receipts_identify_the_exact_catalyst_revision(self):
+        self.assertIn(
+            'catalyst_revision="$(git -C "${ROOT_DIR}" rev-parse --verify HEAD)"',
+            self.superset_script,
+        )
+        self.assertIn(
+            'export CATALYST_IMPORTER_REVISION="${catalyst_revision}"',
+            self.superset_script,
+        )
+        self.assertIn(
+            'CATALYST_IMPORTER_REVISION: "${CATALYST_IMPORTER_REVISION:-}"',
+            self.compose,
+        )
         self.assertIn("./runtime/superset/outbox:/opt/catalyst/outbox:ro", self.compose)
         self.assertIn(
             "./runtime/superset/receipts:/opt/catalyst/receipts:rw", self.compose

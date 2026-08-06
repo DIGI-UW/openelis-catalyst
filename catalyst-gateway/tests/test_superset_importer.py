@@ -117,6 +117,23 @@ def test_diagnostic_redaction_is_bounded_and_hides_credentials() -> None:
     }
 
 
+def test_successful_import_requires_an_exact_catalyst_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    importer = _load_importer_module()
+
+    revision = "a" * 40
+    monkeypatch.setenv("CATALYST_IMPORTER_REVISION", revision)
+    assert importer.require_exact_importer_revision() == revision
+
+    for invalid in ("", "worktree", "a" * 39, "A" * 40):
+        monkeypatch.setenv("CATALYST_IMPORTER_REVISION", invalid)
+        with pytest.raises(importer.ImportFailure) as failure:
+            importer.require_exact_importer_revision()
+        assert failure.value.stage == "provenance_resolution"
+        assert failure.value.code == "importer_revision_invalid"
+
+
 def test_relationship_verification_initializes_superset_before_model_imports() -> None:
     source = (ROOT / "scripts/superset-import.py").read_text(encoding="utf-8")
     verification = source[source.index("def _verify_superset") :]

@@ -116,6 +116,7 @@ services:
       CATALYST_SUPERSET_RECEIPTS: /opt/catalyst/receipts
       CATALYST_SUPERSET_PUBLIC_URL: "http://localhost:${SUPERSET_PORT:-8088}"
       CATALYST_CONTRACTS_DIR: /docs/contracts
+      CATALYST_IMPORTER_REVISION: "${CATALYST_IMPORTER_REVISION:-}"
     volumes:
       - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
       - ./scripts/superset-import.py:/opt/catalyst/superset-import.py:ro
