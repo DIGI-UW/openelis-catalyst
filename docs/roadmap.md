@@ -417,14 +417,19 @@ task boxes and T179/T154 are closed by the focused live/automated evidence,
 durable D1d screenshot/video/acceptance evidence, and explicit user acceptance.
 Actual 200% browser zoom is deferred polish; M4 is in progress.
 
-M4 T140 is now complete. Both the umbrella override and Catalyst Compose file
+M4 T139/T140/T160/T161/T162 are now complete. Both the umbrella override and Catalyst Compose file
 pin the exact Superset 6.1.0 image digest, declare the local `linux/arm64`
 acceptance platform, and record `psycopg2-binary==2.9.9`. The real stack health
 gate passed with those values in provenance, and the persisted analytics role
 was verified as transaction-read-only with no public-schema CREATE permission
-and retained SELECT access. This is only the runtime-identity slice; the full
-D1b red-test, clean-import, restart, recovery, and secret-output matrices remain
-open.
+and retained SELECT access. Expanded contracts cover metadata initialization,
+localhost health, persistent volumes, explicit-only reset, injected local
+configuration, redacted output, mount separation, ignored runtime state, and
+the clean-target guard. A Superset-only stop/start preserved both named-volume
+identities, all seven dashboards, the verified import receipt, and the healthy
+localhost route without a seed, model call, or volume reset. The canonical
+five-family clean-import fixture and importer/recovery matrices remain open at
+T141–T144/T163–T165.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised

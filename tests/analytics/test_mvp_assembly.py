@@ -408,6 +408,40 @@ class MvpComposeContractTests(unittest.TestCase):
         )
         self.assertIn("REVOKE CREATE ON SCHEMA public FROM PUBLIC;", roles)
 
+    def test_superset_lifecycle_retains_state_until_explicit_reset(self):
+        down_script = (ROOT / "scripts/mvp-down.sh").read_text()
+        reset_script = (ROOT / "scripts/mvp-reset.sh").read_text()
+
+        self.assertIn('"${compose[@]}" down --remove-orphans "$@"', down_script)
+        self.assertNotIn("down --volumes", down_script)
+        self.assertIn('"${compose[@]}" down --volumes --remove-orphans', reset_script)
+        self.assertIn('"${ROOT_DIR}/runtime/superset/outbox"', self.up_script)
+        self.assertIn(
+            '"${ROOT_DIR}/runtime/superset/receipts/last-verified"',
+            self.up_script,
+        )
+        self.assertRegex(self.compose, r"(?m)^  superset-metadata-data:$")
+        self.assertRegex(self.compose, r"(?m)^  superset-home:$")
+
+    def test_superset_local_config_is_injected_without_serializing_credentials(self):
+        importer = (ROOT / "scripts/superset-import.py").read_text()
+        provenance_writer = self.health_script[
+            self.health_script.index("payload = {") :
+        ]
+
+        for variable in (
+            "SUPERSET_SECRET_KEY",
+            "SUPERSET_ADMIN_PASSWORD",
+            "SUPERSET_METADATA_PASSWORD",
+        ):
+            with self.subTest(variable=variable):
+                self.assertIn(f"${{{variable}:-", self.compose)
+                self.assertNotIn(f'os.environ["{variable}"]', provenance_writer)
+        self.assertIn('os.environ.get("SUPERSET_ADMIN_PASSWORD", "")', importer)
+        self.assertIn('os.environ.get("SUPERSET_METADATA_PASSWORD", "")', importer)
+        self.assertIn('"redacted": True', importer)
+        self.assertNotIn('"password":', importer)
+
     def test_superset_importer_receipts_identify_the_exact_catalyst_revision(self):
         self.assertIn(
             'catalyst_revision="$(git -C "${ROOT_DIR}" rev-parse --verify HEAD)"',
