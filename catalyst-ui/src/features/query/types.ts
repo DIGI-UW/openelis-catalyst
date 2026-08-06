@@ -418,6 +418,12 @@ export interface DashboardBuilderEntity {
   createdAt: string;
 }
 
+export interface DashboardBuilderCollection {
+  contractVersion: "catalyst.dashboard-builder.v1";
+  kind: "dataset" | "widget" | "dashboard";
+  items: DashboardBuilderEntity[];
+}
+
 export type DashboardPresentationKind =
   | "table"
   | "big_number"

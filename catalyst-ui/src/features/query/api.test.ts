@@ -173,6 +173,35 @@ describe("Catalyst API client", () => {
     });
   });
 
+  it("restores persisted dashboard-builder collections", async () => {
+    const dataset = {
+      id: "dataset-1",
+      versionId: "dataset-v1",
+      ordinal: 1,
+      configuration: {},
+      configurationDigest: "a".repeat(64),
+      createdAt: "2026-08-06T00:00:00Z",
+    };
+    fetcher.mockResolvedValue(
+      jsonResponse({
+        contractVersion: "catalyst.dashboard-builder.v1",
+        kind: "dataset",
+        items: [dataset],
+      }),
+    );
+
+    await expect(api.listDashboardDatasets?.()).resolves.toEqual({
+      contractVersion: "catalyst.dashboard-builder.v1",
+      kind: "dataset",
+      items: [dataset],
+    });
+
+    expect(fetcher).toHaveBeenCalledWith("/v1/catalyst/dashboard-builder/datasets", {
+      headers: { Accept: "application/json" },
+      signal: undefined,
+    });
+  });
+
   it("restores a persisted workbench session by ID", async () => {
     fetcher.mockResolvedValue(jsonResponse(workbenchSession));
 

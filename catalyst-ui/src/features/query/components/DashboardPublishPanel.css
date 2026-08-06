@@ -34,6 +34,40 @@
   font-size: 0.875rem;
 }
 
+.dashboard-publish__widgets {
+  display: grid;
+  grid-column: 1 / -1;
+  padding: 0;
+  margin: 0;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.dashboard-publish__widgets li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: #f4f4f4;
+  gap: 1rem;
+}
+
+.dashboard-publish__widgets span {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.dashboard-publish__widgets strong,
+.dashboard-publish__widgets small {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-publish__widgets small {
+  color: #525252;
+}
+
 .dashboard-publish__ready {
   display: grid;
   gap: 0.5rem;

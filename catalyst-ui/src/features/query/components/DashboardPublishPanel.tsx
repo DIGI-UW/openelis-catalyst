@@ -5,7 +5,7 @@ import {
   SelectItem,
   TextInput,
 } from "@carbon/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CatalystApi } from "../api";
 import type {
   DashboardBuilderEntity,
@@ -46,6 +46,26 @@ const newestSuccessfulExecution = (session: WorkbenchSession) =>
 const publicationMessage = (publication: DashboardPublication) =>
   `Bundle ${publication.pointer.bundle.fileName} is ready in the local Superset outbox.`;
 
+const configurationValue = (entity: DashboardBuilderEntity, key: string) =>
+  entity.configuration[key];
+
+const configurationRecord = (entity: DashboardBuilderEntity, key: string) => {
+  const value = configurationValue(entity, key);
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+};
+
+const entityTitle = (entity: DashboardBuilderEntity) => {
+  const title = configurationValue(entity, "title");
+  return typeof title === "string" && title.trim() ? title : "Untitled widget";
+};
+
+const entityPresentation = (entity: DashboardBuilderEntity) => {
+  const kind = configurationValue(entity, "presentationKind");
+  return presentations.find((presentation) => presentation.value === kind)?.label ?? "Widget";
+};
+
 interface DashboardPublishPanelContentProps extends DashboardPublishPanelProps {
   execution: WorkbenchExecution | null;
 }
@@ -63,6 +83,9 @@ const DashboardPublishPanelContent = ({
   const [dataset, setDataset] = useState<DashboardBuilderEntity | null>(null);
   const [widgets, setWidgets] = useState<DashboardBuilderEntity[]>([]);
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(
+    Boolean(execution && api.listDashboardDatasets && api.listDashboardWidgets),
+  );
   const [publication, setPublication] = useState<DashboardPublication | null>(null);
   const [error, setError] = useState<string | null>(null);
   const supported = Boolean(
@@ -72,6 +95,56 @@ const DashboardPublishPanelContent = ({
       api.publishDashboard,
   );
   const canAddWidget = Boolean(execution && supported);
+
+  useEffect(() => {
+    if (
+      !execution ||
+      !api.listDashboardDatasets ||
+      !api.listDashboardWidgets
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    Promise.all([
+      api.listDashboardDatasets(controller.signal),
+      api.listDashboardWidgets(controller.signal),
+    ])
+      .then(([datasetCollection, widgetCollection]) => {
+        const matchingDataset = datasetCollection.items.find((candidate) => {
+          const source = configurationRecord(candidate, "source");
+          return (
+            source?.sessionId === session.sessionId &&
+            source?.executionId === execution.executionId
+          );
+        });
+        if (!matchingDataset) return;
+        setDataset(matchingDataset);
+        setWidgets(
+          widgetCollection.items
+            .filter(
+              (candidate) =>
+                configurationValue(candidate, "datasetVersionId") ===
+                matchingDataset.versionId,
+            )
+            .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+        );
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Catalyst could not restore the saved dashboard draft.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRestoring(false);
+      });
+
+    return () => controller.abort();
+  }, [api, execution, session.sessionId]);
 
   const addWidget = async () => {
     if (!execution || !supported || busy || !canAddWidget) return;
@@ -161,7 +234,7 @@ const DashboardPublishPanelContent = ({
             labelText="Dashboard title"
             placeholder="Optional title"
             value={dashboardTitle}
-            disabled={disabled || busy}
+            disabled={disabled || busy || restoring}
             onChange={(event) => setDashboardTitle(event.currentTarget.value)}
           />
           <TextInput
@@ -169,14 +242,14 @@ const DashboardPublishPanelContent = ({
             labelText="Widget title"
             placeholder="Optional title"
             value={widgetTitle}
-            disabled={disabled || busy}
+            disabled={disabled || busy || restoring}
             onChange={(event) => setWidgetTitle(event.currentTarget.value)}
           />
           <Select
             id="dashboard-presentation-kind"
             labelText="Visualization"
             value={presentationKind}
-            disabled={disabled || busy}
+            disabled={disabled || busy || restoring}
             onChange={(event) =>
               setPresentationKind(event.currentTarget.value as DashboardPresentationKind)
             }
@@ -190,20 +263,44 @@ const DashboardPublishPanelContent = ({
             ))}
           </Select>
           <Button
-            disabled={disabled || busy || !canAddWidget}
+            disabled={disabled || busy || restoring || !canAddWidget}
             onClick={() => void addWidget()}
           >
-            {busy ? "Saving widget…" : "Add widget"}
+            {restoring ? "Restoring…" : busy ? "Saving widget…" : "Add widget"}
           </Button>
           <div className="dashboard-publish__widget-count" aria-live="polite">
             {widgets.length} {widgets.length === 1 ? "widget" : "widgets"} ready
           </div>
+          {widgets.length > 0 && (
+            <ul className="dashboard-publish__widgets" aria-label="Dashboard widgets">
+              {widgets.map((widget) => (
+                <li key={widget.versionId}>
+                  <span>
+                    <strong>{entityTitle(widget)}</strong>
+                    <small>{entityPresentation(widget)}</small>
+                  </span>
+                  <Button
+                    kind="ghost"
+                    size="sm"
+                    disabled={disabled || busy || restoring}
+                    onClick={() =>
+                      setWidgets((current) =>
+                        current.filter((candidate) => candidate.versionId !== widget.versionId),
+                      )
+                    }
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
           <Button
             kind="secondary"
-            disabled={disabled || busy || widgets.length === 0}
+            disabled={disabled || busy || restoring || widgets.length === 0}
             onClick={() => void createBundle()}
           >
-            {busy ? "Creating bundle…" : "Create Superset bundle"}
+            {busy ? "Publishing…" : "Publish to Superset"}
           </Button>
         </div>
       )}
