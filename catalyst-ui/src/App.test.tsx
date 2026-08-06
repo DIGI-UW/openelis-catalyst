@@ -1163,6 +1163,60 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
   });
 
+  it("submits the advertised available profile after leaving a session with a retired profile", async () => {
+    const retiredSession = {
+      ...notebookSession,
+      profileId: "catalyst-query-retired",
+      provenance: {
+        ...notebookSession.provenance,
+        profileSnapshot: {
+          profileId: "catalyst-query-retired",
+          roleModels: {
+            query_generate: "retired-writer",
+            query_review: "retired-reviewer",
+          },
+        },
+      },
+    } satisfies WorkbenchSession;
+    const currentOptions = {
+      ...queryOptions,
+      profiles: [queryOptions.profiles[0]!],
+    };
+    const api = makeApi();
+    api.getQueryOptions = vi.fn().mockResolvedValue(currentOptions);
+    api.getWorkbenchSession = vi.fn().mockResolvedValue(retiredSession);
+    api.getWorkbenchTurns = vi.fn().mockResolvedValue(notebookTimeline);
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn();
+    localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      retiredSession.sessionId,
+    );
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Query workbench" }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "New session" }));
+
+    const profileSelector = screen.getByRole("combobox", {
+      name: "Model profile",
+    });
+    expect(profileSelector).toHaveValue("catalyst-query-gemma-e4b");
+    await user.type(screen.getByLabelText("Question"), "Count recent results");
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    await waitFor(() => expect(api.createWorkbenchSession).toHaveBeenCalledOnce());
+    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
+      "Count recent results",
+      "catalyst-query-gemma-e4b",
+      undefined,
+      undefined,
+    );
+  });
+
   it("uses an available revision profile after restoring a legacy session without rewriting its turn snapshot", async () => {
     const legacySession = {
       ...notebookSession,

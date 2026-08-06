@@ -454,6 +454,18 @@ export const QueryWorkspace = ({
   const usesNotebook = Boolean(
     api.createWorkbenchTurn && api.getWorkbenchTurns,
   );
+  const availableProfiles = queryOptions?.profiles.filter(
+    (profile) => profile.available,
+  ) ?? [];
+  const fallbackProfileId =
+    availableProfiles.find(
+      (profile) => profile.id === queryOptions?.defaultProfileId,
+    )?.id ?? availableProfiles[0]?.id ?? "";
+  const selectedAvailableProfileId = availableProfiles.some(
+    (profile) => profile.id === profileId,
+  )
+    ? profileId
+    : fallbackProfileId;
   const revisionProfiles = queryOptions?.profiles.filter(
     (profile) => profile.available && profile.revisionCapable === true,
   ) ?? [];
@@ -607,7 +619,7 @@ export const QueryWorkspace = ({
       if (usesWorkbench) {
         const session = await api.createWorkbenchSession!(
           normalizedQuestion,
-          (queryOptions && profileId) || undefined,
+          (queryOptions && selectedAvailableProfileId) || undefined,
           undefined,
           dataSourceId || undefined,
         );
@@ -672,6 +684,9 @@ export const QueryWorkspace = ({
 
   const startNewSession = () => {
     if (followupBusy) return;
+    if (selectedAvailableProfileId) {
+      setProfileId(selectedAvailableProfileId);
+    }
     setQuestion("");
     setState({ kind: "idle" });
     setWorkbenchSession(null);
@@ -1001,7 +1016,7 @@ export const QueryWorkspace = ({
           onQuestionChange={setQuestion}
           onSubmit={submitQuestion}
           profiles={queryOptions?.profiles ?? []}
-          selectedProfileId={profileId}
+          selectedProfileId={selectedAvailableProfileId}
           onProfileChange={setProfileId}
         />
       )}
