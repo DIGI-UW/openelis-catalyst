@@ -201,7 +201,6 @@ def widget_bindings(
     presentation_kind: str,
     columns: Iterable[dict[str, Any]],
     row_count: int,
-    truncated: bool,
 ) -> dict[str, Any]:
     """Derive the sole supported chart bindings from an executed result schema."""
 
@@ -222,18 +221,18 @@ def widget_bindings(
             )
         return {"metricColumn": _column_binding(numeric)}
     if presentation_kind in {"time_series_line", "time_series_area"}:
-        if truncated or temporal is None or numeric is None:
+        if temporal is None or numeric is None:
             raise DashboardBuilderError(
-                "Time series requires an untruncated temporal and numeric result."
+                "Time series requires a temporal and numeric result."
             )
         return {
             "xColumn": _column_binding(temporal),
             "metricColumn": _column_binding(numeric),
         }
     if presentation_kind in {"grouped_bar", "stacked_bar", "proportion_bar"}:
-        if truncated or not categorical or numeric is None:
+        if not categorical or numeric is None:
             raise DashboardBuilderError(
-                "Bar chart requires an untruncated categorical and numeric result."
+                "Bar chart requires a categorical and numeric result."
             )
         series = categorical[1] if len(categorical) > 1 else None
         if presentation_kind == "proportion_bar" and series is None:
@@ -524,7 +523,6 @@ class DashboardBuilder:
             presentation_kind=kind,
             columns=dataset.configuration["columns"],
             row_count=row_count,
-            truncated=bool(dataset.configuration["resultBounds"]["truncated"]),
         )
         configuration = {
             "title": title.strip() or dataset.configuration["title"],

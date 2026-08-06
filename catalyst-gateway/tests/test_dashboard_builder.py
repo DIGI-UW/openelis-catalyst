@@ -25,6 +25,7 @@ class _Workbench:
         *,
         columns: list[dict[str, object]] | None = None,
         rows: list[list[dict[str, object]]] | None = None,
+        truncated: bool = False,
     ) -> None:
         self.session_id = _id()
         self.turn_id = _id()
@@ -53,6 +54,7 @@ class _Workbench:
                 {"type": "decimal", "value": "14.2"},
             ]
         ]
+        self.truncated = truncated
 
     def get_session(self, session_id: str):
         if session_id != self.session_id:
@@ -91,8 +93,10 @@ class _Workbench:
                         "rows": self.rows,
                         "rowCount": {
                             "returned": 1,
-                            "truncated": False,
-                            "truncationReason": None,
+                            "truncated": self.truncated,
+                            "truncationReason": "configured_limit"
+                            if self.truncated
+                            else None,
                         },
                         "warnings": [],
                     },
@@ -217,6 +221,28 @@ def test_non_table_widgets_preserve_the_saved_dataset_as_their_source(
 
     assert widget["configuration"]["datasetVersionId"] == dataset["versionId"]
     assert "aggregation" not in widget["configuration"]
+
+
+def test_chart_widget_uses_the_saved_sql_even_when_the_preview_is_bounded(
+    tmp_path: Path,
+) -> None:
+    workbench = _Workbench(truncated=True)
+    builder = DashboardBuilder(
+        tmp_path / "state.sqlite3", workbench=workbench, outbox=tmp_path / "outbox"
+    )
+    dataset = builder.save_dataset(
+        session_id=workbench.session_id,
+        execution_id=workbench.execution_id,
+        title="Bounded laboratory result preview",
+    )
+
+    widget = builder.save_widget(
+        dataset_version_id=dataset["versionId"],
+        title="Result trend",
+        presentation_kind="time_series_line",
+    )
+
+    assert widget["configuration"]["presentationKind"] == "time_series_line"
 
 
 def test_native_bundle_maps_saved_result_schema_to_superset_metrics(
