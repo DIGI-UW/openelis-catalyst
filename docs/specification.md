@@ -1,9 +1,8 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook foundation accepted; M3 integrated 4c
-implementation live and the focused automated D1d checks pass. Actual 200%
-browser review, focused task closure, durable visual/acceptance evidence, and
-explicit user acceptance remain open; M4 has not started
+**Status:** Iterative query notebook foundation and Dashboard Builder M3
+accepted; M4 release hardening and deployed acceptance are in progress. Actual
+200% browser zoom is deferred polish rather than an MVP gate.
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -746,23 +745,23 @@ MVP requires an end-to-end deployment that demonstrates:
     nondeterminism recorded rather than treated as test determinism.
 
 The deterministic component, mocked-browser keyboard/reflow/accessibility,
-real-model, and independent PostgreSQL checks have supporting evidence. Actual
-200% browser zoom, durable visual/acceptance evidence, focused D1d task closure,
-and explicit user acceptance remain open for M3. Failed model candidates and temperature-zero
+real-model, and independent PostgreSQL checks have supporting evidence. Focused
+D1d task closure, durable visual evidence, and explicit user acceptance closed
+M3 on 2026-08-06. Actual 200% browser zoom is deferred polish; desktop and
+320/390/640-CSS-pixel reflow remains required. Failed model candidates and temperature-zero
 output differences remain retained evidence; syntactic validity alone is not
 correctness. An optional report demonstration does not substitute for
 table/notebook acceptance.
 
 ## Dashboard Builder MVP acceptance
 
-The full acceptance below remains the D1 product standard. The current local M3
+The full acceptance below remains the D1 product standard. The accepted local M3
 implementation preserves the accepted Ask workflow in the binding 4c shell and has
 live evidence for real configured writer/reviewer turns, manual versions,
 execution, contextual follow-up, Dataset/Widget/Dashboard promotion, native
-Superset import, and refresh restoration. It is not an accepted milestone:
-actual 200% browser zoom, durable visual/acceptance evidence, focused D1d task
-closure, and explicit user acceptance are open, and M4 release hardening has
-not started.
+Superset import, and refresh restoration. M3 was accepted on 2026-08-06 and M4
+release hardening is in progress. Actual 200% browser zoom is explicitly
+deferred polish and is not an MVP gate.
 
 The live Dashboard library also restores publication state from importer-owned
 read-only receipts. `Open Superset` is available only for an exact verified
@@ -811,7 +810,8 @@ Dashboard Builder MVP is complete only when a user can:
    with bootstrap/retry suppressed until explicit retry or a new publication.
 8. Edit or replace the underlying query and see saved drafts remain visible with
    explicit stale-source state, then complete the flow using the accepted
-   keyboard, narrow-layout and actual 200%-zoom boundaries.
+   keyboard and deterministic desktop/320/390/640-CSS-pixel narrow-layout and
+   reflow boundaries. Actual 200% browser zoom is deferred polish.
 9. Validate `acceptance.json` against
    [`catalyst-dashboard-acceptance-v1`](contracts/catalyst-dashboard-acceptance-v1.schema.json)
    and every versioned `events.jsonl` D1 event against
