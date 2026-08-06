@@ -117,13 +117,20 @@ input {
   transition: width 140ms;
 }
 
-.dashboard-navigation__brand {
+.dashboard-navigation__header {
   display: flex;
   min-height: 4.5rem;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
   border-bottom: 1px solid #e0e0e0;
+}
+
+.dashboard-navigation__brand {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 0 1rem 1rem;
 }
 
 .dashboard-navigation__brand > span {
@@ -152,7 +159,7 @@ input {
   flex: none;
   place-items: center;
   border: 0;
-  margin: 0.5rem 0.5rem 0 auto;
+  margin: 0 0.5rem;
   background: transparent;
   cursor: pointer;
 }
@@ -183,6 +190,18 @@ input {
 .dashboard-builder-shell--nav-collapsed .dashboard-navigation__item {
   justify-content: center;
   padding-inline: 0;
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand {
+  display: none;
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__header {
+  justify-content: center;
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__toggle {
+  margin: 0;
 }
 
 .dashboard-builder-shell--nav-collapsed .dashboard-navigation__source {

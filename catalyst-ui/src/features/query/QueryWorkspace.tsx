@@ -977,22 +977,24 @@ export const QueryWorkspace = ({
   return (
     <div className={`dashboard-builder-shell${navigationExpanded ? "" : " dashboard-builder-shell--nav-collapsed"}`}>
       <nav className="dashboard-navigation" aria-label="Catalyst">
-        <div className="dashboard-navigation__brand">
-          <span aria-hidden="true">C</span>
-          <div>
-            <strong>Catalyst</strong>
-            <small>Dashboard builder</small>
+        <div className="dashboard-navigation__header">
+          <div className="dashboard-navigation__brand">
+            <span aria-hidden="true">C</span>
+            <div>
+              <strong>Catalyst</strong>
+              <small>Dashboard builder</small>
+            </div>
           </div>
+          <button
+            type="button"
+            className="dashboard-navigation__toggle"
+            aria-label="Toggle navigation"
+            aria-expanded={navigationExpanded}
+            onClick={() => setNavigationExpanded((current) => !current)}
+          >
+            <ChevronLeft size={20} aria-hidden="true" />
+          </button>
         </div>
-        <button
-          type="button"
-          className="dashboard-navigation__toggle"
-          aria-label="Toggle navigation"
-          aria-expanded={navigationExpanded}
-          onClick={() => setNavigationExpanded((current) => !current)}
-        >
-          <ChevronLeft size={20} aria-hidden="true" />
-        </button>
         <div className="dashboard-navigation__items">
           {dashboardSections.map(({ id, label, icon: Icon }) => (
             <button
