@@ -4,7 +4,7 @@ name: catalyst-demo
 # ingestion. analytics-db is seeded from a pg_dump snapshot of an already-
 # validated local demo stack instead of live FHIR ETL. catalyst-gateway and
 # catalyst-ui have no runtime dependency on the EMR layer, only on
-# analytics-db + a static catalog JSON + the model router, so this is the
+# analytics-db + a static catalog JSON + med-agent-hub, so this is the
 # full real query path minus the (not-needed-at-runtime) ingestion machinery.
 
 services:
@@ -24,48 +24,6 @@ services:
       timeout: 5s
       retries: 30
 
-  model-router:
-    image: ghcr.io/ggml-org/llama.cpp@sha256:6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4
-    restart: unless-stopped
-    command:
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8077"
-      - --model
-      - "/models/gemma-4-12b-it-Q4_K_M.gguf"
-      - --alias
-      - "gemma-4-12b-q4"
-      - --ctx-size
-      - "24576"
-      - --parallel
-      - "1"
-      - --jinja
-      - --temp
-      - "0"
-      - --seed
-      - "42"
-      - --dry-multiplier
-      - "0.8"
-      - --dry-base
-      - "1.75"
-      - --dry-allowed-length
-      - "8"
-      - --dry-penalty-last-n
-      - "-1"
-      - --reasoning-budget
-      - "0"
-    volumes:
-      - ./models:/models:ro
-    expose:
-      - "8077"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8077/v1/models"]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 30s
-
   med-agent-hub:
     restart: unless-stopped
     # The hub is a separate repo, so it builds from a source checkout. Default
@@ -83,14 +41,13 @@ services:
       args:
         HUB_BUILD_REVISION: ${MED_AGENT_HUB_REVISION:?set to the 40-character commit SHA of the med-agent-hub checkout, e.g. $(git -C ../med-agent-hub rev-parse HEAD)}
     environment:
-      LLM_BASE_URL: "http://model-router:8077"
-      LLM_PROVIDER: "llama.cpp"
+      LLM_BASE_URL: "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}"
+      LLM_PROVIDER: "openai-compatible"
       LLM_TEMPERATURE: "0"
       LLM_REQUEST_TIMEOUT_SECONDS: "1800"
       TEAM_TRACE_DIR: /tmp/catalyst-trace
-    depends_on:
-      model-router:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 10s
@@ -106,8 +63,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      CATALYST_ROUTER_URL: "http://127.0.0.1:9100"
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
+      CATALYST_QUERY_PROFILE_ID: "${MVP_QUERY_PROFILE_ID:-catalyst-query-e4b-qwen14b}"
       CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
       CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
       # No CATALYST_DATA_SOURCES_PATH here: unset means "just the built-in

@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 
-from .a2a_client import A2AClient
 from .catalyst.analytics import PostgresAnalyticsAdapter
 from .catalyst.catalog import Catalog
 from .catalyst.contracts import ContractRegistry
@@ -91,11 +91,13 @@ def create_app(
     dashboard_builder: DashboardBuilder | None = None,
 ) -> FastAPI:
     config = load_config()
-    client = A2AClient(config.router_url)
     catalyst = catalyst_service or _default_catalyst_service()
     builder = dashboard_builder or DashboardBuilder(
         config.preview_store_path,
-        workbench=catalyst.workbench_store,
+        # Production always configures this store. The cast retains the
+        # existing narrow legacy-service test seam, whose routes never invoke
+        # Dashboard Builder.
+        workbench=cast(WorkbenchStore, catalyst.workbench_store),
         outbox=config.superset_outbox_path,
     )
 
@@ -106,7 +108,6 @@ def create_app(
         finally:
             await catalyst.aclose()
             builder.close()
-            await client.aclose()
 
     app = FastAPI(
         title="Catalyst Gateway",
@@ -114,13 +115,8 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.catalyst = catalyst
-    app.state.a2a_client = client
     install_catalyst_routes(app, catalyst)
     install_dashboard_routes(app, builder)
-
-    @app.post("/v1/chat/completions")
-    async def chat_completions(payload: dict) -> dict:
-        return await client.send_chat_completion(payload)
 
     return app
 

@@ -103,7 +103,7 @@ def _writer_only_profile() -> EngineProfile:
     return EngineProfile(
         id="catalyst-query-writer-only",
         label="Writer only",
-        models={"query_generate": "gemma-4-12b-q4"},
+        models={"query_generate": "google/gemma-4-e4b"},
         knobs={"query_generate": {"temperature": 0, "dry": 0}},
         policies={"generation_attempts": 3},
     )
@@ -113,7 +113,10 @@ def _reviewed_profile() -> EngineProfile:
     return EngineProfile(
         id="catalyst-query-reviewed",
         label="Writer + reviewer",
-        models={"query_generate": "gemma-4-12b-q4", "query_review": "gemma-4-12b-q4"},
+        models={
+            "query_generate": "google/gemma-4-e4b",
+            "query_review": "qwen2.5-14b-instruct-mlx",
+        },
         knobs={
             "query_generate": {"temperature": 0, "dry": 0},
             "query_review": {"temperature": 0, "dry": 0},
@@ -126,7 +129,10 @@ def _collaborative_profile() -> EngineProfile:
     return EngineProfile(
         id="catalyst-query-collaborative",
         label="Cross-family writer + reviewer",
-        models={"query_generate": "gemma-4-12b", "query_review": "qwen2.5-14b"},
+        models={
+            "query_generate": "google/gemma-4-e4b",
+            "query_review": "qwen2.5-14b-instruct-mlx",
+        },
         knobs={
             "query_generate": {"temperature": 0, "dry": 0},
             "query_review": {"temperature": 0, "dry": 0},
@@ -230,7 +236,7 @@ async def test_writer_only_finalizes_without_review():
     # Writer-only emits no reviewer evidence.
     evidence = result["_hubEvidence"]["profileEvidence"]
     assert "reviewer" not in evidence
-    assert evidence["writer"]["modelId"] == "gemma-4-12b-q4"
+    assert evidence["writer"]["modelId"] == "google/gemma-4-e4b"
 
 
 @pytest.mark.asyncio
@@ -241,8 +247,8 @@ async def test_reviewed_path_runs_writer_then_reviewer():
     assert result["provenance"]["profileId"] == "catalyst-query-reviewed"
     evidence = result["_hubEvidence"]["profileEvidence"]
     # Reviewed profile carries both role legs.
-    assert evidence["writer"]["modelId"] == "gemma-4-12b-q4"
-    assert evidence["reviewer"]["modelId"] == "gemma-4-12b-q4"
+    assert evidence["writer"]["modelId"] == "google/gemma-4-e4b"
+    assert evidence["reviewer"]["modelId"] == "qwen2.5-14b-instruct-mlx"
     # Two model invocations: writer + reviewer.
     assert len(result["_hubEvidence"]["modelInvocations"]) == 2
 

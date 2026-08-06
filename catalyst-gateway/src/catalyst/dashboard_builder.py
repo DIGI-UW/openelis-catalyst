@@ -20,7 +20,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from .digest import canonical_sha256
 from .storage import WorkbenchStore
@@ -538,7 +538,7 @@ class DashboardBuilder:
         return self._append("widget", configuration).as_dict()
 
     def save_dashboard(
-        self, *, title: str, widget_version_ids: list[str]
+        self, *, title: str, widget_version_ids: Sequence[str]
     ) -> dict[str, Any]:
         if not widget_version_ids:
             raise DashboardBuilderError("A dashboard needs at least one saved widget.")
@@ -594,7 +594,7 @@ class DashboardBuilder:
         )
         bundle_root = f"catalyst_dashboard_{bundle_id}"
         slug = f"catalyst-{dashboard.logical_id}"
-        database = {
+        database: dict[str, Any] = {
             "database_name": f"Catalyst {dashboard.configuration['dataSourceId']} analytics",
             "sqlalchemy_uri": os.environ.get(
                 "CATALYST_SUPERSET_ANALYTICS_URI",

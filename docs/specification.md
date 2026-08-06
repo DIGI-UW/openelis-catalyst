@@ -59,15 +59,16 @@ This file is the canonical local product and architecture specification.
 
 The current implementation provides the query-to-table path in Gateway,
 analytics, med-agent-hub, and the React sidecar. Original RouterAgent,
-CatalystAgent, SchemaAgent, and SQLGenAgent code remains legacy compatibility
-scaffolding.
+CatalystAgent, SchemaAgent, and SQLGenAgent source remains historical prototype
+scaffolding; Gateway no longer exposes that topology as a product endpoint.
 
 ## Goals
 
 1. Produce correct, reviewable tabular answers to common laboratory reporting
    questions.
-2. Keep governed-query profiles, prompts, role composition, validation stages,
-   and their versioned evidence together inside Catalyst Gateway.
+2. Keep governed-query role models, prompts, and knobs in named Hub profiles;
+   keep stage ordering, deterministic validation, and versioned evidence in
+   Catalyst Gateway.
 3. Ground generation in the runtime-discovered PostgreSQL relations and columns
    that the configured read-only database role can actually query.
 4. Keep database credentials and query execution outside the LLM boundary.
@@ -176,8 +177,8 @@ The endpoint returns the same stored `200` table, `202` in-progress outcome, or
 non-success outcome associated with that key. An unknown pair returns the
 versioned `404` `not_found` outcome. Polling never starts a query.
 
-The current `/v1/chat/completions` endpoint remains a legacy compatibility
-surface during migration. It is not the normative query-to-table API.
+Gateway does not expose a generic `/v1/chat/completions` relay. The sole manual
+query path uses the Catalyst workbench APIs and a named med-agent-hub profile.
 
 ### Iterative workbench
 

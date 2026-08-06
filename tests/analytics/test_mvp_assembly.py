@@ -19,6 +19,7 @@ class MvpComposeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.compose = COMPOSE.read_text()
+        cls.demo_compose = (ROOT / "docker-compose.demo.yml").read_text()
         cls.env = (ROOT / "env.recommended").read_text()
         cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
@@ -239,9 +240,22 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("mvp_resolve_model_config", self.up_script)
 
     def test_no_fake_or_bundled_router_configuration_remains(self):
-        for text in (self.env, self.compose, self.up_script, self.health_script):
+        for text in (
+            self.env,
+            self.compose,
+            self.demo_compose,
+            self.up_script,
+            self.health_script,
+        ):
             self.assertNotIn("MVP_FAKE_", text)
             self.assertNotIn("model-router-fake", text)
+        self.assertNotRegex(self.demo_compose, r"(?m)^  model-router:")
+        self.assertIn(
+            "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}",
+            self.demo_compose,
+        )
+        self.assertNotIn("CATALYST_ROUTER_URL", self.compose)
+        self.assertNotIn("CATALYST_ROUTER_URL", self.demo_compose)
         self.assertNotIn("MVP_BUNDLED_", self.env)
         self.assertNotIn("MVP_BUNDLED_", self.up_script)
 

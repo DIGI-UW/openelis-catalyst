@@ -1511,7 +1511,7 @@ async def test_execute_cancellation_is_reraised_and_stored(tmp_path: Path):
     assert "cancelled" in replay.body["message"].lower()
 
 
-def test_structured_readiness_and_legacy_route_are_both_exposed(tmp_path: Path):
+def test_structured_readiness_and_catalyst_routes_are_exposed(tmp_path: Path):
     service, _, _, _ = make_service(tmp_path)
     app = gateway.create_app(catalyst_service=service)
     client = TestClient(app)
@@ -1529,7 +1529,7 @@ def test_structured_readiness_and_legacy_route_are_both_exposed(tmp_path: Path):
         },
     }
     paths = {route.path for route in app.router.routes}
-    assert "/v1/chat/completions" in paths
+    assert "/v1/chat/completions" not in paths
     assert "/v1/catalyst/queries" in paths
     assert "/v1/catalyst/previews/{preview_id}/execute" in paths
     assert "/v1/catalyst/executions/{preview_id}" in paths
@@ -1538,13 +1538,11 @@ def test_structured_readiness_and_legacy_route_are_both_exposed(tmp_path: Path):
 def test_app_lifespan_closes_owned_clients(tmp_path: Path):
     service, hub, _, _ = make_service(tmp_path)
     app = gateway.create_app(catalyst_service=service)
-    a2a_client = app.state.a2a_client
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
 
     assert hub.closed is True
-    assert a2a_client._http_client.is_closed is True
     assert service.store.readiness() == {"ready": False}
 
 

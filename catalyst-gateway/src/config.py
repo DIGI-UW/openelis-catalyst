@@ -26,7 +26,6 @@ class DataSourceConfig:
 
 @dataclass(frozen=True)
 class GatewayConfig:
-    router_url: str
     hub_base_url: str
     analytics_dsn: str
     catalog_path: str
@@ -86,7 +85,6 @@ def load_config() -> GatewayConfig:
     )
     data_sources = (default_source, *_load_extra_data_sources())
     return GatewayConfig(
-        router_url=os.getenv("CATALYST_ROUTER_URL", "http://localhost:9100"),
         hub_base_url=os.getenv("MED_AGENT_HUB_BASE_URL", "http://localhost:8082"),
         analytics_dsn=analytics_dsn,
         catalog_path=catalog_path,

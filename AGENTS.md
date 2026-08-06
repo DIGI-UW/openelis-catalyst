@@ -105,7 +105,7 @@ All services share `openelis-network`.
 `docker-compose.full-stack.yml` is the older co-location stack.
 `docker-compose.mvp.yml` is the tested query-to-table assembly.
 
-#### Current Catalyst prototype
+#### Legacy Catalyst prototype components
 
 From the repository root:
 
@@ -113,7 +113,7 @@ From the repository root:
 ./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
 ```
 
-This starts:
+This starts the historical components for isolated maintenance only:
 
 - Gateway `:8000`
 - RouterAgent `:9100`
@@ -146,14 +146,13 @@ the harness owns and pins the same Hub repository as a sibling submodule.
 
 #### Current prototype
 
-The legacy `/v1/chat/completions` path still uses Catalyst-local configuration:
+The historical Catalyst agent code still uses Catalyst-local configuration:
 
 - `CATALYST_LLM_PROVIDER=lmstudio` with an OpenAI-compatible endpoint at
   `LMSTUDIO_BASE_URL`; or
 - `CATALYST_LLM_PROVIDER=gemini` with `GOOGLE_API_KEY`.
 
-Without a provider, health and unit tests pass but the legacy provider E2E does
-not.
+It is not exposed by Gateway and is not a supported manual product path.
 
 Inside the full-stack compose, the hub uses `HUB_LLM_BASE_URL`, normally
 pointing to a local model router through `host.docker.internal`.
@@ -177,14 +176,8 @@ Full current-prototype smoke suite:
 The smoke script requires a repository-root `.env` because `Procfile.dev`
 passes it to Uvicorn.
 
-Legacy provider E2E:
-
-```bash
-./tests/e2e/test_provider_e2e.sh
-```
-
-Do not use `tests/e2e/test_multiagent_e2e.sh` as evidence of the target
-architecture. It covers the older Catalyst-local agent topology.
+Do not use the older Catalyst-local agent topology as evidence of the target
+architecture.
 
 For roadmap implementation:
 

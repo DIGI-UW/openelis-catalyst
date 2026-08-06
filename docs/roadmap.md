@@ -335,6 +335,18 @@ as the import spike it was. Full D1 release acceptance remains open for the
 five-family, reset/reimport, repetition/nondeterminism, accessibility,
 event/acceptance-artifact, CI-review, and explicit user-acceptance gates.
 
+The first M4 corrective pass removed the obsolete Gateway A2A
+`/v1/chat/completions` relay and dependency, removed its dead
+`CATALYST_ROUTER_URL` from supported Compose files, and converted the standalone
+demo from a bundled stale-alias model service to the same Hub-owned profile over
+`host.docker.internal:1234`. Exact current aliases are
+`google/gemma-4-e4b` and `qwen2.5-14b-instruct-mlx`. The rebuilt isolated
+Gateway passed formatting, lint, mypy, 210 tests, 31 assembly checks, and the
+complete live health/provenance gate without reseeding. Its persisted state
+still contained five Datasets, nine Widgets, and five Dashboards after restart;
+the latest title remained `Current profile laboratory dashboard`. T187 remains
+open for the broader release matrix and explicit user acceptance.
+
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local

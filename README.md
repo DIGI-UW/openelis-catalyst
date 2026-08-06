@@ -62,12 +62,14 @@ The query-to-table sandbox implements that path with:
   session (`GET /v1/catalyst/data-sources`);
 - a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
 
-The original `/v1/chat/completions` and Router/Agent/MCP code remain available
-as legacy compatibility scaffolding; the MVP does not use them.
+The original Router/Agent/MCP source remains as legacy prototype scaffolding,
+but Gateway no longer exposes its `/v1/chat/completions` relay. The supported
+manual path is the named med-agent-hub query profile backed by the configured
+external router.
 
 ## Repository layout
 
-- `catalyst-gateway/` — OpenAI-compatible HTTP boundary.
+- `catalyst-gateway/` — governed query, execution, and dashboard HTTP boundary.
 - `catalyst-ui/` — React/Carbon query review and results sidecar.
 - `analytics/` — OpenELIS seed, Data Pipes configuration, semantic SQL, and
   approved catalog.
