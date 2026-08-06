@@ -416,7 +416,7 @@ retains scoped same-bundle versus full-reset/reimport guidance. UI lint,
 typecheck, 143 component tests, eight focused Gateway tests, and the
 deterministic desktop/390/320/640-CSS-pixel browser matrix pass. The six focused
 task boxes and T179/T154 remain open until the explicit live closure checkpoint,
-actual 200% browser zoom, durable D1d evidence, and user acceptance; M4 has not
+actual 200% browser zoom, durable D1d screenshot/video/acceptance evidence, and user acceptance; M4 has not
 started.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
