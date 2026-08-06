@@ -1,7 +1,8 @@
 # Catalyst Product Specification
 
 **Status:** Iterative query notebook foundation accepted; M3 integrated 4c
-candidate live with user acceptance and remaining D1d checks open; M4 not started
+implementation live with T150/T174/T151 complete, user acceptance and the
+remaining D1d checks open; M4 not started
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -754,11 +755,11 @@ table/notebook acceptance.
 ## Dashboard Builder MVP acceptance
 
 The full acceptance below remains the D1 product standard. The current local M3
-candidate preserves the accepted Ask workflow in the binding 4c shell and has
+implementation preserves the accepted Ask workflow in the binding 4c shell and has
 live evidence for real configured writer/reviewer turns, manual versions,
 execution, contextual follow-up, Dataset/Widget/Dashboard promotion, native
-Superset import, and refresh restoration. It is ready for manual validation but
-is not an accepted milestone: the remaining D1d matrix and explicit user
+Superset import, and refresh restoration. It is not an accepted milestone: the
+remaining D1d matrix and explicit user
 acceptance are open, and M4 release hardening has not started.
 
 The live Dashboard library also restores publication state from importer-owned
@@ -826,13 +827,15 @@ real Superset clean-import/re-import. It makes no claim about Superset API
 publication, embedding, cross-system undo/reconciliation, narrative
 correctness, sharing, scheduling, automatic refresh or production access.
 
-Implementation order is D1a T137 → T158 → T159 → T138; D1b T139–T144 plus
-T160–T165; D1c T145–T149 plus T166–T173; D1d T150–T154 plus T174–T179; and D1e
+Implementation order is D1a T137 → T158 → T159 → T138; active D1d/M3
+T150–T154 plus T174–T179; then, after explicit M3 acceptance, deferred D1b
+T139–T144 plus T160–T165 and D1c T145–T149 plus T166–T173 hardening; and D1e
 T180–T182 before T155–T157. The D1a cross-artifact analysis now has zero
 unresolved CRITICAL/HIGH findings and its contracts validate. The user accepted
 the D1a checkpoint on 2026-08-05 and authorized implementation through a working
-local MVP. D1b/D1c foundations now support the active D1d/M3 product work; their
-existence does not close D1d or start D1e/M4.
+local MVP. Existing D1b/D1c happy-path foundations support the active D1d/M3
+product work; their existence does not close their hardening tasks, close D1d,
+or start D1e/M4.
 
 Because the local demo has no authentication, saved-version authorship records
 only the actor kind `human`; it does not claim a verified user identity.
