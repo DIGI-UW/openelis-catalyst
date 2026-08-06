@@ -338,10 +338,12 @@ def test_native_bundle_maps_saved_result_schema_to_superset_metrics(
     assert line["viz_type"] == "echarts_timeseries_line"
     assert line["params"]["metrics"][0]["aggregate"] == "MAX"
     assert line["params"]["x_axis"] == "observed_at"
+    assert line["params"]["groupby"] == ["test_name", "result_status"]
     grouped = charts["Maximum result by test"]
     assert grouped["viz_type"] == "echarts_timeseries_bar"
     assert grouped["params"]["metrics"][0]["aggregate"] == "MAX"
     assert grouped["params"]["x_axis"] == "test_name"
+    assert grouped["params"]["groupby"] == ["result_status"]
     proportion = charts["Result composition"]
     assert proportion["params"]["stack"] == "Stack"
     assert proportion["params"]["contributionMode"] == "row"

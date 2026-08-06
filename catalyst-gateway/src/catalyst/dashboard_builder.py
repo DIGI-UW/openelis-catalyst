@@ -228,6 +228,7 @@ def widget_bindings(
         return {
             "xColumn": _column_binding(temporal),
             "metricColumn": _column_binding(numeric),
+            "seriesColumns": [_column_binding(column) for column in categorical],
         }
     if presentation_kind in {"grouped_bar", "stacked_bar", "proportion_bar"}:
         if not categorical or numeric is None:
@@ -242,7 +243,7 @@ def widget_bindings(
         return {
             "categoryColumn": _column_binding(categorical[0]),
             "metricColumn": _column_binding(numeric),
-            "seriesColumn": _column_binding(series) if series is not None else None,
+            "seriesColumns": [_column_binding(column) for column in categorical[1:]],
         }
     raise DashboardBuilderError("Unsupported presentation kind.")
 
@@ -293,6 +294,7 @@ def _native_chart(
             "metrics": [metric],
             "row_limit": 10000,
             "show_legend": True,
+            "groupby": [column["name"] for column in bindings["seriesColumns"]],
         }
 
     params = {
@@ -302,8 +304,8 @@ def _native_chart(
         "row_limit": 10000,
         "show_legend": True,
     }
-    if bindings["seriesColumn"] is not None:
-        params["groupby"] = [bindings["seriesColumn"]["name"]]
+    if bindings["seriesColumns"]:
+        params["groupby"] = [column["name"] for column in bindings["seriesColumns"]]
     if presentation_kind in {"stacked_bar", "proportion_bar"}:
         params["stack"] = "Stack"
     if presentation_kind == "proportion_bar":
