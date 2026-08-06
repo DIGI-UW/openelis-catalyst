@@ -1,7 +1,7 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook foundation accepted; M3 real-profile
-multi-widget workflow passed; full Dashboard Builder D1 release acceptance open
+**Status:** Iterative query notebook foundation accepted; M3 integrated 4c
+candidate live with user acceptance and remaining D1d checks open; M4 not started
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
@@ -743,24 +743,23 @@ MVP requires an end-to-end deployment that demonstrates:
 12. Independent PostgreSQL comparison for live acceptance, with model
     nondeterminism recorded rather than treated as test determinism.
 
-The deterministic component, mocked-browser, real-model, independent
-PostgreSQL, keyboard-only, narrow-layout, and actual 200%-browser-zoom gates
-passed on the accepted MVP candidate. Failed model candidates and
-temperature-zero output differences remain retained evidence; syntactic
-validity alone is not correctness. The deterministic Playwright notebook path
-now preserves the accepted keyboard focus order and 200%-equivalent reflow
-boundary. An optional report demonstration does not substitute for
+The deterministic component, mocked-browser, real-model, and independent
+PostgreSQL checks have supporting evidence. The complete Dashboard Builder
+keyboard/reflow/accessibility matrix, actual 200% zoom, and explicit user
+acceptance remain open for M3. Failed model candidates and temperature-zero
+output differences remain retained evidence; syntactic validity alone is not
+correctness. An optional report demonstration does not substitute for
 table/notebook acceptance.
 
 ## Dashboard Builder MVP acceptance
 
 The full acceptance below remains the D1 product standard. The current local M3
-candidate preserves the accepted Ask workflow and integrates a real configured
-writer/reviewer run through one exact Dataset, a table plus time-series Widget,
-native Superset import, PostgreSQL reconciliation, and restart restoration. It
-is ready for manual validation but is not release acceptance: the five-family
-matrix, complete library behavior and recovery, repetition/nondeterminism,
-accessibility/evidence program, and explicit user acceptance remain open.
+candidate preserves the accepted Ask workflow in the binding 4c shell and has
+live evidence for real configured writer/reviewer turns, manual versions,
+execution, contextual follow-up, Dataset/Widget/Dashboard promotion, native
+Superset import, and refresh restoration. It is ready for manual validation but
+is not an accepted milestone: the remaining D1d matrix and explicit user
+acceptance are open, and M4 release hardening has not started.
 
 Dashboard Builder MVP is complete only when a user can:
 
@@ -825,8 +824,9 @@ Implementation order is D1a T137 → T158 → T159 → T138; D1b T139–T144 plu
 T160–T165; D1c T145–T149 plus T166–T173; D1d T150–T154 plus T174–T179; and D1e
 T180–T182 before T155–T157. The D1a cross-artifact analysis now has zero
 unresolved CRITICAL/HIGH findings and its contracts validate. The user accepted
-the checkpoint on 2026-08-05 and authorized implementation through a working
-local MVP; D1b product work may now begin.
+the D1a checkpoint on 2026-08-05 and authorized implementation through a working
+local MVP. D1b/D1c foundations now support the active D1d/M3 product work; their
+existence does not close D1d or start D1e/M4.
 
 Because the local demo has no authentication, saved-version authorship records
 only the actor kind `human`; it does not claim a verified user identity.

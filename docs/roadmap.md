@@ -1,7 +1,8 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; M3 real-profile multi-widget workflow
-passed; full Superset-backed Dashboard Builder D1 release acceptance remains open
+**Status:** Active pathway roadmap; M3 integrated 4c product candidate is live,
+but explicit user acceptance and the remaining D1d matrix are open; M4 has not
+started
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -53,15 +54,17 @@ The repository currently contains:
 - Gateway, analytics/assembly, UI and browser tests.
 
 The original table-only path was a **Superset import spike**. The M3 manual
-validation candidate now integrates the real Gemma/Qwen query path with a
-multi-widget Dashboard, but it does not yet contain full D1 release acceptance:
+validation candidate now integrates the real Gemma/Qwen notebook path with the
+4c shell and the Dataset → Widget → Dashboard → Superset workflow, but M3 still
+requires explicit user acceptance and the remaining D1d checks:
 
 - all five clean-imported native visualization families and complete
   Dataset/Widget/Dashboard library behavior;
 - complete reset/reimport recovery, the full accessibility matrix, and the
   schema-backed dashboard acceptance emitter;
 - repeated real-model Dashboard runs plus durable evidence and explicit user
-  acceptance (the first integrated Gemma E4B → Qwen 14B path passed at M3);
+  acceptance (the first integrated Gemma E4B → Qwen 14B path is a live M3
+  checkpoint, not an accepted milestone);
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
@@ -74,7 +77,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **M3 real-profile multi-widget workflow passed; M4 release acceptance open** | Accepted query/workbench foundation only | Complete T187 hardening/evidence and obtain explicit user acceptance |
+| **Superset-backed Dashboard Builder (D1)** | **M3 integrated 4c candidate live; user acceptance and remaining D1d checks open; M4 not started** | Accepted query/workbench foundation only | Finish T150–T154/T174–T179 individually and obtain explicit M3 acceptance |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -324,18 +327,19 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** M3 real-profile multi-widget workflow passed; full D1 release acceptance remains open
+**Status:** M3 integrated 4c candidate live; explicit user acceptance and
+remaining D1d checks open; M4 not started
 
 **Current delivery boundary:** The active branches implement a manually testable
-M3 candidate—real Gemma E4B → Qwen 14B generation, manual SQL version, explicit
-Run, exact Dataset, table plus time-series Widgets, named Dashboard, native ZIP,
-explicit local Superset import, per-widget PostgreSQL reconciliation, and
-restart restoration. The original table-only path remains correctly described
-as the import spike it was. Full D1 release acceptance remains open for the
-five-family, reset/reimport, repetition/nondeterminism, accessibility,
-event/acceptance-artifact, CI-review, and explicit user-acceptance gates.
+M3 candidate in the binding 4c shell—real Gemma E4B → Qwen 14B generation,
+manual SQL versions, explicit Run, contextual follow-up, exact Dataset review,
+Widget/Dashboard libraries, native ZIP publication, explicit local Superset
+import, PostgreSQL reconciliation, and refresh restoration. The original
+table-only path remains correctly described as the import spike it was. M3
+remains open until the user accepts the live product and the remaining D1d
+checks pass; M4 release hardening has not started.
 
-The first M4 corrective pass removed the obsolete Gateway A2A
+One supporting M3 corrective pass removed the obsolete Gateway A2A
 `/v1/chat/completions` relay and dependency, removed its dead
 `CATALYST_ROUTER_URL` from supported Compose files, and converted the standalone
 demo from a bundled stale-alias model service to the same Hub-owned profile over
@@ -344,10 +348,10 @@ demo from a bundled stale-alias model service to the same Hub-owned profile over
 Gateway passed formatting, lint, mypy, 210 tests, 31 assembly checks, and the
 complete live health/provenance gate without reseeding. Its persisted state
 still contained five Datasets, nine Widgets, and five Dashboards after restart;
-the latest title remained `Current profile laboratory dashboard`. T187 remains
-open for the broader release matrix and explicit user acceptance.
+the latest title remained `Current profile laboratory dashboard`. The broader
+release matrix remains assigned to the individual D1 tasks; T187 is retired.
 
-The next M4 pass repeated the exact M3 prompt through real Gemma E4B and Qwen
+A supporting M3 repetition pass repeated the exact M3 prompt through real Gemma E4B and Qwen
 14B. It selected the same complete SQL/query digest with run-specific trace,
 invocation digest, and latency evidence. A deliberately unknown manual column
 then demonstrated the explicit-run failure path and typed PostgreSQL `42703`
@@ -355,8 +359,8 @@ diagnostic; a direct editor correction with a stable secondary sort succeeded
 without another model call. This exposed an open advisory-lint gap: the unknown
 column was labelled valid before PostgreSQL rejected it. The browser E2E now
 covers Dataset/Widget/Dashboard publication controls, keyboard traversal, and
-compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom and the rest
-of T187 remain open.
+compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom and the
+remaining individual D1d/D1e tasks remain open.
 
 The live visualization-family pass then used that corrected Query v3 directly
 in the integrated Dashboard Builder to save table, time-series line,
@@ -372,6 +376,20 @@ both importer commands with `--no-deps`; the read-only status proof preserved
 the exact running Superset and analytics container identities. Full failure/
 reset/reimport recovery, repeat/change evidence, final CI, and user acceptance
 remain open.
+
+The 4c product-shell checkpoint then exercised a fresh real-model session in
+the rebuilt UI. The initial instruction produced a syntactically valid but
+semantically incomplete aggregate; the user-facing workflow retained the model
+artifact, accepted a human Query v2 correction, validated it, and returned 22
+typed rows. A contextual follow-up used that exact human SQL plus matching
+validation and execution summary, produced Query v3, and marked the old result
+stale. After a second human correction, Query v4 returned six monthly Viral
+Load counts and restored after refresh. The latest-turn evidence action now
+loads the correct follow-up invocations instead of displaying the initial
+generation artifact. Exact IDs, digests, timings, and open model-fidelity
+observations are recorded in the Harness evidence file
+`m3-4c-live-notebook-2026-08-06.json`. This is a live M3 candidate, not user
+acceptance and not the start of M4.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
