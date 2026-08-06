@@ -418,6 +418,23 @@ export interface DashboardBuilderEntity {
   createdAt: string;
 }
 
+export type DashboardPresentationKind =
+  | "table"
+  | "big_number"
+  | "time_series_line"
+  | "time_series_area"
+  | "grouped_bar"
+  | "stacked_bar"
+  | "proportion_bar";
+
+export type DashboardAggregation =
+  | "sum"
+  | "avg"
+  | "min"
+  | "max"
+  | "count"
+  | "count_distinct";
+
 export interface DashboardPublication {
   status: "bundle_ready";
   dashboard: DashboardBuilderEntity;

@@ -20,12 +20,39 @@ def _id() -> str:
 
 
 class _Workbench:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        columns: list[dict[str, object]] | None = None,
+        rows: list[list[dict[str, object]]] | None = None,
+    ) -> None:
         self.session_id = _id()
         self.turn_id = _id()
         self.version_id = _id()
         self.execution_id = _id()
         self.query_digest = "a" * 64
+        self.columns = columns or [
+            {
+                "ordinal": 0,
+                "name": "observed_at",
+                "databaseType": "date",
+                "typeOid": 1082,
+                "logicalType": "date",
+            },
+            {
+                "ordinal": 1,
+                "name": "result_value",
+                "databaseType": "numeric",
+                "typeOid": 1700,
+                "logicalType": "decimal",
+            },
+        ]
+        self.rows = rows or [
+            [
+                {"type": "date", "value": "2026-01-01"},
+                {"type": "decimal", "value": "14.2"},
+            ]
+        ]
 
     def get_session(self, session_id: str):
         if session_id != self.session_id:
@@ -60,28 +87,8 @@ class _Workbench:
                         "parameters": version["parameters"],
                     },
                     "result": {
-                        "columns": [
-                            {
-                                "ordinal": 0,
-                                "name": "observed_at",
-                                "databaseType": "date",
-                                "typeOid": 1082,
-                                "logicalType": "date",
-                            },
-                            {
-                                "ordinal": 1,
-                                "name": "result_value",
-                                "databaseType": "numeric",
-                                "typeOid": 1700,
-                                "logicalType": "decimal",
-                            },
-                        ],
-                        "rows": [
-                            [
-                                {"type": "date", "value": "2026-01-01"},
-                                {"type": "decimal", "value": "14.2"},
-                            ]
-                        ],
+                        "columns": self.columns,
+                        "rows": self.rows,
                         "rowCount": {
                             "returned": 1,
                             "truncated": False,
@@ -126,7 +133,7 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
         dataset_version_id=dataset["versionId"], title="Result trend"
     )
     assert widget["configuration"]["presentationKind"] == "table"
-    assert widget["configuration"]["suggestedKind"] == "line"
+    assert widget["configuration"]["suggestedKind"] == "time_series_line"
     dashboard = builder.save_dashboard(
         title="Lab operations", widget_version_ids=[widget["versionId"]]
     )
@@ -165,7 +172,7 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
     assert any(name.endswith("/catalyst/manifest.json") for name in names)
 
 
-def test_unverified_chart_kind_cannot_be_silently_exported_as_a_table(
+def test_unknown_chart_kind_cannot_be_silently_exported_as_a_table(
     tmp_path: Path,
 ) -> None:
     workbench = _Workbench()
@@ -180,10 +187,141 @@ def test_unverified_chart_kind_cannot_be_silently_exported_as_a_table(
 
     with pytest.raises(
         DashboardBuilderError,
-        match="Only the verified table mapping is available",
+        match="Unsupported presentation kind",
     ):
         builder.save_widget(
             dataset_version_id=dataset["versionId"],
             title="Result trend",
-            presentation_kind="line",
+            presentation_kind="radar",
         )
+
+
+def test_non_table_widgets_require_an_explicit_report_aggregation(
+    tmp_path: Path,
+) -> None:
+    workbench = _Workbench()
+    builder = DashboardBuilder(
+        tmp_path / "state.sqlite3", workbench=workbench, outbox=tmp_path / "outbox"
+    )
+    dataset = builder.save_dataset(
+        session_id=workbench.session_id,
+        execution_id=workbench.execution_id,
+        title="Monthly result values",
+    )
+
+    with pytest.raises(DashboardBuilderError, match="requires an explicit aggregation"):
+        builder.save_widget(
+            dataset_version_id=dataset["versionId"],
+            title="Result trend",
+            presentation_kind="time_series_line",
+        )
+
+
+def test_native_bundle_maps_explicit_aggregations_to_superset_metrics(
+    tmp_path: Path,
+) -> None:
+    columns = [
+        {
+            "ordinal": 0,
+            "name": "observed_at",
+            "databaseType": "date",
+            "typeOid": 1082,
+            "logicalType": "date",
+        },
+        {
+            "ordinal": 1,
+            "name": "test_name",
+            "databaseType": "text",
+            "typeOid": 25,
+            "logicalType": "string",
+        },
+        {
+            "ordinal": 2,
+            "name": "result_status",
+            "databaseType": "text",
+            "typeOid": 25,
+            "logicalType": "string",
+        },
+        {
+            "ordinal": 3,
+            "name": "result_value",
+            "databaseType": "numeric",
+            "typeOid": 1700,
+            "logicalType": "decimal",
+        },
+    ]
+    workbench = _Workbench(
+        columns=columns,
+        rows=[
+            [
+                {"type": "date", "value": "2026-01-01"},
+                {"type": "string", "value": "Viral Load"},
+                {"type": "string", "value": "final"},
+                {"type": "decimal", "value": "14.2"},
+            ],
+            [
+                {"type": "date", "value": "2026-02-01"},
+                {"type": "string", "value": "CD4"},
+                {"type": "string", "value": "preliminary"},
+                {"type": "decimal", "value": "17.3"},
+            ],
+        ],
+    )
+    builder = DashboardBuilder(
+        tmp_path / "state.sqlite3", workbench=workbench, outbox=tmp_path / "outbox"
+    )
+    dataset = builder.save_dataset(
+        session_id=workbench.session_id,
+        execution_id=workbench.execution_id,
+        title="Monthly laboratory values",
+    )
+    widgets = [
+        builder.save_widget(
+            dataset_version_id=dataset["versionId"],
+            title="Average result by month",
+            presentation_kind="time_series_line",
+            aggregation="avg",
+        ),
+        builder.save_widget(
+            dataset_version_id=dataset["versionId"],
+            title="Maximum result by test",
+            presentation_kind="grouped_bar",
+            aggregation="max",
+        ),
+        builder.save_widget(
+            dataset_version_id=dataset["versionId"],
+            title="Result composition",
+            presentation_kind="proportion_bar",
+            aggregation="sum",
+        ),
+    ]
+    dashboard = builder.save_dashboard(
+        title="Lab operations",
+        widget_version_ids=[widget["versionId"] for widget in widgets],
+    )
+    publication = builder.publish(dashboard["versionId"])
+    bundle = tmp_path / "outbox" / publication["pointer"]["bundle"]["fileName"]
+
+    with zipfile.ZipFile(bundle) as archive:
+        charts = {
+            json.loads(archive.read(name))["slice_name"]: json.loads(archive.read(name))
+            for name in archive.namelist()
+            if "/charts/" in name
+        }
+
+    line = charts["Average result by month"]
+    assert line["viz_type"] == "echarts_timeseries_line"
+    assert line["params"]["metrics"][0]["aggregate"] == "AVG"
+    assert line["params"]["x_axis"] == "observed_at"
+    grouped = charts["Maximum result by test"]
+    assert grouped["viz_type"] == "echarts_timeseries_bar"
+    assert grouped["params"]["metrics"][0]["aggregate"] == "MAX"
+    assert grouped["params"]["x_axis"] == "test_name"
+    proportion = charts["Result composition"]
+    assert proportion["params"]["stack"] == "Stack"
+    assert proportion["params"]["contributionMode"] == "row"
+    assert [item["aggregation"] for item in publication["manifest"]["widgets"]] == [
+        "avg",
+        "max",
+        "sum",
+    ]

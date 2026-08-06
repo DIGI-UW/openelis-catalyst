@@ -77,6 +77,11 @@ def install_dashboard_routes(app: FastAPI, builder: DashboardBuilder) -> None:
                     if payload.get("presentationKind") is not None
                     else None
                 ),
+                aggregation=(
+                    str(payload["aggregation"])
+                    if payload.get("aggregation") is not None
+                    else None
+                ),
             )
         except KeyError as error:
             return _error(400, "invalid_request", f"Missing field: {error.args[0]}.")

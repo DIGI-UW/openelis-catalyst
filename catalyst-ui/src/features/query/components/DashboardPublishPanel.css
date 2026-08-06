@@ -18,13 +18,20 @@
 }
 
 .dashboard-publish__controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   align-items: end;
   gap: 1rem;
 }
 
-.dashboard-publish__controls .cds--text-input-wrapper {
-  flex: 1;
+.dashboard-publish__controls > button {
+  align-self: end;
+}
+
+.dashboard-publish__widget-count {
+  align-self: end;
+  color: #525252;
+  font-size: 0.875rem;
 }
 
 .dashboard-publish__ready {
@@ -39,7 +46,6 @@
 
 @media (max-width: 42rem) {
   .dashboard-publish__controls {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 }

@@ -16,6 +16,8 @@ import type {
   WorkbenchValidation,
   WorkbenchVersionDraft,
   DashboardBuilderEntity,
+  DashboardAggregation,
+  DashboardPresentationKind,
   DashboardPublication,
 } from "./types";
 
@@ -105,7 +107,12 @@ export interface CatalystApi {
     signal?: AbortSignal,
   ): Promise<DashboardBuilderEntity>;
   saveDashboardWidget?(
-    input: { datasetVersionId: string; title?: string; presentationKind?: string },
+    input: {
+      datasetVersionId: string;
+      title?: string;
+      presentationKind?: DashboardPresentationKind;
+      aggregation?: DashboardAggregation;
+    },
     signal?: AbortSignal,
   ): Promise<DashboardBuilderEntity>;
   saveDashboard?(

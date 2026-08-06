@@ -28,7 +28,23 @@ from .storage import WorkbenchStore
 
 _NAMESPACE = uuid.UUID("8567e617-8772-585f-8f1a-c9e9a63b2f20")
 _PARAMETER = re.compile(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)")
-_VERIFIED_PRESENTATION_KINDS = {"table"}
+_PRESENTATION_KINDS = {
+    "table",
+    "big_number",
+    "time_series_line",
+    "time_series_area",
+    "grouped_bar",
+    "stacked_bar",
+    "proportion_bar",
+}
+_AGGREGATIONS = {
+    "sum": "SUM",
+    "avg": "AVG",
+    "min": "MIN",
+    "max": "MAX",
+    "count": "COUNT",
+    "count_distinct": "COUNT_DISTINCT",
+}
 
 
 class DashboardBuilderError(RuntimeError):
@@ -156,12 +172,155 @@ def suggest_presentation(columns: Iterable[dict[str, Any]], row_count: int) -> s
     ]
     categorical = [index for index, kind in enumerate(logical) if kind == "string"]
     if len(ordered) == 1 and len(numeric) == 1 and row_count <= 1:
-        return "kpi"
+        return "big_number"
     if temporal and numeric:
-        return "line"
+        return "time_series_line"
     if categorical and numeric and len(ordered) <= 4:
-        return "bar"
+        return "grouped_bar"
     return "table"
+
+
+def _first_column(
+    columns: Iterable[dict[str, Any]], logical_types: set[str]
+) -> dict[str, Any] | None:
+    return next(
+        (
+            column
+            for column in columns
+            if str(column.get("logicalType")) in logical_types
+        ),
+        None,
+    )
+
+
+def _column_binding(column: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ordinal": int(column["ordinal"]),
+        "name": str(column["name"]),
+        "logicalType": str(column["logicalType"]),
+    }
+
+
+def widget_bindings(
+    *,
+    presentation_kind: str,
+    columns: Iterable[dict[str, Any]],
+    row_count: int,
+    truncated: bool,
+) -> dict[str, Any]:
+    """Derive the sole supported chart bindings from an executed result schema."""
+
+    ordered = list(columns)
+    numeric = _first_column(ordered, {"integer", "decimal"})
+    temporal = _first_column(ordered, {"date", "date-time"})
+    categorical = [
+        column
+        for column in ordered
+        if str(column.get("logicalType")) in {"string", "boolean"}
+    ]
+    if presentation_kind == "table":
+        return {"columns": [_column_binding(column) for column in ordered]}
+    if presentation_kind == "big_number":
+        if row_count != 1 or len(ordered) != 1 or numeric is None:
+            raise DashboardBuilderError(
+                "Big number requires exactly one returned numeric cell."
+            )
+        return {"metricColumn": _column_binding(numeric)}
+    if presentation_kind in {"time_series_line", "time_series_area"}:
+        if truncated or temporal is None or numeric is None:
+            raise DashboardBuilderError(
+                "Time series requires an untruncated temporal and numeric result."
+            )
+        return {
+            "xColumn": _column_binding(temporal),
+            "metricColumn": _column_binding(numeric),
+        }
+    if presentation_kind in {"grouped_bar", "stacked_bar", "proportion_bar"}:
+        if truncated or not categorical or numeric is None:
+            raise DashboardBuilderError(
+                "Bar chart requires an untruncated categorical and numeric result."
+            )
+        series = categorical[1] if len(categorical) > 1 else None
+        if presentation_kind == "proportion_bar" and series is None:
+            raise DashboardBuilderError(
+                "Proportion bar requires a categorical series as well as a category."
+            )
+        return {
+            "categoryColumn": _column_binding(categorical[0]),
+            "metricColumn": _column_binding(numeric),
+            "seriesColumn": _column_binding(series) if series is not None else None,
+        }
+    raise DashboardBuilderError("Unsupported presentation kind.")
+
+
+def _metric(metric_column: dict[str, Any], aggregation: str) -> dict[str, Any]:
+    aggregate = _AGGREGATIONS[aggregation]
+    name = str(metric_column["name"])
+    return {
+        "aggregate": aggregate,
+        "column": {"column_name": name},
+        "datasourceWarning": False,
+        "expressionType": "SIMPLE",
+        "hasCustomLabel": False,
+        "label": f"{aggregate}({name})",
+        "optionName": f"metric_{aggregation}_{name}",
+        "sqlExpression": None,
+    }
+
+
+def _native_chart(
+    *,
+    title: str,
+    presentation_kind: str,
+    bindings: dict[str, Any],
+    aggregation: str | None,
+) -> tuple[str, dict[str, Any]]:
+    if presentation_kind == "table":
+        return "table", {
+            "viz_type": "table",
+            "all_columns": [column["name"] for column in bindings["columns"]],
+            "row_limit": 1000,
+            "order_by_cols": [],
+        }
+
+    if aggregation is None:
+        raise DashboardBuilderError(
+            "Non-table widget requires an explicit aggregation."
+        )
+    metric = _metric(bindings["metricColumn"], aggregation)
+    if presentation_kind == "big_number":
+        return "big_number_total", {
+            "viz_type": "big_number_total",
+            "metric": metric,
+        }
+    if presentation_kind in {"time_series_line", "time_series_area"}:
+        viz_type = (
+            "echarts_timeseries_line"
+            if presentation_kind == "time_series_line"
+            else "echarts_area"
+        )
+        return viz_type, {
+            "viz_type": viz_type,
+            "x_axis": bindings["xColumn"]["name"],
+            "metrics": [metric],
+            "row_limit": 10000,
+            "show_legend": True,
+        }
+
+    params = {
+        "viz_type": "echarts_timeseries_bar",
+        "x_axis": bindings["categoryColumn"]["name"],
+        "metrics": [metric],
+        "row_limit": 10000,
+        "show_legend": True,
+    }
+    if bindings["seriesColumn"] is not None:
+        params["groupby"] = [bindings["seriesColumn"]["name"]]
+    if presentation_kind in {"stacked_bar", "proportion_bar"}:
+        params["stack"] = "Stack"
+    if presentation_kind == "proportion_bar":
+        params["contributionMode"] = "row"
+    return "echarts_timeseries_bar", params
 
 
 class DashboardBuilder:
@@ -365,27 +524,35 @@ class DashboardBuilder:
         dataset_version_id: str,
         title: str,
         presentation_kind: str | None = None,
+        aggregation: str | None = None,
     ) -> dict[str, Any]:
         dataset = self._entity("dataset", dataset_version_id)
         row_count = int(dataset.configuration.get("rowCount", {}).get("returned", 0))
         suggestion = suggest_presentation(dataset.configuration["columns"], row_count)
-        # The local MVP exports one verified native Superset table configuration.
-        # Keep the heuristic as advisory metadata until the corresponding native
-        # chart mappings have real import coverage.  Accepting a non-table
-        # selection here would be misleading: the native serializer would still
-        # produce a table asset, not the requested visualisation.
         kind = presentation_kind or "table"
-        if kind not in _VERIFIED_PRESENTATION_KINDS:
+        if kind not in _PRESENTATION_KINDS:
+            raise DashboardBuilderError("Unsupported presentation kind.")
+        if kind == "table" and aggregation is not None:
+            raise DashboardBuilderError("Table widget does not accept an aggregation.")
+        if kind != "table" and aggregation not in _AGGREGATIONS:
             raise DashboardBuilderError(
-                "Only the verified table mapping is available in this local MVP."
+                "Non-table widget requires an explicit aggregation."
             )
+        bindings = widget_bindings(
+            presentation_kind=kind,
+            columns=dataset.configuration["columns"],
+            row_count=row_count,
+            truncated=bool(dataset.configuration["resultBounds"]["truncated"]),
+        )
         configuration = {
             "title": title.strip() or dataset.configuration["title"],
             "datasetVersionId": dataset.version_id,
             "datasetConfigurationDigest": dataset.configuration_digest,
             "presentationKind": kind,
+            "aggregation": aggregation,
             "suggestedKind": suggestion,
             "columns": dataset.configuration["columns"],
+            "bindings": bindings,
         }
         return self._append("widget", configuration).as_dict()
 
@@ -531,17 +698,17 @@ class DashboardBuilder:
             chart_uuid = _uuid5(f"chart:{widget.version_id}")
             chart_uuids[widget.version_id] = chart_uuid
             dataset_uuid = dataset_uuids[widget.configuration["datasetVersionId"]]
-            column_names = [item["name"] for item in widget.configuration["columns"]]
+            viz_type, params = _native_chart(
+                title=widget.configuration["title"],
+                presentation_kind=widget.configuration["presentationKind"],
+                bindings=widget.configuration["bindings"],
+                aggregation=widget.configuration["aggregation"],
+            )
             chart = {
                 "slice_name": widget.configuration["title"],
                 "description": "Created by Catalyst local dashboard MVP.",
-                "viz_type": "table",
-                "params": {
-                    "viz_type": "table",
-                    "all_columns": column_names,
-                    "row_limit": 1000,
-                    "order_by_cols": [],
-                },
+                "viz_type": viz_type,
+                "params": params,
                 "query_context": None,
                 "cache_timeout": None,
                 "uuid": chart_uuid,
@@ -619,10 +786,11 @@ class DashboardBuilder:
                     "configurationDigest": item.configuration_digest,
                     "datasetVersionId": item.configuration["datasetVersionId"],
                     "presentationKind": item.configuration["presentationKind"],
+                    "aggregation": item.configuration["aggregation"],
                     "compatibilityDigest": canonical_sha256(
                         {"suggestedKind": item.configuration["suggestedKind"]}
                     ),
-                    "vizMappingRevision": "catalyst.superset.viz.table.v1",
+                    "vizMappingRevision": "catalyst.superset.viz.aggregate.v1",
                     "author": {"actorKind": "human"},
                     "createdAt": item.created_at,
                 }
@@ -666,7 +834,7 @@ class DashboardBuilder:
             "generator": {
                 "revision": "catalyst-dashboard-builder-mvp.v1",
                 "parameterCompilerRevisions": ["catalyst.postgresql-parameters.v1"],
-                "vizMappingRevisions": ["catalyst.superset.viz.table.v1"],
+                "vizMappingRevisions": ["catalyst.superset.viz.aggregate.v1"],
             },
             "assetMembers": assets,
             "assetContentDigest": canonical_sha256(assets),
