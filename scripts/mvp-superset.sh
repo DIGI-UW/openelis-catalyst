@@ -35,6 +35,7 @@ usage() {
 case "${1:-}" in
   status)
     "${compose[@]}" ps superset superset-metadata-db
+    "${compose[@]}" run --rm superset-importer status
     ;;
   import)
     "${compose[@]}" run --rm superset-importer import
