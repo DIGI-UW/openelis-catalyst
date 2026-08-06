@@ -699,12 +699,14 @@ export const ExecutionResult = ({
   sql,
   parameters,
   executionOverride,
+  immutableSnapshot = false,
   pageSize,
 }: {
   session: WorkbenchSession;
   sql: string;
   parameters: BoundParameter[];
   executionOverride?: WorkbenchExecution;
+  immutableSnapshot?: boolean;
   pageSize?: number;
 }) => {
   const execution = executionOverride ?? latestExecution(session.executions);
@@ -730,7 +732,8 @@ export const ExecutionResult = ({
     : sql === execution.query.sql &&
       JSON.stringify(parameters) === JSON.stringify(execution.query.parameters);
   const resultIsStale =
-    session.currentVersionId !== execution.versionId || !editorMatchesExecution;
+    !immutableSnapshot &&
+    (session.currentVersionId !== execution.versionId || !editorMatchesExecution);
 
   if (execution.status === "failed") {
     const diagnostic = execution.databaseDiagnostic;

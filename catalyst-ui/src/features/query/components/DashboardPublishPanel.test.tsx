@@ -303,9 +303,18 @@ describe("Dashboard Builder supervised promotion", () => {
         },
       },
     };
+    const newerVersion = {
+      ...queryVersion,
+      versionId: "query-v2",
+      ordinal: 2,
+      sql: "SELECT 2 AS value",
+    };
     const olderSession = {
       ...session,
       sessionId: "session-older",
+      currentVersionId: newerVersion.versionId,
+      currentVersion: newerVersion,
+      versions: [queryVersion, newerVersion],
       executions: [
         {
           ...session.executions[0],

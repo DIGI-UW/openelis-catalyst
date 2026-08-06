@@ -1032,6 +1032,7 @@ export const DashboardPublishPanel = ({
                       reviewedDataset ? reviewedExecution.query.parameters : parameters
                     }
                     executionOverride={reviewedExecution}
+                    immutableSnapshot={Boolean(reviewedDataset)}
                     pageSize={25}
                   />
                   <details className="builder-review__sql">
