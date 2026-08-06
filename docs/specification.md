@@ -761,6 +761,12 @@ Superset import, and refresh restoration. It is ready for manual validation but
 is not an accepted milestone: the remaining D1d matrix and explicit user
 acceptance are open, and M4 release hardening has not started.
 
+The live Dashboard library also restores publication state from importer-owned
+read-only receipts. `Open Superset` is available only for an exact verified
+bundle/Dashboard/version/configuration/receipt match; missing receipts remain
+`Bundle ready`, and failed or mismatched evidence is labelled `Import failed`
+without an Open link.
+
 Dashboard Builder MVP is complete only when a user can:
 
 1. Complete the accepted profile → generation → single SQL editor/manual version

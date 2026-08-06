@@ -391,6 +391,14 @@ observations are recorded in the Harness evidence file
 `m3-4c-live-notebook-2026-08-06.json`. This is a live M3 candidate, not user
 acceptance and not the start of M4.
 
+The Dashboard library now reconciles each saved publication with the importer's
+read-only `latest` receipt and exact per-Dashboard `last-verified` projection.
+It shows `Imported` and the verified stable Superset URL only when bundle,
+Dashboard version/configuration, and receipt digests all match; a failed or
+mismatched projection shows `Import failed` and never offers an Open link. The
+retained `Manual MVP verification` Dashboard was reloaded in the live 4c shell
+and exposed its verified Superset route without republishing or reseeding.
+
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local
