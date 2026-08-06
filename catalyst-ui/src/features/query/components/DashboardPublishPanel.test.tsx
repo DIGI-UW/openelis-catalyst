@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CatalystApi } from "../api";
@@ -273,5 +273,61 @@ describe("Dashboard Builder supervised promotion", () => {
     expect(screen.queryByRole("link", { name: "Open Superset" }))
       .not.toBeInTheDocument();
     expect(screen.getByText(/Run the local Superset import helper/i)).toBeVisible();
+  });
+
+  it("retains the previous execution as a stale Dataset after a successor is generated", async () => {
+    const successorSession = {
+      ...session,
+      currentVersionId: "query-v2",
+      currentVersion: {
+        ...queryVersion,
+        versionId: "query-v2",
+        ordinal: 2,
+        sql: "SELECT 2 AS value",
+      },
+      versions: [
+        ...session.versions,
+        { ...queryVersion, versionId: "query-v2", ordinal: 2, sql: "SELECT 2 AS value" },
+      ],
+    } as unknown as WorkbenchSession;
+
+    render(
+      <DashboardPublishPanel
+        api={makeApi()}
+        session={successorSession}
+        sql="SELECT 2 AS value"
+        parameters={[]}
+        activeSection="ask"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Review dataset draft" })).toBeVisible();
+    expect(screen.getByText("Stale · rerun the visible query before saving")).toBeVisible();
+  });
+
+  it("contains keyboard focus in the review dialog and restores its trigger", async () => {
+    const user = userEvent.setup();
+    render(
+      <DashboardPublishPanel
+        api={makeApi()}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="ask"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Review dataset draft" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Review panel" });
+    const closeButtons = within(dialog).getAllByRole("button", { name: "Close" });
+    expect(closeButtons[0]).toHaveFocus();
+
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(closeButtons.at(-1)).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
   });
 });

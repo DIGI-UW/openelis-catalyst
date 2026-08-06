@@ -417,6 +417,13 @@
   grid-template-columns: 0.7fr 1fr 1.5fr;
 }
 
+.workbench-history pre {
+  overflow: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .workbench-empty-note {
   color: var(--workbench-muted);
   font-style: italic;

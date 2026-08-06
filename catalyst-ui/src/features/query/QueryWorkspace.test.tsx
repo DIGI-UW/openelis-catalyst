@@ -167,6 +167,7 @@ const api = (): CatalystApi => ({
 
 describe("Dashboard Builder Ask shell", () => {
   it("makes the four product sections and compact data catalog available without example prompts", async () => {
+    const user = userEvent.setup();
     render(<QueryWorkspace api={api()} />);
 
     const navigation = screen.getByRole("navigation", { name: "Catalyst" });
@@ -176,6 +177,10 @@ describe("Dashboard Builder Ask shell", () => {
     expect(screen.getByText(/^Available data ·/i)).toBeVisible();
     expect(screen.queryByText(/example questions/i)).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
+    const toggle = within(navigation).getByRole("button", { name: "Toggle navigation" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("keeps one active SQL editor, one New session action, and a fixed refinement composer", async () => {

@@ -52,7 +52,13 @@
 }
 
 .query-turn__latest-meta p {
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.query-turn__latest-meta .cds--btn {
+  flex: 0 0 auto;
 }
 
 .query-turn__disclosure {
@@ -249,12 +255,16 @@
 }
 
 .turn-composer__toolbar select {
+  overflow: hidden;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 2.5rem;
   padding: 0.5rem;
   border: 0;
   border-bottom: 1px solid #8d8d8d;
   background: #f4f4f4;
+  text-overflow: ellipsis;
 }
 
 .turn-evidence {
@@ -334,6 +344,17 @@
 }
 
 @media (max-width: 42rem) {
+  .query-turn__latest-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .query-turn__latest-meta .cds--btn {
+    width: 100%;
+    max-width: 100%;
+    white-space: normal;
+  }
+
   .turn-composer {
     left: var(--dashboard-nav-width);
     width: auto;

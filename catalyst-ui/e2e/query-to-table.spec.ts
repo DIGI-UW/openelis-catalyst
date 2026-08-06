@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   BoundParameter,
   DashboardBuilderEntity,
+  DashboardPublication,
   WorkbenchExecution,
   WorkbenchQueryVersion,
   WorkbenchSession,
@@ -315,6 +316,7 @@ const installDeterministicApi = async (
   let currentTimeline = timeline;
   let executionOrdinal = 0;
   let dashboardOrdinal = 0;
+  let publicationImported = false;
   const savedDatasets: DashboardBuilderEntity[] = [];
   const savedWidgets: DashboardBuilderEntity[] = [];
   const savedDashboards: DashboardBuilderEntity[] = [];
@@ -499,16 +501,23 @@ const installDeterministicApi = async (
     if (method === "POST" && path === "/v1/catalyst/dashboard-builder/datasets") {
       const body = request.postDataJSON() as Record<string, string>;
       dashboardOrdinal += 1;
+      const datasetOrdinal = savedDatasets.length + 1;
+      const sourceExecution = currentSession.executions.find(
+        (execution) => execution.executionId === body.executionId,
+      );
       const entity: DashboardBuilderEntity = {
-        id: "dataset-1",
-        versionId: "dataset-version-1",
+        id: `dataset-${datasetOrdinal}`,
+        versionId: `dataset-version-${datasetOrdinal}`,
         ordinal: dashboardOrdinal,
         configuration: {
-          title: "Dataset from Query v3",
+          title: body.title || `Dataset ${datasetOrdinal}`,
           source: {
             sessionId: body.sessionId,
             executionId: body.executionId,
+            dataSourceId: "openelis-fhir-postgresql",
           },
+          columns: sourceExecution?.result?.columns ?? [],
+          rowCount: sourceExecution?.result?.rowCount ?? null,
         },
         configurationDigest: "6".repeat(64),
         createdAt: "2026-07-18T00:00:10Z",
@@ -564,6 +573,7 @@ const installDeterministicApi = async (
       method === "POST" &&
       path === "/v1/catalyst/dashboard-builder/dashboards/dashboard-version-1/publish"
     ) {
+      publicationImported = true;
       await route.fulfill({
         status: 201,
         json: {
@@ -579,6 +589,36 @@ const installDeterministicApi = async (
           downloadPath: "/v1/catalyst/dashboard-builder/dashboards/dashboard-1/bundle",
         },
       });
+      return;
+    }
+
+    if (
+      method === "GET" &&
+      path === "/v1/catalyst/dashboard-builder/dashboards/dashboard-version-1/publication"
+    ) {
+      if (!publicationImported) {
+        await route.fulfill({ status: 404, json: { detail: "No publication yet" } });
+        return;
+      }
+      const imported: DashboardPublication = {
+        status: "imported",
+        dashboard: savedDashboards[0],
+        pointer: {
+          bundle: {
+            fileName: "catalyst-dashboard.zip",
+            sha256: "9".repeat(64),
+            bytes: 2048,
+          },
+        },
+        downloadPath: "/v1/catalyst/dashboard-builder/dashboards/dashboard-1/bundle",
+        importState: {
+          outcome: "imported",
+          receiptId: "receipt-1",
+          dashboardUrl:
+            "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
+        },
+      };
+      await route.fulfill({ status: 200, json: imported });
       return;
     }
 
@@ -831,15 +871,13 @@ const tabTo = async (
 
 test.setTimeout(480_000);
 
-test("question to iterative notebook to validated typed results", async ({
+test("question to iterative notebook to imported dashboard", async ({
   page,
 }, testInfo) => {
   const useMockApi =
     testInfo.project.name === "deterministic" ||
     process.env.PLAYWRIGHT_USE_MOCK_API !== "false";
-  const calls = useMockApi
-    ? await installDeterministicApi(page)
-    : null;
+  const calls = useMockApi ? await installDeterministicApi(page) : null;
 
   if (useMockApi) {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -849,35 +887,39 @@ test("question to iterative notebook to validated typed results", async ({
   await expect(
     page.getByRole("complementary", { name: "Demo environment notice" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Supported query schema" }),
-  ).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Catalyst" })).toBeVisible();
+  for (const destination of ["Workbench", "Datasets", "Widgets", "Dashboards"]) {
+    await expect(page.getByRole("button", { name: destination, exact: true }))
+      .toBeVisible();
+  }
+
+  const availableData = page.getByText(/^Available data ·/);
+  await expect(availableData).toBeVisible();
+  await availableData.click();
+  await expect(page.getByRole("heading", { name: "Supported query schema" }))
+    .toBeVisible();
   await expect(page.getByText("analytics.lab_result_fact_v1", { exact: true }))
     .toBeVisible();
   await page.getByRole("button", {
     name: /analytics\.lab_result_fact_v1.*columns/i,
   }).click();
-  await expect(
-    page.getByRole("cell", { name: "result_unit", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("cell", { name: "result_unit", exact: true }))
+    .toBeVisible();
+
   await expect(page.getByLabel("Model profile")).toBeEnabled();
   await page.getByLabel("Question").fill(query);
   await page.getByRole("button", { name: "Generate query" }).click();
 
-  await expect(
-    page.getByRole("heading", { name: /^Refine Query v1$/ }),
-  ).toBeVisible({ timeout: useMockApi ? 5_000 : 420_000 });
+  await expect(page.getByRole("heading", { name: /^Refine Query v1$/ }))
+    .toBeVisible({ timeout: useMockApi ? 5_000 : 420_000 });
   await expect(page.getByRole("textbox", { name: "SQL query" })).toContainText(
     useMockApi ? "analytics.lab_result_fact_v1" : "SELECT",
   );
-  await expect(
-    page.getByRole("region", { name: "Iterative query notebook" }),
-  ).toBeVisible();
+  await expect(page.getByRole("region", { name: "Iterative query notebook" }))
+    .toBeVisible();
   await expect(page.getByLabel("Question")).toHaveCount(0);
-  await expect(page.locator("textarea:enabled")).toHaveCount(1);
-  await expect(
-    page.getByRole("textbox", { name: "Follow-up instruction" }),
-  ).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
+    .toBeVisible();
   await expect(page.getByRole("button", { name: "Minimize" }))
     .toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText(/has not been executed/i)).toBeVisible();
@@ -909,26 +951,17 @@ test("question to iterative notebook to validated typed results", async ({
       parameters,
       expectedColumns: [],
     });
-  } else {
-    await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible();
   }
 
   await page.getByRole("button", { name: "Run query" }).click();
-  const execution = page.getByRole("region", { name: "Latest execution" });
-  await expect(execution).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review dataset draft" }))
+    .toBeVisible();
 
   if (useMockApi) {
-    await expect(
-      execution.getByRole("heading", { name: "Results from Query v2" }),
-    ).toBeVisible();
-    await expect(execution.getByText("patient-001", { exact: true })).toBeVisible();
-    await expect(execution.getByText("1200.0", { exact: true })).toBeVisible();
-    await expect(
-      page.getByText(/Execution summary: Query v2 · Run 1 · 1 row/i),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/Result row values are not included in model context/i),
-    ).toBeVisible();
+    await expect(page.getByText(/Execution summary: Query v2 · Run 1 · 1 row/i))
+      .toBeVisible();
+    await expect(page.getByText(/Result row values are not included in model context/i))
+      .toBeVisible();
     await expect.poll(() => calls?.versionRequests.length).toBe(2);
     await expect.poll(() => calls?.executionRequests.length).toBe(1);
     expect(calls?.executionRequests[0]).toMatchObject({
@@ -937,19 +970,24 @@ test("question to iterative notebook to validated typed results", async ({
       queryDigest: manualQueryDigest,
       idempotencyKey: expect.any(String),
     });
-
-    const provenance = page.getByRole("region", { name: "Run provenance" });
-    await expect(provenance.getByText("google/gemma-4-e4b", { exact: true }))
-      .toBeVisible();
-    await expect(provenance.getByText("qwen2.5-14b-instruct-mlx", { exact: true }))
-      .toBeVisible();
-    await expect(provenance.getByText("pipeline-run-77", { exact: true }))
-      .toBeVisible();
-    await expect(provenance.getByText(sessionId, { exact: true })).toBeVisible();
     await expect.poll(
       () => page.evaluate(() =>
         localStorage.getItem("catalyst.workbench.activeSessionId")),
     ).toBe(sessionId);
+
+    const datasetTrigger = page.getByRole("button", { name: "Review dataset draft" });
+    await datasetTrigger.click();
+    const datasetReview = page.getByRole("dialog", { name: "Review panel" });
+    await expect(datasetReview.getByRole("heading", { name: "Results from Query v2" }))
+      .toBeVisible();
+    await expect(datasetReview.getByText("patient-001", { exact: true })).toBeVisible();
+    await expect(datasetReview.getByText("1200.0", { exact: true })).toBeVisible();
+    await datasetReview.getByText("Query v2 SQL snapshot", { exact: true }).click();
+    await expect(datasetReview.locator("pre")).toContainText("LIMIT 1");
+    await datasetReview.getByLabel("Dataset name").fill("Initial viral load result");
+    await datasetReview.getByRole("button", { name: "Save Dataset" }).click();
+    await expect(page.getByRole("button", { name: "Review widget draft" }))
+      .toBeVisible();
 
     await page.getByRole("combobox", { name: "Model profile" }).selectOption(
       revisionProfileId,
@@ -959,9 +997,8 @@ test("question to iterative notebook to validated typed results", async ({
     );
     await page.getByRole("button", { name: "Generate next query" }).click();
 
-    await expect(
-      page.getByRole("heading", { name: "Refine Query v3" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Refine Query v3" }))
+      .toBeVisible();
     await expect(page.getByRole("textbox", { name: "SQL query" }))
       .toContainText("result_unit");
     await expect.poll(() => calls?.turnRequests.length).toBe(1);
@@ -980,163 +1017,156 @@ test("question to iterative notebook to validated typed results", async ({
         editorDigest: manualQueryDigest,
       },
     });
-    await expect(
-      execution.getByRole("heading", { name: "Results from Query v2" }),
-    ).toBeVisible();
-    await expect(execution.getByText("Stale — editor has changes", { exact: true }))
-      .toBeVisible();
 
-    const switchedProvenance = page.getByRole("region", {
-      name: "Run provenance",
-    });
-    await expect(
-      switchedProvenance.getByText("Gemma E4B writer + Qwen reviewer", {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(switchedProvenance.getByText("google/gemma-4-e4b", { exact: true }))
-      .toBeVisible();
-    await expect(
-      switchedProvenance.getByText("qwen2.5-14b-instruct-mlx", { exact: true }),
-    ).toBeVisible();
+    const staleDataset = page.getByRole("button", { name: "Review dataset draft" });
+    await expect(staleDataset.getByText("Stale", { exact: true })).toBeVisible();
+    await staleDataset.click();
+    const staleReview = page.getByRole("dialog", { name: "Review panel" });
+    await expect(staleReview.getByText("Result is stale", { exact: true })).toBeVisible();
+    await expect(staleReview.getByRole("button", { name: "Dataset saved" }))
+      .toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(staleDataset).toBeFocused();
 
     await page.getByRole("button", { name: "Run query" }).click();
-    await expect(
-      execution.getByRole("heading", { name: "Results from Query v3" }),
-    ).toBeVisible();
-    await expect(execution.getByText("patient-002", { exact: true })).toBeVisible();
-    await expect(execution.getByText("copies/ml", { exact: true }).first())
-      .toBeVisible();
     await expect.poll(() => calls?.executionRequests.length).toBe(2);
     expect(calls?.executionRequests[1]).toMatchObject({
       versionId: successorVersionId,
       queryDigest: successorQueryDigest,
     });
 
-    await page.reload();
+    await page.getByRole("button", { name: "Review dataset draft" }).click();
+    const successorReview = page.getByRole("dialog", { name: "Review panel" });
+    await expect(successorReview.getByRole("heading", { name: "Results from Query v3" }))
+      .toBeVisible();
+    await expect(successorReview.getByText("patient-002", { exact: true })).toBeVisible();
+    await expect(successorReview.getByText("copies/ml", { exact: true }).first())
+      .toBeVisible();
+    await successorReview.getByLabel("Dataset name").fill("Viral load with units");
+    await successorReview.getByRole("button", { name: "Save Dataset" }).click();
+
+    await page.getByRole("button", { name: "Review widget draft" }).click();
+    const widgetReview = page.getByRole("dialog", { name: "Review panel" });
+    await widgetReview.getByLabel("Widget name").fill("Latest viral load results");
+    await widgetReview.getByLabel("Visualization").selectOption("time_series_line");
+    await widgetReview.getByRole("button", { name: "Save Widget" }).click();
+
+    await page.getByRole("button", { name: "Widgets", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Widgets", exact: true }))
+      .toBeVisible();
+    await expect(page.getByRole("heading", { name: "Latest viral load results" }))
+      .toBeVisible();
+    await expect(page.getByText("Time-series line", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Dashboards", exact: true }).click();
+    await page.getByRole("button", { name: "New Dashboard" }).click();
+    const dashboardReview = page.getByRole("dialog", { name: "Review panel" });
+    await dashboardReview.getByLabel("Dashboard name").fill("Virology dashboard");
     await expect(
-      page.getByRole("heading", { name: "Refine Query v3" }),
-    ).toBeVisible();
+      dashboardReview.getByRole("checkbox", { name: "Latest viral load results" }),
+    ).toBeChecked();
+    await dashboardReview.getByRole("button", { name: "Save Dashboard" }).click();
+    await expect(page.getByRole("heading", { name: "Virology dashboard" }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Publish to Superset" }).click();
+    await expect(page.getByText("Superset bundle ready", { exact: true }))
+      .toBeVisible();
+    await expect(page.getByRole("link", { name: "Download bundle" })).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: "Dashboards", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Virology dashboard" }))
+      .toBeVisible();
+    await expect(page.getByText("Imported", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Superset" })).toHaveAttribute(
+      "href",
+      "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
+    );
+    await expect(page.getByRole("button", { name: "Publish to Superset" }))
+      .toHaveCount(0);
+
+    await page.getByRole("button", { name: "Workbench", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Refine Query v3" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "SQL query" }))
       .toContainText("result_unit");
-    await expect(
-      page.getByRole("button", { name: /Query turn 2/ }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("region", { name: "Latest execution" })
-        .getByRole("heading", { name: "Results from Query v3" }),
-    ).toBeVisible();
+    const earlierTurns = page.getByText(
+      "Earlier turns (1) · read-only summaries",
+      { exact: true },
+    );
+    await earlierTurns.click();
+    await expect(page.getByRole("button", { name: /Query turn 1/ })).toBeVisible();
+    await expect(page.getByText("Include the result unit in the current query", {
+      exact: true,
+    })).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Model profile" }))
       .toHaveValue(revisionProfileId);
 
-    const dashboardBuilder = page.getByRole("region", {
-      name: "Dashboard builder",
-    });
-    await dashboardBuilder.getByRole("textbox", { name: "Dashboard title" })
-      .fill("Virology dashboard");
-    await dashboardBuilder.getByRole("textbox", { name: "Widget title" })
-      .fill("Latest laboratory results");
-    await dashboardBuilder.getByRole("combobox", { name: "Visualization" })
-      .selectOption("time_series_line");
-    await dashboardBuilder.getByRole("button", { name: "Add widget" }).click();
-    await expect(dashboardBuilder.getByText("1 widget ready", { exact: true }))
-      .toBeVisible();
-    await expect(
-      dashboardBuilder.getByText("Latest laboratory results", { exact: true }),
-    ).toBeVisible();
-    await dashboardBuilder.getByRole("button", { name: "Publish to Superset" })
-      .click();
-    await expect(dashboardBuilder.getByText("Superset bundle ready", { exact: true }))
-      .toBeVisible();
-    await expect(dashboardBuilder.getByRole("link", { name: "Download bundle" }))
-      .toBeVisible();
-  } else {
-    await expect(
-      execution.getByRole("heading", {
-        name: /^(Results from|Execution failed for) Query v\d+$/,
-      }),
-    ).toBeVisible();
-  }
-
-  await expect(
-    page.getByRole("complementary", { name: "Demo environment notice" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Minimize" }).click();
-  await expect(page.getByRole("button", { name: "Expand" }))
-    .toHaveAttribute("aria-expanded", "false");
-  await expect.poll(
-    () => page.evaluate<boolean>(
-      "document.documentElement.scrollWidth <= window.innerWidth",
-    ),
-  ).toBe(true);
-
-  if (useMockApi) {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.getByRole("button", { name: "Expand" }).click();
-    await page.getByRole("button", { name: "Minimize" }).focus();
+    const toggleNavigation = page.getByRole("button", { name: "Toggle navigation" });
+    await expect(toggleNavigation).toHaveAttribute("aria-expanded", "true");
+    await toggleNavigation.click();
+    await expect(toggleNavigation).toHaveAttribute("aria-expanded", "false");
+    await toggleNavigation.click();
+    await expect(toggleNavigation).toHaveAttribute("aria-expanded", "true");
 
+    await page.getByRole("button", { name: "Minimize" }).click();
+    await expect(page.getByRole("button", { name: "Expand" }))
+      .toHaveAttribute("aria-expanded", "false");
+    await page.getByRole("button", { name: "Expand" }).click();
+    await page.getByRole("button", { name: "Toggle navigation" }).focus();
     const keyboardTargets: Array<[Locator, string]> = [
-      [
-        page.getByRole("textbox", { name: "Follow-up instruction" }),
-        "follow-up instruction",
-      ],
-      [page.getByRole("combobox", { name: "Model profile" }), "model profile"],
-      [
-        page.getByRole("button", { name: "Generate next query" }),
-        "generate next query",
-      ],
-      [page.getByRole("button", { name: "New session" }), "new session"],
-      [page.getByRole("textbox", { name: "SQL query" }), "SQL editor"],
-      [page.getByRole("button", { name: "Wrap lines" }), "wrap lines"],
-      [page.getByRole("button", { name: "Format SQL" }), "format SQL"],
-      [page.getByRole("button", { name: "Clear draft" }), "clear draft"],
-      [page.getByRole("button", { name: "Validate query" }), "validate query"],
-      [page.getByRole("button", { name: "Run query" }), "run query"],
-      [
-        page.getByRole("textbox", { name: "Dashboard title" }),
-        "dashboard title",
-      ],
-      [page.getByRole("textbox", { name: "Widget title" }), "widget title"],
-      [
-        page.getByRole("combobox", { name: "Visualization" }),
-        "visualization",
-      ],
-      [page.getByRole("button", { name: "Add widget" }), "add widget"],
-      [
-        page.getByRole("button", { name: "Remove", exact: true }),
-        "remove widget",
-      ],
-      [
-        page.getByRole("button", { name: "Publish to Superset" }),
-        "publish to Superset",
-      ],
+      [page.getByRole("button", { name: "Workbench", exact: true }), "Workbench navigation"],
+      [page.getByRole("button", { name: "Datasets", exact: true }), "Datasets navigation"],
+      [page.getByRole("button", { name: "Widgets", exact: true }), "Widgets navigation"],
+      [page.getByRole("button", { name: "Dashboards", exact: true }), "Dashboards navigation"],
     ];
     for (const [target, label] of keyboardTargets) {
       await tabTo(page, target, label);
     }
 
-    // A 1280 CSS-pixel desktop at 200% browser zoom reflows to a 640 CSS-pixel
-    // layout viewport. The manual acceptance used actual browser zoom; this
-    // deterministic regression preserves the equivalent layout boundary.
-    await page.setViewportSize({ width: 640, height: 720 });
-    await expect.poll(
-      () => page.evaluate<boolean>(
-        "document.documentElement.scrollWidth <= window.innerWidth",
-      ),
-    ).toBe(true);
-    await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
-      .toBeVisible();
-    await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Validate query" }))
-      .toBeVisible();
-    await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Dashboard title" }))
-      .toBeVisible();
-    await expect(page.getByRole("combobox", { name: "Visualization" }))
-      .toBeVisible();
-    await expect(page.getByRole("button", { name: "Add widget" }))
-      .toBeVisible();
-    await expect(page.getByRole("button", { name: "Publish to Superset" }))
-      .toBeVisible();
+    await page.getByRole("button", { name: "Workbench", exact: true }).click();
+    await page.getByRole("button", { name: "Review dataset draft" }).click();
+    const keyboardReview = page.getByRole("dialog", { name: "Review panel" });
+    const closeButtons = keyboardReview.getByRole("button", { name: "Close" });
+    await expect(closeButtons.first()).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(closeButtons.last()).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(closeButtons.first()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Review dataset draft" }))
+      .toBeFocused();
+
+    for (const width of [320, 640]) {
+      await page.setViewportSize({ width, height: 720 });
+      await page.evaluate("window.scrollTo(0, window.scrollY)");
+      await expect.poll(() => page.locator(".dashboard-builder-shell").evaluate(
+        (element) => element.ownerDocument.defaultView!
+          .getComputedStyle(element).paddingLeft,
+      )).toBe("64px");
+      const layout = await page.evaluate<{
+        innerWidth: number;
+        scrollWidth: number;
+      }>("({ innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth })");
+      expect(layout.scrollWidth, `horizontal overflow at ${width}px`)
+        .toBeLessThanOrEqual(layout.innerWidth);
+      await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
+        .toBeVisible();
+      await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Validate query" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Datasets", exact: true }))
+        .toBeVisible();
+    }
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(() => page.locator(".dashboard-navigation").evaluate(
+      (element) => element.ownerDocument.defaultView!
+        .getComputedStyle(element).transitionDuration,
+    )).toBe("0s");
   }
+
+  await expect(
+    page.getByRole("complementary", { name: "Demo environment notice" }),
+  ).toBeVisible();
 });

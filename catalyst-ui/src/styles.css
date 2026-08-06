@@ -96,6 +96,11 @@ input {
 .dashboard-builder-shell {
   min-height: calc(100vh - 2.5rem);
   padding-left: var(--dashboard-nav-width);
+  transition: padding-left 140ms;
+}
+
+.dashboard-builder-shell--nav-collapsed {
+  --dashboard-nav-width: 4rem;
 }
 
 .dashboard-navigation {
@@ -109,6 +114,7 @@ input {
   flex-direction: column;
   border-right: 1px solid #c6c6c6;
   background: #fff;
+  transition: width 140ms;
 }
 
 .dashboard-navigation__brand {
@@ -137,6 +143,50 @@ input {
 
 .dashboard-navigation__brand small {
   color: #6f6f6f;
+}
+
+.dashboard-navigation__toggle {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  place-items: center;
+  border: 0;
+  margin: 0.5rem 0.5rem 0 auto;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dashboard-navigation__toggle:hover {
+  background: #e8e8e8;
+}
+
+.dashboard-navigation__toggle svg {
+  transition: transform 140ms;
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__toggle svg {
+  transform: rotate(180deg);
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand div,
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__item span,
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__source label > span {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip: rect(0 0 0 0);
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand,
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__item {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.dashboard-builder-shell--nav-collapsed .dashboard-navigation__source {
+  padding: 0.5rem;
 }
 
 .dashboard-navigation__items {
@@ -400,6 +450,10 @@ input {
     clip: rect(0 0 0 0);
   }
 
+  .dashboard-navigation__toggle {
+    display: none;
+  }
+
   .dashboard-navigation__brand,
   .dashboard-navigation__item {
     justify-content: center;
@@ -416,6 +470,14 @@ input {
 
   .dashboard-page-header {
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-builder-shell,
+  .dashboard-navigation,
+  .dashboard-navigation__toggle svg {
+    transition: none;
   }
 }
 
@@ -885,6 +947,10 @@ input {
     width: 100%;
     padding-right: 1rem;
     padding-left: 1rem;
+  }
+
+  .section-heading--row {
+    flex-direction: column;
   }
 
   .app-shell__intro {

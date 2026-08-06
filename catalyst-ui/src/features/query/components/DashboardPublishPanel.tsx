@@ -67,15 +67,9 @@ const dashboardWidgetVersionIds = (entity: DashboardBuilderEntity) => {
 };
 
 const newestSuccessfulExecution = (session: WorkbenchSession | null) =>
-  session?.currentVersion
-    ? session.executions
-      .filter(
-        (execution) =>
-          execution.status === "succeeded" &&
-          execution.versionId === session.currentVersion?.versionId,
-      )
-      .sort((left, right) => right.ordinal - left.ordinal)[0] ?? null
-    : null;
+  session?.executions
+    .filter((execution) => execution.status === "succeeded")
+    .sort((left, right) => right.ordinal - left.ordinal)[0] ?? null;
 
 const presentationPreview = (kind: DashboardPresentationKind) => {
   if (kind === "table") return "Table preview using every returned column";
@@ -127,6 +121,7 @@ export const DashboardPublishPanel = ({
     Record<string, DashboardPublication>
   >({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const reviewRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const execution = newestSuccessfulExecution(session);
@@ -144,7 +139,11 @@ export const DashboardPublishPanel = ({
         session.currentVersion,
       ),
   );
-  const resultIsStale = Boolean(execution && !editorMatchesCurrent);
+  const resultIsStale = Boolean(
+    execution &&
+      (!editorMatchesCurrent ||
+        execution.versionId !== session?.currentVersion?.versionId),
+  );
   const supported = Boolean(
     api.saveDashboardDataset &&
       api.saveDashboardWidget &&
@@ -237,9 +236,27 @@ export const DashboardPublishPanel = ({
     if (!panel) return;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setPanel(null);
-      window.setTimeout(() => returnFocusRef.current?.focus(), 0);
+      if (event.key === "Escape") {
+        setPanel(null);
+        window.setTimeout(() => returnFocusRef.current?.focus(), 0);
+        return;
+      }
+      if (event.key !== "Tab" || !reviewRef.current) return;
+      const focusable = Array.from(
+        reviewRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -590,9 +607,16 @@ export const DashboardPublishPanel = ({
             type="button"
             className="builder-review-backdrop"
             aria-label="Close review panel"
+            tabIndex={-1}
             onClick={closePanel}
           />
-          <aside className="builder-review" aria-label="Review panel" aria-modal="true">
+          <aside
+            ref={reviewRef}
+            className="builder-review"
+            role="dialog"
+            aria-label="Review panel"
+            aria-modal="true"
+          >
             <header className="builder-review__header">
               <div>
                 <p className="eyebrow">

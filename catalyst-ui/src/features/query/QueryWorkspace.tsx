@@ -1,4 +1,4 @@
-import { Chat, ChartLine, Dashboard, DataBase, Renew } from "@carbon/icons-react";
+import { Chat, ChartLine, ChevronLeft, Dashboard, DataBase, Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
 import { useEffect, useState } from "react";
 import type { CatalystApi } from "./api";
@@ -425,6 +425,7 @@ export const QueryWorkspace = ({
   pollIntervalMs = 1000,
 }: QueryWorkspaceProps) => {
   const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
+  const [navigationExpanded, setNavigationExpanded] = useState(true);
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
@@ -974,7 +975,7 @@ export const QueryWorkspace = ({
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
   return (
-    <div className="dashboard-builder-shell">
+    <div className={`dashboard-builder-shell${navigationExpanded ? "" : " dashboard-builder-shell--nav-collapsed"}`}>
       <nav className="dashboard-navigation" aria-label="Catalyst">
         <div className="dashboard-navigation__brand">
           <span aria-hidden="true">C</span>
@@ -983,13 +984,24 @@ export const QueryWorkspace = ({
             <small>Dashboard builder</small>
           </div>
         </div>
+        <button
+          type="button"
+          className="dashboard-navigation__toggle"
+          aria-label="Toggle navigation"
+          aria-expanded={navigationExpanded}
+          onClick={() => setNavigationExpanded((current) => !current)}
+        >
+          <ChevronLeft size={20} aria-hidden="true" />
+        </button>
         <div className="dashboard-navigation__items">
           {dashboardSections.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               className="dashboard-navigation__item"
+              aria-label={label}
               aria-current={activeSection === id ? "page" : undefined}
+              title={navigationExpanded ? undefined : label}
               onClick={() => setActiveSection(id)}
             >
               <Icon size={20} aria-hidden="true" />
