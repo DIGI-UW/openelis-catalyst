@@ -8,7 +8,6 @@ import {
 import { useState } from "react";
 import type { CatalystApi } from "../api";
 import type {
-  DashboardAggregation,
   DashboardBuilderEntity,
   DashboardPresentationKind,
   DashboardPublication,
@@ -31,15 +30,6 @@ const presentations: Array<{ value: DashboardPresentationKind; label: string }> 
   { value: "grouped_bar", label: "Grouped bar" },
   { value: "stacked_bar", label: "Stacked bar" },
   { value: "proportion_bar", label: "100% stacked bar" },
-];
-
-const aggregations: Array<{ value: DashboardAggregation; label: string }> = [
-  { value: "sum", label: "Sum" },
-  { value: "avg", label: "Average" },
-  { value: "min", label: "Minimum" },
-  { value: "max", label: "Maximum" },
-  { value: "count", label: "Count (non-null values)" },
-  { value: "count_distinct", label: "Distinct count" },
 ];
 
 const newestSuccessfulExecution = (session: WorkbenchSession) =>
@@ -70,7 +60,6 @@ const DashboardPublishPanelContent = ({
   const [widgetTitle, setWidgetTitle] = useState("");
   const [presentationKind, setPresentationKind] =
     useState<DashboardPresentationKind>("table");
-  const [aggregation, setAggregation] = useState<DashboardAggregation | "">("");
   const [dataset, setDataset] = useState<DashboardBuilderEntity | null>(null);
   const [widgets, setWidgets] = useState<DashboardBuilderEntity[]>([]);
   const [busy, setBusy] = useState(false);
@@ -82,8 +71,7 @@ const DashboardPublishPanelContent = ({
       api.saveDashboard &&
       api.publishDashboard,
   );
-  const table = presentationKind === "table";
-  const canAddWidget = Boolean(execution && supported && (table || aggregation));
+  const canAddWidget = Boolean(execution && supported);
 
   const addWidget = async () => {
     if (!execution || !supported || busy || !canAddWidget) return;
@@ -104,7 +92,6 @@ const DashboardPublishPanelContent = ({
         datasetVersionId: savedDataset.versionId,
         ...(widgetTitle.trim() ? { title: widgetTitle.trim() } : {}),
         presentationKind,
-        ...(table ? {} : { aggregation: aggregation as DashboardAggregation }),
       });
       setWidgets((current) => [...current, widget]);
       setWidgetTitle("");
@@ -147,8 +134,8 @@ const DashboardPublishPanelContent = ({
       <div>
         <h2 id="dashboard-publish-title">Dashboard builder</h2>
         <p>
-          Turn the latest successful query into reviewed Superset widgets. Charts use the
-          aggregation you select against the saved governed SQL.
+          Turn the latest successful query into reviewed Superset widgets based on its saved
+          governed SQL.
         </p>
       </div>
 
@@ -190,10 +177,9 @@ const DashboardPublishPanelContent = ({
             labelText="Visualization"
             value={presentationKind}
             disabled={disabled || busy}
-            onChange={(event) => {
-              setPresentationKind(event.currentTarget.value as DashboardPresentationKind);
-              setAggregation("");
-            }}
+            onChange={(event) =>
+              setPresentationKind(event.currentTarget.value as DashboardPresentationKind)
+            }
           >
             {presentations.map((presentation) => (
               <SelectItem
@@ -203,22 +189,6 @@ const DashboardPublishPanelContent = ({
               />
             ))}
           </Select>
-          {!table && (
-            <Select
-              id="dashboard-aggregation"
-              labelText="Aggregation"
-              value={aggregation}
-              disabled={disabled || busy}
-              onChange={(event) =>
-                setAggregation(event.currentTarget.value as DashboardAggregation)
-              }
-            >
-              <SelectItem value="" text="Select aggregation" disabled />
-              {aggregations.map((option) => (
-                <SelectItem key={option.value} value={option.value} text={option.label} />
-              ))}
-            </Select>
-          )}
           <Button
             disabled={disabled || busy || !canAddWidget}
             onClick={() => void addWidget()}

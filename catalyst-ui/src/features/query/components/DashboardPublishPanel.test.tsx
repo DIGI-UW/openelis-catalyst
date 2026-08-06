@@ -37,7 +37,7 @@ const savedWidget = {
 };
 
 describe("DashboardPublishPanel", () => {
-  it("requires a reviewed aggregation before adding a non-table widget", async () => {
+  it("adds a chart widget from the saved query table", async () => {
     const user = userEvent.setup();
     const api = {
       saveDashboardDataset: vi.fn().mockResolvedValue(savedDataset),
@@ -61,10 +61,6 @@ describe("DashboardPublishPanel", () => {
       screen.getByLabelText("Visualization"),
       "time_series_line",
     );
-    expect(screen.getByLabelText("Aggregation")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Add widget" })).toBeDisabled();
-
-    await user.selectOptions(screen.getByLabelText("Aggregation"), "avg");
     await user.click(screen.getByRole("button", { name: "Add widget" }));
 
     expect(api.saveDashboardDataset).toHaveBeenCalledWith({
@@ -74,7 +70,6 @@ describe("DashboardPublishPanel", () => {
     expect(api.saveDashboardWidget).toHaveBeenCalledWith({
       datasetVersionId: "dataset-v1",
       presentationKind: "time_series_line",
-      aggregation: "avg",
     });
     expect(screen.getByText("1 widget ready")).toBeVisible();
 

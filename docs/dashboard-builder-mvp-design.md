@@ -349,11 +349,10 @@ One panel component, two modes. Opened by any draft tile or library row; this is
 1. Schematic preview, padding `1rem`, `1px solid #e0e0e0`: preserve the mock's
    420×150 geometry as a lightweight type thumbnail, not a Catalyst chart
    renderer. Authoritative data rendering happens in Superset after import.
-2. Widget name input plus one compact compatible-visualization selector and,
-   for a non-table visualization, a required aggregation selector. Derived
-   bindings and incompatibility reasons are read-only. The operation choices are
-   Sum, Average, Minimum, Maximum, Count of non-empty values, and Count
-   distinct values; Catalyst never guesses one or changes the Dataset SQL.
+2. Widget name input plus one compact compatible-visualization selector.
+   Derived bindings and incompatibility reasons are read-only. The saved Dataset
+   SQL owns report calculations; selecting a chart never asks the user to repeat
+   an aggregation or changes that SQL.
 3. "Reads" block: label `0.75rem` `#525252`, then a `#f4f4f4` row (padding `0.75rem 1rem`) with dataset name and its Draft/Saved pill. When the dataset is unsaved, a `0.75rem` `#8e6a00` note: "Saving the widget saves this dataset too — publication includes the dataset before the chart."
 4. "Add to dashboard" Select: "Lab operations" · "HIV/ART program" · "Don't place it yet".
 5. Footer button label is derived: "Save widget and add" when a dashboard is chosen, "Save widget" when "Don't place it yet", "Saved" (disabled) after.

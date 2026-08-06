@@ -196,7 +196,7 @@ def test_unknown_chart_kind_cannot_be_silently_exported_as_a_table(
         )
 
 
-def test_non_table_widgets_require_an_explicit_report_aggregation(
+def test_non_table_widgets_preserve_the_saved_dataset_as_their_source(
     tmp_path: Path,
 ) -> None:
     workbench = _Workbench()
@@ -209,15 +209,17 @@ def test_non_table_widgets_require_an_explicit_report_aggregation(
         title="Monthly result values",
     )
 
-    with pytest.raises(DashboardBuilderError, match="requires an explicit aggregation"):
-        builder.save_widget(
-            dataset_version_id=dataset["versionId"],
-            title="Result trend",
-            presentation_kind="time_series_line",
-        )
+    widget = builder.save_widget(
+        dataset_version_id=dataset["versionId"],
+        title="Result trend",
+        presentation_kind="time_series_line",
+    )
+
+    assert widget["configuration"]["datasetVersionId"] == dataset["versionId"]
+    assert "aggregation" not in widget["configuration"]
 
 
-def test_native_bundle_maps_explicit_aggregations_to_superset_metrics(
+def test_native_bundle_maps_saved_result_schema_to_superset_metrics(
     tmp_path: Path,
 ) -> None:
     columns = [
@@ -280,19 +282,16 @@ def test_native_bundle_maps_explicit_aggregations_to_superset_metrics(
             dataset_version_id=dataset["versionId"],
             title="Average result by month",
             presentation_kind="time_series_line",
-            aggregation="avg",
         ),
         builder.save_widget(
             dataset_version_id=dataset["versionId"],
             title="Maximum result by test",
             presentation_kind="grouped_bar",
-            aggregation="max",
         ),
         builder.save_widget(
             dataset_version_id=dataset["versionId"],
             title="Result composition",
             presentation_kind="proportion_bar",
-            aggregation="sum",
         ),
     ]
     dashboard = builder.save_dashboard(
@@ -311,7 +310,7 @@ def test_native_bundle_maps_explicit_aggregations_to_superset_metrics(
 
     line = charts["Average result by month"]
     assert line["viz_type"] == "echarts_timeseries_line"
-    assert line["params"]["metrics"][0]["aggregate"] == "AVG"
+    assert line["params"]["metrics"][0]["aggregate"] == "MAX"
     assert line["params"]["x_axis"] == "observed_at"
     grouped = charts["Maximum result by test"]
     assert grouped["viz_type"] == "echarts_timeseries_bar"
@@ -320,8 +319,4 @@ def test_native_bundle_maps_explicit_aggregations_to_superset_metrics(
     proportion = charts["Result composition"]
     assert proportion["params"]["stack"] == "Stack"
     assert proportion["params"]["contributionMode"] == "row"
-    assert [item["aggregation"] for item in publication["manifest"]["widgets"]] == [
-        "avg",
-        "max",
-        "sum",
-    ]
+    assert all("aggregation" not in item for item in publication["manifest"]["widgets"])

@@ -37,14 +37,9 @@ _PRESENTATION_KINDS = {
     "stacked_bar",
     "proportion_bar",
 }
-_AGGREGATIONS = {
-    "sum": "SUM",
-    "avg": "AVG",
-    "min": "MIN",
-    "max": "MAX",
-    "count": "COUNT",
-    "count_distinct": "COUNT_DISTINCT",
-}
+# Superset chart renderers require a native aggregate object. This is an export
+# implementation detail; the saved Catalyst SQL remains the reporting contract.
+_SUPERSET_METRIC_AGGREGATE = "MAX"
 
 
 class DashboardBuilderError(RuntimeError):
@@ -253,17 +248,16 @@ def widget_bindings(
     raise DashboardBuilderError("Unsupported presentation kind.")
 
 
-def _metric(metric_column: dict[str, Any], aggregation: str) -> dict[str, Any]:
-    aggregate = _AGGREGATIONS[aggregation]
+def _metric(metric_column: dict[str, Any]) -> dict[str, Any]:
     name = str(metric_column["name"])
     return {
-        "aggregate": aggregate,
+        "aggregate": _SUPERSET_METRIC_AGGREGATE,
         "column": {"column_name": name},
         "datasourceWarning": False,
         "expressionType": "SIMPLE",
         "hasCustomLabel": False,
-        "label": f"{aggregate}({name})",
-        "optionName": f"metric_{aggregation}_{name}",
+        "label": f"{_SUPERSET_METRIC_AGGREGATE}({name})",
+        "optionName": f"metric_{_SUPERSET_METRIC_AGGREGATE.lower()}_{name}",
         "sqlExpression": None,
     }
 
@@ -273,7 +267,6 @@ def _native_chart(
     title: str,
     presentation_kind: str,
     bindings: dict[str, Any],
-    aggregation: str | None,
 ) -> tuple[str, dict[str, Any]]:
     if presentation_kind == "table":
         return "table", {
@@ -283,11 +276,7 @@ def _native_chart(
             "order_by_cols": [],
         }
 
-    if aggregation is None:
-        raise DashboardBuilderError(
-            "Non-table widget requires an explicit aggregation."
-        )
-    metric = _metric(bindings["metricColumn"], aggregation)
+    metric = _metric(bindings["metricColumn"])
     if presentation_kind == "big_number":
         return "big_number_total", {
             "viz_type": "big_number_total",
@@ -524,7 +513,6 @@ class DashboardBuilder:
         dataset_version_id: str,
         title: str,
         presentation_kind: str | None = None,
-        aggregation: str | None = None,
     ) -> dict[str, Any]:
         dataset = self._entity("dataset", dataset_version_id)
         row_count = int(dataset.configuration.get("rowCount", {}).get("returned", 0))
@@ -532,12 +520,6 @@ class DashboardBuilder:
         kind = presentation_kind or "table"
         if kind not in _PRESENTATION_KINDS:
             raise DashboardBuilderError("Unsupported presentation kind.")
-        if kind == "table" and aggregation is not None:
-            raise DashboardBuilderError("Table widget does not accept an aggregation.")
-        if kind != "table" and aggregation not in _AGGREGATIONS:
-            raise DashboardBuilderError(
-                "Non-table widget requires an explicit aggregation."
-            )
         bindings = widget_bindings(
             presentation_kind=kind,
             columns=dataset.configuration["columns"],
@@ -549,7 +531,6 @@ class DashboardBuilder:
             "datasetVersionId": dataset.version_id,
             "datasetConfigurationDigest": dataset.configuration_digest,
             "presentationKind": kind,
-            "aggregation": aggregation,
             "suggestedKind": suggestion,
             "columns": dataset.configuration["columns"],
             "bindings": bindings,
@@ -702,7 +683,6 @@ class DashboardBuilder:
                 title=widget.configuration["title"],
                 presentation_kind=widget.configuration["presentationKind"],
                 bindings=widget.configuration["bindings"],
-                aggregation=widget.configuration["aggregation"],
             )
             chart = {
                 "slice_name": widget.configuration["title"],
@@ -786,11 +766,10 @@ class DashboardBuilder:
                     "configurationDigest": item.configuration_digest,
                     "datasetVersionId": item.configuration["datasetVersionId"],
                     "presentationKind": item.configuration["presentationKind"],
-                    "aggregation": item.configuration["aggregation"],
                     "compatibilityDigest": canonical_sha256(
                         {"suggestedKind": item.configuration["suggestedKind"]}
                     ),
-                    "vizMappingRevision": "catalyst.superset.viz.aggregate.v1",
+                    "vizMappingRevision": "catalyst.superset.viz.schema.v1",
                     "author": {"actorKind": "human"},
                     "createdAt": item.created_at,
                 }
@@ -834,7 +813,7 @@ class DashboardBuilder:
             "generator": {
                 "revision": "catalyst-dashboard-builder-mvp.v1",
                 "parameterCompilerRevisions": ["catalyst.postgresql-parameters.v1"],
-                "vizMappingRevisions": ["catalyst.superset.viz.aggregate.v1"],
+                "vizMappingRevisions": ["catalyst.superset.viz.schema.v1"],
             },
             "assetMembers": assets,
             "assetContentDigest": canonical_sha256(assets),
