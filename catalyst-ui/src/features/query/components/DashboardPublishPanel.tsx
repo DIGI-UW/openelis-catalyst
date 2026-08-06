@@ -226,8 +226,9 @@ export const DashboardPublishPanel = ({
     if (next === "widget") {
       setSelectedDatasetVersionId(currentDataset?.versionId ?? datasets[0]?.versionId ?? "");
     }
-    if (next === "dashboard" && selectedWidgetVersionIds.length === 0) {
-      setSelectedWidgetVersionIds(widgets.map((widget) => widget.versionId));
+    if (next === "dashboard") {
+      setDashboardTitle("");
+      setSelectedWidgetVersionIds(widgets[0] ? [widgets[0].versionId] : []);
     }
     setPanel(next);
   };

@@ -86,6 +86,19 @@ const savedDashboard: DashboardBuilderEntity = {
   createdAt: "2026-08-06T00:00:02Z",
 };
 
+const olderWidget: DashboardBuilderEntity = {
+  ...savedWidget,
+  id: "widget-2",
+  versionId: "widget-v2",
+  configuration: {
+    ...savedWidget.configuration,
+    title: "Older table",
+    presentationKind: "table",
+  },
+  configurationDigest: "e".repeat(64),
+  createdAt: "2026-08-05T00:00:01Z",
+};
+
 const collection = (kind: "dataset" | "widget" | "dashboard", items: DashboardBuilderEntity[]) => ({
   contractVersion: "catalyst.dashboard-builder.v1" as const,
   kind,
@@ -166,5 +179,29 @@ describe("Dashboard Builder supervised promotion", () => {
     expect(api.publishDashboard).toHaveBeenCalledWith("dashboard-v1");
     expect(await screen.findByText("Superset bundle ready")).toBeVisible();
     expect(screen.getByRole("link", { name: "Download bundle" })).toHaveAttribute("href", "/bundle");
+  });
+
+  it("starts a new Dashboard with only the newest Widget selected", async () => {
+    const user = userEvent.setup();
+    const api = makeApi(true);
+    vi.mocked(api.listDashboardWidgets!).mockResolvedValue(
+      collection("widget", [savedWidget, olderWidget]),
+    );
+    render(
+      <DashboardPublishPanel
+        api={api}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="dashboards"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: "Laboratory dashboard" });
+    await user.click(screen.getByRole("button", { name: "New Dashboard" }));
+
+    expect(screen.getByRole("checkbox", { name: "Count KPI" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Older table" })).not.toBeChecked();
   });
 });

@@ -11,6 +11,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   min-width: 320px;
   min-height: 100vh;
@@ -223,11 +227,11 @@ input {
 }
 
 .app-shell--with-query-dock {
-  padding-bottom: calc(25rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(18rem + env(safe-area-inset-bottom));
 }
 
 :root:has(.turn-composer[data-minimized="false"]) {
-  scroll-padding-block-end: calc(23rem + env(safe-area-inset-bottom));
+  scroll-padding-block-end: calc(17rem + env(safe-area-inset-bottom));
 }
 
 :root:has(.turn-composer[data-minimized="true"]) {
@@ -295,8 +299,8 @@ input {
   left: var(--dashboard-nav-width);
   overflow-y: auto;
   width: auto;
-  max-height: min(24rem, calc(100dvh - 2rem));
-  padding: 1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
+  max-height: min(18rem, calc(100dvh - 2rem));
+  padding: 0.75rem 1.5rem calc(0.75rem + env(safe-area-inset-bottom));
   margin: 0;
   scroll-margin-block: 4rem;
   box-shadow: 0 -0.25rem 1rem rgb(0 0 0 / 18%);
@@ -330,12 +334,12 @@ input {
 }
 
 .query-composer__input {
-  padding: 1.25rem 1.25rem 0;
+  padding: 0;
   background: #fff;
 }
 
 .query-composer__input .cds--text-area {
-  min-height: 8.5rem;
+  min-height: 3.5rem;
   border-bottom-color: transparent;
   background: #fff;
   font-size: 1rem;
@@ -347,7 +351,7 @@ input {
   align-items: end;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.25rem;
+  padding: 0.625rem 1rem;
   border-top: 1px solid #c6c6c6;
 }
 

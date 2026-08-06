@@ -1033,8 +1033,7 @@ export const QueryWorkspace = ({
                 {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
               </h1>
               <p>
-                Ask in plain language. Catalyst prepares editable SQL for you to
-                validate and explicitly run.
+                Nothing is saved until you review it. Drafts stay in this thread.
               </p>
             </div>
             {workbenchSession && (

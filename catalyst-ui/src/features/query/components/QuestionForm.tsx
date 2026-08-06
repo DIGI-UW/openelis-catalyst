@@ -67,7 +67,7 @@ export const QuestionForm = ({
               labelText="Question"
               placeholder="Describe the laboratory data you want to explore"
               value={question}
-              rows={4}
+              rows={2}
               autoFocus
               disabled={busy || disabled}
               onChange={(event) => onQuestionChange(event.currentTarget.value)}

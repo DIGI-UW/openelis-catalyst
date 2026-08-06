@@ -192,7 +192,7 @@ afterEach(() => {
 });
 
 describe("TurnNotebook", () => {
-  it("shows the data-source badge on a turn that has one and omits it otherwise", async () => {
+  it("shows data-source badges only inside earlier read-only turn summaries", async () => {
     const user = userEvent.setup();
     render(
       <TurnNotebook
@@ -211,10 +211,10 @@ describe("TurnNotebook", () => {
       within(withSource).getByText("OpenMRS HIV/ART program"),
     ).toBeVisible();
 
-    const withoutSource = screen.getByRole("button", { name: /query turn 2/i });
     expect(
-      within(withoutSource).queryByText(/OpenMRS|OpenELIS/),
+      screen.queryByRole("button", { name: /query turn 2/i }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText(followupTurn.instruction)).toBeVisible();
   });
 
   it("keeps every prior turn compact and read-only while one composer owns refinement", async () => {
@@ -228,11 +228,10 @@ describe("TurnNotebook", () => {
     const priorDisclosure = screen.getByRole("button", {
       name: /query turn 1/i,
     });
-    const latestDisclosure = screen.getByRole("button", {
-      name: /query turn 2/i,
-    });
     expect(priorDisclosure).toHaveAttribute("aria-expanded", "false");
-    expect(latestDisclosure).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("button", { name: /query turn 2/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByText(initialTurn.instruction).length).toBeGreaterThan(0);
     expect(screen.getAllByText(followupTurn.instruction).length).toBeGreaterThan(0);
     expect(
@@ -246,11 +245,9 @@ describe("TurnNotebook", () => {
     expect(within(priorTurn).queryByRole("button", { name: /generate/i }))
       .not.toBeInTheDocument();
 
-    await user.click(latestDisclosure);
-    expect(
-      within(screen.getByRole("region", { name: /query turn 2/i }))
-        .getByText(followupTurn.instruction),
-    ).toBeVisible();
+    expect(screen.getByText(followupTurn.instruction)).toHaveClass(
+      "query-turn__message",
+    );
   });
 
   it("centers the follow-up composer on the exact base and names its author and models", () => {
@@ -261,7 +258,7 @@ describe("TurnNotebook", () => {
     ).toBeVisible();
     expect(screen.getByText(/Based on Query v3/i)).toBeVisible();
     expect(screen.getByText(/reviewer correction/i)).toBeVisible();
-    expect(screen.getByText(/qwen2\.5-14b/i)).toBeVisible();
+    expect(screen.getAllByText(/qwen2\.5-14b/i).length).toBeGreaterThan(0);
 
     const selector = screen.getByRole("combobox", { name: "Model profile" });
     expect(
@@ -292,18 +289,14 @@ describe("TurnNotebook", () => {
     expect(document.getElementById("catalyst-followup")).toBeInTheDocument();
   });
 
-  it("shows the selected reviewer correction separately from its superseded writer output", async () => {
-    const user = userEvent.setup();
+  it("leaves latest-version details to the single active workbench", () => {
     render(<TurnNotebook {...defaultProps} />);
 
-    await user.click(screen.getByRole("button", { name: /query turn 2/i }));
-    const latestTurn = screen.getByRole("region", { name: /query turn 2/i });
-    expect(
-      within(latestTurn).getByText(/Query v3.*selected.*reviewer/i),
-    ).toBeVisible();
-    expect(
-      within(latestTurn).getByText(/Query v2.*writer.*superseded/i),
-    ).toBeVisible();
+    expect(screen.getByText(followupTurn.instruction)).toBeVisible();
+    expect(screen.queryByText(/Query v3.*selected.*reviewer/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/Query v2.*writer.*superseded/i))
+      .not.toBeInTheDocument();
   });
 
   it("generates one complete successor from a focused follow-up instruction", async () => {
