@@ -769,6 +769,13 @@ bundle/Dashboard/version/configuration/receipt match; missing receipts remain
 `Bundle ready`, and failed or mismatched evidence is labelled `Import failed`
 without an Open link.
 
+The first M4 runtime-identity slice is complete: the umbrella and Catalyst
+Compose definitions pin the exact Superset image digest, declare the local
+`linux/arm64` acceptance platform, record the PostgreSQL driver revision, and
+enforce a default read-only/no-schema-create analytics role while retaining
+SELECT. This does not close the remaining clean-import, restart, recovery,
+secret-output, or final acceptance matrices.
+
 Dashboard Builder MVP is complete only when a user can:
 
 1. Complete the accepted profile → generation → single SQL editor/manual version

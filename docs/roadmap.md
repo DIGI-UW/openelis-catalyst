@@ -361,8 +361,8 @@ diagnostic; a direct editor correction with a stable secondary sort succeeded
 without another model call. This exposed an open advisory-lint gap: the unknown
 column was labelled valid before PostgreSQL rejected it. The browser E2E now
 covers Dataset/Widget/Dashboard publication controls, keyboard traversal, and
-compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom and the
-remaining individual D1d/D1e tasks remain open.
+compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom is deferred
+polish, while the remaining individual D1b/D1c/D1e tasks remain open.
 
 The live visualization-family pass then used that corrected Query v3 directly
 in the integrated Dashboard Builder to save table, time-series line,
@@ -416,6 +416,15 @@ deterministic desktop/390/320/640-CSS-pixel browser matrix pass. The six focused
 task boxes and T179/T154 are closed by the focused live/automated evidence,
 durable D1d screenshot/video/acceptance evidence, and explicit user acceptance.
 Actual 200% browser zoom is deferred polish; M4 is in progress.
+
+M4 T140 is now complete. Both the umbrella override and Catalyst Compose file
+pin the exact Superset 6.1.0 image digest, declare the local `linux/arm64`
+acceptance platform, and record `psycopg2-binary==2.9.9`. The real stack health
+gate passed with those values in provenance, and the persisted analytics role
+was verified as transaction-read-only with no public-schema CREATE permission
+and retained SELECT access. This is only the runtime-identity slice; the full
+D1b red-test, clean-import, restart, recovery, and secret-output matrices remain
+open.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised

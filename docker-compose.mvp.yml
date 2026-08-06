@@ -63,6 +63,7 @@ services:
 
   superset-init:
     image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    platform: "${SUPERSET_PLATFORM:-linux/arm64}"
     command: ["/bin/bash", "/opt/catalyst/superset-init.sh"]
     environment: &superset-environment
       SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
@@ -84,6 +85,7 @@ services:
 
   superset:
     image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    platform: "${SUPERSET_PLATFORM:-linux/arm64}"
     command: ["/app/docker/entrypoints/run-server.sh"]
     environment: *superset-environment
     ports:
@@ -107,6 +109,7 @@ services:
     profiles:
       - superset-import
     image: apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef
+    platform: "${SUPERSET_PLATFORM:-linux/arm64}"
     entrypoint: ["/app/.venv/bin/python", "/opt/catalyst/superset-import.py"]
     command: ["status"]
     environment:
@@ -117,6 +120,10 @@ services:
       CATALYST_SUPERSET_PUBLIC_URL: "http://localhost:${SUPERSET_PORT:-8088}"
       CATALYST_CONTRACTS_DIR: /docs/contracts
       CATALYST_IMPORTER_REVISION: "${CATALYST_IMPORTER_REVISION:-}"
+      CATALYST_SUPERSET_IMAGE_DIGEST: "sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
+      CATALYST_SUPERSET_METADATA_IMAGE_DIGEST: "sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7"
+      CATALYST_SUPERSET_PLATFORM: "${SUPERSET_PLATFORM:-linux/arm64}"
+      CATALYST_SUPERSET_DRIVER_REVISION: "${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}"
     volumes:
       - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
       - ./scripts/superset-import.py:/opt/catalyst/superset-import.py:ro

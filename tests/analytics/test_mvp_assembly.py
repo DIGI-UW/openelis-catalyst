@@ -13,6 +13,8 @@ SUPERSET_IMAGE = (
     "apache/superset:6.1.0-dev@sha256:"
     "5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
 )
+SUPERSET_PLATFORM = "linux/arm64"
+SUPERSET_DRIVER_REVISION = "psycopg2-binary==2.9.9"
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -357,6 +359,32 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn('127.0.0.1:${SUPERSET_PORT:-8088}:8088', self.compose)
         self.assertIn("/health", self.compose)
 
+    def test_superset_runtime_records_the_pinned_platform_and_driver_revision(self):
+        self.assertGreaterEqual(
+            self.compose.count(
+                'platform: "${SUPERSET_PLATFORM:-' + SUPERSET_PLATFORM + '}"'
+            ),
+            3,
+        )
+        self.assertIn(f"SUPERSET_PLATFORM={SUPERSET_PLATFORM}", self.env)
+        self.assertIn(f"SUPERSET_DRIVER_REVISION={SUPERSET_DRIVER_REVISION}", self.env)
+        self.assertIn(
+            'CATALYST_SUPERSET_PLATFORM: "${SUPERSET_PLATFORM:-linux/arm64}"',
+            self.compose,
+        )
+        self.assertIn(
+            'CATALYST_SUPERSET_DRIVER_REVISION: '
+            '"${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}"',
+            self.compose,
+        )
+        self.assertIn("SUPERSET_PLATFORM=", self.health_script)
+        self.assertIn("SUPERSET_DRIVER_REVISION=", self.health_script)
+        self.assertIn('"platform": os.environ["SUPERSET_PLATFORM"]', self.health_script)
+        self.assertIn(
+            '"driverRevision": os.environ["SUPERSET_DRIVER_REVISION"]',
+            self.health_script,
+        )
+
     def test_hapi_proxy_allows_the_pinned_fhir_first_start_to_finish(self):
         proxy = self.compose[
             self.compose.index("  hapi-mtls-proxy:") : self.compose.index(
@@ -369,10 +397,16 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_superset_runtime_separates_read_only_input_and_writable_receipts(self):
         gitignore = (ROOT / ".gitignore").read_text()
         config = (ROOT / "superset/superset_config.py").read_text()
+        roles = (ROOT / "analytics/sql/000_analytics_roles.sql").read_text()
         self.assertIn("/runtime/superset/", gitignore)
         self.assertIn("CATALYST_SUPERSET_METADATA_DSN", config)
         self.assertIn("SQLALCHEMY_DATABASE_URI", config)
         self.assertNotIn("catalyst_readonly", config)
+        self.assertIn(
+            "ALTER ROLE catalyst_readonly SET default_transaction_read_only = on;",
+            roles,
+        )
+        self.assertIn("REVOKE CREATE ON SCHEMA public FROM PUBLIC;", roles)
 
     def test_superset_importer_receipts_identify_the_exact_catalyst_revision(self):
         self.assertIn(
