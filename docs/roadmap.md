@@ -358,6 +358,21 @@ covers Dataset/Widget/Dashboard publication controls, keyboard traversal, and
 compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom and the rest
 of T187 remain open.
 
+The live visualization-family pass then used that corrected Query v3 directly
+in the integrated Dashboard Builder to save table, time-series line,
+time-series area, grouped bar, stacked bar, and proportion-bar Widgets. The
+resulting six-chart bundle
+`f9c20ef6e2f9a50365cc415ab09011317459f673db41ab8a80c7fcac257a2e8e`
+imported as Superset Dashboard 6, retained the exact saved Dataset SQL for every
+chart, and returned HTTP 200 for every chart-data request. The first import
+attempt exposed one operator inconsistency: implicit Compose dependency startup
+could race Superset metadata DNS, while `status` could start dependencies.
+`mvp-superset.sh` now makes import readiness explicit with `up --wait` and runs
+both importer commands with `--no-deps`; the read-only status proof preserved
+the exact running Superset and analytics container identities. Full failure/
+reset/reimport recovery, repeat/change evidence, final CI, and user acceptance
+remain open.
+
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local
