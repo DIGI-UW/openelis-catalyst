@@ -122,6 +122,10 @@ export interface CatalystApi {
     signal?: AbortSignal,
   ): Promise<DashboardBuilderEntity>;
   publishDashboard?(dashboardVersionId: string, signal?: AbortSignal): Promise<DashboardPublication>;
+  getDashboardPublication?(
+    dashboardVersionId: string,
+    signal?: AbortSignal,
+  ): Promise<DashboardPublication>;
 }
 
 export class CatalystApiError extends Error {
@@ -202,7 +206,7 @@ const isDashboardCollection = (
 
 const isDashboardPublication = (body: unknown): body is DashboardPublication =>
   isRecord(body) &&
-  body.status === "bundle_ready" &&
+  ["bundle_ready", "imported", "import_failed"].includes(String(body.status)) &&
   isRecord(body.pointer) &&
   isRecord(body.pointer.bundle) &&
   typeof body.pointer.bundle.fileName === "string";
@@ -610,6 +614,18 @@ export const createCatalystApi = ({
       const response = await fetcher(
         `${root}/dashboard-builder/dashboards/${encodeURIComponent(dashboardVersionId)}/publish`,
         { method: "POST", headers: { Accept: "application/json" }, signal },
+      );
+      const body = await parseJson(response);
+      if (!isDashboardPublication(body)) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body;
+    },
+
+    async getDashboardPublication(dashboardVersionId, signal) {
+      const response = await fetcher(
+        `${root}/dashboard-builder/dashboards/${encodeURIComponent(dashboardVersionId)}/publication`,
+        { headers: { Accept: "application/json" }, signal },
       );
       const body = await parseJson(response);
       if (!isDashboardPublication(body)) {

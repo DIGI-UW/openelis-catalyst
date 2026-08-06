@@ -1,7 +1,7 @@
 import { CheckmarkFilled, Close, DataBase, Renew } from "@carbon/icons-react";
 import { Button, InlineNotification, Select, SelectItem, Tag, TextInput } from "@carbon/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CatalystApi } from "../api";
+import { CatalystApiError, type CatalystApi } from "../api";
 import { editorContentMatchesVersion } from "../editorDigest";
 import type {
   BoundParameter,
@@ -123,6 +123,9 @@ export const DashboardPublishPanel = ({
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [publication, setPublication] = useState<DashboardPublication | null>(null);
+  const [publicationsByVersion, setPublicationsByVersion] = useState<
+    Record<string, DashboardPublication>
+  >({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -178,6 +181,38 @@ export const DashboardPublishPanel = ({
         setDatasets(datasetCollection.items);
         setWidgets(widgetCollection.items);
         setDashboards(dashboardCollection.items);
+        if (api.getDashboardPublication) {
+          void Promise.all(
+            dashboardCollection.items.map(async (dashboard) => {
+              try {
+                return [
+                  dashboard.versionId,
+                  await api.getDashboardPublication!(dashboard.versionId, controller.signal),
+                ] as const;
+              } catch (caught) {
+                if (caught instanceof CatalystApiError && caught.status === 404) {
+                  return null;
+                }
+                throw caught;
+              }
+            }),
+          )
+            .then((entries) => {
+              if (controller.signal.aborted) return;
+              setPublicationsByVersion(
+                Object.fromEntries(entries.filter((entry) => entry !== null)),
+              );
+            })
+            .catch((caught: unknown) => {
+              if (!controller.signal.aborted) {
+                setError(
+                  caught instanceof Error
+                    ? caught.message
+                    : "Catalyst could not load Superset publication state.",
+                );
+              }
+            });
+        }
         setError(null);
       })
       .catch((caught: unknown) => {
@@ -311,6 +346,10 @@ export const DashboardPublishPanel = ({
     try {
       const result = await api.publishDashboard(dashboard.versionId);
       setPublication(result);
+      setPublicationsByVersion((current) => ({
+        ...current,
+        [dashboard.versionId]: result,
+      }));
       setToast(
         `“${entityTitle(dashboard, "Dashboard")}” is ready for the local Superset importer.`,
       );
@@ -479,31 +518,49 @@ export const DashboardPublishPanel = ({
         <p className="builder-empty-note">No Dashboards saved yet.</p>
       ) : (
         <div className="builder-dashboard-list">
-          {dashboards.map((dashboard) => (
-            <article key={dashboard.versionId} className="builder-dashboard-row">
-              <div>
-                <h2>{entityTitle(dashboard, "Dashboard")}</h2>
-                <p>{dashboardWidgetVersionIds(dashboard).length} Widgets · saved {dateLabel(dashboard.createdAt)}</p>
-              </div>
-              <Button
-                type="button"
-                disabled={disabled || busy}
-                onClick={() => void publishDashboard(dashboard)}
-              >
-                Publish to Superset
-              </Button>
-            </article>
-          ))}
-        </div>
-      )}
-      {publication && (
-        <div className="builder-publication" role="status">
-          <CheckmarkFilled size={20} aria-hidden="true" />
-          <span>
-            <strong>Superset bundle ready</strong>
-            <small>{publication.pointer.bundle.fileName}</small>
-          </span>
-          <a href={publication.downloadPath}>Download bundle</a>
+          {dashboards.map((dashboard) => {
+            const savedPublication = publicationsByVersion[dashboard.versionId];
+            return (
+              <article key={dashboard.versionId} className="builder-dashboard-row">
+                <div>
+                  <h2>{entityTitle(dashboard, "Dashboard")}</h2>
+                  <p>{dashboardWidgetVersionIds(dashboard).length} Widgets · saved {dateLabel(dashboard.createdAt)}</p>
+                  {savedPublication?.status === "imported" && <Tag type="green">Imported</Tag>}
+                  {savedPublication?.status === "bundle_ready" && <Tag type="blue">Superset bundle ready</Tag>}
+                  {savedPublication?.status === "import_failed" && (
+                    <>
+                      <Tag type="red">Import failed</Tag>
+                      <small>Run the local Superset import helper, then reload this page.</small>
+                    </>
+                  )}
+                </div>
+                <div className="builder-dashboard-row__actions">
+                  {savedPublication?.status === "imported" && savedPublication.importState?.dashboardUrl ? (
+                    <Button
+                      as="a"
+                      kind="primary"
+                      href={savedPublication.importState.dashboardUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open Superset
+                    </Button>
+                  ) : !savedPublication || savedPublication.status === "import_failed" ? (
+                    <Button
+                      type="button"
+                      disabled={disabled || busy}
+                      onClick={() => void publishDashboard(dashboard)}
+                    >
+                      Publish to Superset
+                    </Button>
+                  ) : null}
+                  {savedPublication && (
+                    <a href={savedPublication.downloadPath}>Download bundle</a>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>

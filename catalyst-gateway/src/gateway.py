@@ -99,6 +99,7 @@ def create_app(
         # Dashboard Builder.
         workbench=cast(WorkbenchStore, catalyst.workbench_store),
         outbox=config.superset_outbox_path,
+        receipts=config.superset_receipts_path,
     )
 
     @asynccontextmanager

@@ -423,6 +423,37 @@ describe("Catalyst API client", () => {
     );
   });
 
+  it("reads the verified publication state for one dashboard version", async () => {
+    const publication = {
+      status: "imported",
+      dashboard: {
+        id: "dashboard-1",
+        versionId: "dashboard-v1",
+        ordinal: 1,
+        configuration: {},
+        configurationDigest: "a".repeat(64),
+        createdAt: "2026-08-06T00:00:00Z",
+      },
+      pointer: {
+        bundle: { fileName: "bundle.zip", sha256: "b".repeat(64), bytes: 42 },
+      },
+      downloadPath: "/bundle",
+      importState: {
+        outcome: "imported",
+        dashboardUrl: "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
+      },
+    };
+    fetcher.mockResolvedValue(jsonResponse(publication));
+
+    await expect(
+      api.getDashboardPublication?.("dashboard version"),
+    ).resolves.toEqual(publication);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/v1/catalyst/dashboard-builder/dashboards/dashboard%20version/publication",
+      { headers: { Accept: "application/json" }, signal: undefined },
+    );
+  });
+
   it("rejects an incompatible response instead of guessing at its shape", async () => {
     fetcher.mockResolvedValue(jsonResponse({ detail: "Bad gateway" }, 502));
 

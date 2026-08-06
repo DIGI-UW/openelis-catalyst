@@ -176,6 +176,81 @@ def test_saved_lineage_publishes_a_contract_valid_native_bundle(tmp_path: Path) 
     assert any(name.endswith("/catalyst/manifest.json") for name in names)
 
 
+def test_publication_projects_only_an_exact_verified_import(tmp_path: Path) -> None:
+    workbench = _Workbench()
+    receipts = tmp_path / "receipts"
+    builder = DashboardBuilder(
+        tmp_path / "state.sqlite3",
+        workbench=workbench,
+        outbox=tmp_path / "outbox",
+        receipts=receipts,
+    )
+    dataset = builder.save_dataset(
+        session_id=workbench.session_id,
+        execution_id=workbench.execution_id,
+        title="Monthly result values",
+    )
+    widget = builder.save_widget(
+        dataset_version_id=dataset["versionId"], title="Result trend"
+    )
+    dashboard = builder.save_dashboard(
+        title="Lab operations", widget_version_ids=[widget["versionId"]]
+    )
+    published = builder.publish(dashboard["versionId"])
+    digest = published["pointer"]["bundle"]["sha256"]
+    receipt = {
+        "outcome": "imported",
+        "receiptId": _id(),
+        "receiptDigest": "b" * 64,
+        "stage": "complete",
+        "finishedAt": "2026-08-06T20:23:02.225Z",
+        "errorCode": None,
+        "recoveryAction": "none",
+    }
+    (receipts / "latest").mkdir(parents=True)
+    (receipts / "latest" / f"{digest}.json").write_text(
+        json.dumps({"bundleDigest": digest, "latestReceipt": receipt})
+    )
+    (receipts / "last-verified").mkdir(parents=True)
+    (receipts / "last-verified" / f"{dashboard['id']}.json").write_text(
+        json.dumps(
+            {
+                "bundleDigest": digest,
+                "dashboard": {
+                    "id": dashboard["id"],
+                    "versionId": dashboard["versionId"],
+                    "configurationDigest": dashboard["configurationDigest"],
+                },
+                "importReceipt": {
+                    "receiptId": receipt["receiptId"],
+                    "receiptDigest": receipt["receiptDigest"],
+                },
+                "projectionDigest": "c" * 64,
+                "supersetDashboard": {
+                    "url": "http://localhost:18088/superset/dashboard/catalyst-test/"
+                },
+            }
+        )
+    )
+
+    imported = builder.publication(dashboard["versionId"])
+
+    assert imported is not None
+    assert imported["status"] == "imported"
+    assert imported["importState"]["receiptId"] == receipt["receiptId"]
+    assert (
+        imported["importState"]["dashboardUrl"]
+        == "http://localhost:18088/superset/dashboard/catalyst-test/"
+    )
+
+    (receipts / "last-verified" / f"{dashboard['id']}.json").write_text("{}")
+    failed = builder.publication(dashboard["versionId"])
+    assert failed is not None
+    assert failed["status"] == "import_failed"
+    assert failed["importState"]["errorCode"] == "last_verified_mismatch"
+    assert "dashboardUrl" not in failed["importState"]
+
+
 def test_unknown_chart_kind_cannot_be_silently_exported_as_a_table(
     tmp_path: Path,
 ) -> None:

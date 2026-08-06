@@ -204,4 +204,74 @@ describe("Dashboard Builder supervised promotion", () => {
     expect(screen.getByRole("checkbox", { name: "Count KPI" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Older table" })).not.toBeChecked();
   });
+
+  it("shows an exact verified import and opens its Superset dashboard", async () => {
+    const api = makeApi(true);
+    api.getDashboardPublication = vi.fn().mockResolvedValue({
+      status: "imported",
+      dashboard: savedDashboard,
+      pointer: {
+        bundle: { fileName: "bundle.zip", sha256: "d".repeat(64), bytes: 1 },
+      },
+      downloadPath: "/bundle",
+      importState: {
+        outcome: "imported",
+        receiptId: "receipt-1",
+        dashboardUrl:
+          "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
+      },
+    });
+
+    render(
+      <DashboardPublishPanel
+        api={api}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="dashboards"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Imported")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Publish to Superset" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Superset" })).toHaveAttribute(
+      "href",
+      "http://localhost:18088/superset/dashboard/catalyst-dashboard-1/",
+    );
+  });
+
+  it("does not offer Open Superset after an import failure", async () => {
+    const api = makeApi(true);
+    api.getDashboardPublication = vi.fn().mockResolvedValue({
+      status: "import_failed",
+      dashboard: savedDashboard,
+      pointer: {
+        bundle: { fileName: "bundle.zip", sha256: "d".repeat(64), bytes: 1 },
+      },
+      downloadPath: "/bundle",
+      importState: {
+        outcome: "import_failed",
+        errorCode: "superset_cli_import_failed",
+        recoveryAction: "retry_import",
+      },
+    });
+
+    render(
+      <DashboardPublishPanel
+        api={api}
+        session={session}
+        sql={queryVersion.sql}
+        parameters={[]}
+        activeSection="dashboards"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Import failed")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Open Superset" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByText(/Run the local Superset import helper/i)).toBeVisible();
+  });
 });

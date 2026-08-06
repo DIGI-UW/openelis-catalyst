@@ -317,11 +317,17 @@ class DashboardBuilder:
     """SQLite-backed immutable drafts and deterministic native bundle writer."""
 
     def __init__(
-        self, path: str | Path, *, workbench: WorkbenchStore, outbox: str | Path
+        self,
+        path: str | Path,
+        *,
+        workbench: WorkbenchStore,
+        outbox: str | Path,
+        receipts: str | Path | None = None,
     ):
         self.path = str(path)
         self.workbench = workbench
         self.outbox = Path(outbox)
+        self.receipts = Path(receipts) if receipts is not None else None
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(
             self.path, timeout=5, isolation_level=None, check_same_thread=False
@@ -890,4 +896,90 @@ class DashboardBuilder:
             "SELECT publication_json FROM catalyst_dashboard_publications WHERE dashboard_version_id = ?",
             (dashboard_version_id,),
         ).fetchone()
-        return json.loads(row["publication_json"]) if row is not None else None
+        if row is None:
+            return None
+        publication = json.loads(row["publication_json"])
+        if self.receipts is None:
+            return publication
+
+        bundle_digest = publication["pointer"]["bundle"]["sha256"]
+        latest_path = self.receipts / "latest" / f"{bundle_digest}.json"
+        if not latest_path.is_file():
+            return publication
+
+        try:
+            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            receipt = latest["latestReceipt"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            return {
+                **publication,
+                "status": "import_failed",
+                "importState": {
+                    "outcome": "import_failed",
+                    "errorCode": "import_receipt_invalid",
+                    "recoveryAction": "rerun_import",
+                },
+            }
+
+        if (
+            latest.get("bundleDigest") != bundle_digest
+            or receipt.get("outcome") != "imported"
+        ):
+            return {
+                **publication,
+                "status": "import_failed",
+                "importState": {
+                    "outcome": "import_failed",
+                    "receiptId": receipt.get("receiptId"),
+                    "receiptDigest": receipt.get("receiptDigest"),
+                    "errorCode": receipt.get("errorCode") or "superset_import_failed",
+                    "recoveryAction": receipt.get("recoveryAction") or "rerun_import",
+                },
+            }
+
+        dashboard = publication["dashboard"]
+        verified_path = self.receipts / "last-verified" / f"{dashboard['id']}.json"
+        try:
+            verified = json.loads(verified_path.read_text(encoding="utf-8"))
+            verified_dashboard = verified["dashboard"]
+            verified_receipt = verified["importReceipt"]
+            dashboard_url = verified["supersetDashboard"]["url"]
+            exact_match = (
+                verified.get("bundleDigest") == bundle_digest
+                and verified_dashboard.get("id") == dashboard["id"]
+                and verified_dashboard.get("versionId") == dashboard["versionId"]
+                and verified_dashboard.get("configurationDigest")
+                == dashboard["configurationDigest"]
+                and verified_receipt.get("receiptId") == receipt.get("receiptId")
+                and verified_receipt.get("receiptDigest")
+                == receipt.get("receiptDigest")
+                and isinstance(dashboard_url, str)
+                and bool(dashboard_url)
+            )
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            exact_match = False
+            dashboard_url = None
+
+        if not exact_match:
+            return {
+                **publication,
+                "status": "import_failed",
+                "importState": {
+                    "outcome": "import_failed",
+                    "receiptId": receipt.get("receiptId"),
+                    "receiptDigest": receipt.get("receiptDigest"),
+                    "errorCode": "last_verified_mismatch",
+                    "recoveryAction": "rerun_import",
+                },
+            }
+
+        return {
+            **publication,
+            "status": "imported",
+            "importState": {
+                "outcome": "imported",
+                "receiptId": receipt["receiptId"],
+                "receiptDigest": receipt["receiptDigest"],
+                "dashboardUrl": dashboard_url,
+            },
+        }

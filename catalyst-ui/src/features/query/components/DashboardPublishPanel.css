@@ -168,6 +168,16 @@
   margin-top: 0;
 }
 
+.builder-dashboard-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.builder-dashboard-row__actions a:not(.cds--btn) {
+  color: #0f62fe;
+}
+
 .builder-publication {
   display: flex;
   align-items: center;

@@ -440,12 +440,20 @@ export type DashboardPresentationKind =
   | "proportion_bar";
 
 export interface DashboardPublication {
-  status: "bundle_ready";
+  status: "bundle_ready" | "imported" | "import_failed";
   dashboard: DashboardBuilderEntity;
   pointer: {
     bundle: { fileName: string; sha256: string; bytes: number };
   };
   downloadPath: string;
+  importState?: {
+    outcome: "imported" | "import_failed";
+    receiptId?: string;
+    receiptDigest?: string;
+    dashboardUrl?: string;
+    errorCode?: string;
+    recoveryAction?: string;
+  };
 }
 
 export interface WorkbenchSession {
