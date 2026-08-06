@@ -1,11 +1,11 @@
 # Catalyst Product Specification
 
-**Status:** Iterative query notebook foundation accepted; Superset import spike
-implemented; full Dashboard Builder D1 MVP and user acceptance remain open
+**Status:** Iterative query notebook foundation accepted; M3 real-profile
+multi-widget workflow passed; full Dashboard Builder D1 release acceptance open
 **Scope:** `DIGI-UW/openelis-catalyst`  
 **Deployment mode:** Local demo with demo data and local LLMs  
 **Supersedes locally:** The standalone-agent architecture inherited from OGC-70  
-**Last updated:** 2026-08-05
+**Last updated:** 2026-08-06
 
 ## Product statement
 
@@ -753,15 +753,13 @@ table/notebook acceptance.
 
 ## Dashboard Builder MVP acceptance
 
-The full acceptance below remains the D1 product standard. The current local
-vertical slice is deliberately narrower: it verifies one table Widget and one
-Dashboard imported into Superset while preserving the accepted Ask workflow.
-The standalone configured writer/reviewer workbench run and PostgreSQL value
-reconciliation passed at M2. It becomes a working Dashboard MVP only after that
-path is integrated through the multi-widget Dashboard and receives user
-acceptance; the M2 evidence is not evidence that the five
-visualization mappings, multi-widget library experience, full recovery, or the
-complete accessibility/evidence program are done.
+The full acceptance below remains the D1 product standard. The current local M3
+candidate preserves the accepted Ask workflow and integrates a real configured
+writer/reviewer run through one exact Dataset, a table plus time-series Widget,
+native Superset import, PostgreSQL reconciliation, and restart restoration. It
+is ready for manual validation but is not release acceptance: the five-family
+matrix, complete library behavior and recovery, repetition/nondeterminism,
+accessibility/evidence program, and explicit user acceptance remain open.
 
 Dashboard Builder MVP is complete only when a user can:
 

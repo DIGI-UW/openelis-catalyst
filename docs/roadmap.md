@@ -1,7 +1,7 @@
 # Catalyst Roadmap
 
-**Status:** Active pathway roadmap; Superset import spike implemented;
-full Superset-backed Dashboard Builder D1 remains open
+**Status:** Active pathway roadmap; M3 real-profile multi-widget workflow
+passed; full Superset-backed Dashboard Builder D1 release acceptance remains open
 **Product specification:** [`specification.md`](specification.md)  
 **Hub contract:** [`med-agent-hub.md`](med-agent-hub.md)
 
@@ -42,25 +42,26 @@ The repository currently contains:
 - Gateway-owned writer/reviewer orchestration, deterministic lint/re-lint,
   execution, and query lineage through Hub's configured-role endpoint;
 - a pinned OpenELIS → HAPI FHIR → FHIR Data Pipes → PostgreSQL demo assembly;
-- persisted, immutable Dataset, Widget, and Dashboard draft records for the
-  current Superset import spike;
+- persisted, immutable Dataset, Widget, and Dashboard draft records restored
+  across the non-destructive local restart;
 - deterministic native Superset bundle generation, a pinned local Superset
-  service, explicit importer, and verified local import receipts;
+  service, explicit importer, verified local import receipts, and a live table
+  plus time-series Dashboard reconciled to PostgreSQL;
 - a second, independently switchable data source (OpenMRS HIV/ART, its own
   analytics database and catalog) alongside OpenELIS, targetable per turn
   within one source-agnostic session;
 - Gateway, analytics/assembly, UI and browser tests.
 
-The current dashboard work is a **Superset import spike**, not a Dashboard MVP.
-It does not yet contain full D1 acceptance:
+The original table-only path was a **Superset import spike**. The M3 manual
+validation candidate now integrates the real Gemma/Qwen query path with a
+multi-widget Dashboard, but it does not yet contain full D1 release acceptance:
 
-- the designed multi-widget/library experience and all five verified native
-  visualization mappings (the current exporter is table-only);
+- all five clean-imported native visualization families and complete
+  Dataset/Widget/Dashboard library behavior;
 - complete reset/reimport recovery, the full accessibility matrix, and the
   schema-backed dashboard acceptance emitter;
-- a builder-integrated real-model Dashboard MVP acceptance run (the standalone
-  Gemma E4B → Qwen 14B query-workbench proof passed at M2, but it does not prove
-  the multi-widget Dashboard path);
+- repeated real-model Dashboard runs plus durable evidence and explicit user
+  acceptance (the first integrated Gemma E4B → Qwen 14B path passed at M3);
 - a table-to-report evidence adapter;
 - production authentication/authorization and deployment hardening;
 - complete comparative Harness experiments and report scoring.
@@ -73,7 +74,7 @@ the target topology.
 | Pathway | Current state | Dependency | Next boundary |
 | --- | --- | --- | --- |
 | Query foundation (R0–R3.1) | Complete and accepted | None | Maintain as the shared product base |
-| **Superset-backed Dashboard Builder (D1)** | **Superset import spike plus M2 real-model workbench proof; Dashboard MVP open** | Accepted query/workbench foundation only | Accept M2, then integrate the actual multi-widget experience and complete D1 acceptance |
+| **Superset-backed Dashboard Builder (D1)** | **M3 real-profile multi-widget workflow passed; M4 release acceptance open** | Accepted query/workbench foundation only | Complete T187 hardening/evidence and obtain explicit user acceptance |
 | Data foundation (G2.10) | Implementation candidate; live evidence incomplete | Query foundation | Complete the two-source/lossless contract and acceptance matrix |
 | Query assistance (W2) | Planned, not selected | Query foundation plus a new user scope gate | Prove bounded AST-unit repairs with explicit acceptance |
 | Evaluation (W3/CVR) | Notebook runner/report parity implemented; broader export/experiments remain | Query foundation; individual experiments may add their own gates | Finish PR #43 release acceptance separately, then expand session export/comparisons as chosen |
@@ -323,18 +324,16 @@ evidence rather than reproducibility claims.
 
 ## D1 — Superset-backed dashboard builder MVP
 
-**Status:** Superset import spike implemented; full D1 Dashboard MVP remains open
+**Status:** M3 real-profile multi-widget workflow passed; full D1 release acceptance remains open
 
-**Current delivery boundary:** The active branches implement a Superset import
-spike—exact Run → Dataset → table Widget → named Dashboard → native ZIP →
-explicit local Superset import. Health, restart retention, and verified import
-receipts are demonstrated. This is not a working Dashboard MVP: the actual
-multi-widget experience and five visualization mappings, reset/reimport
-recovery, complete accessibility matrix, event/acceptance emitter, and the
-builder-integrated Gemma/Qwen D1e run remain open. The standalone real-model
-workbench proof passed technically at M2. The MVP closes only after that workflow
-is integrated into the actual builder, the imported dashboard values
-reconcile to PostgreSQL, and the user accepts it.
+**Current delivery boundary:** The active branches implement a manually testable
+M3 candidate—real Gemma E4B → Qwen 14B generation, manual SQL version, explicit
+Run, exact Dataset, table plus time-series Widgets, named Dashboard, native ZIP,
+explicit local Superset import, per-widget PostgreSQL reconciliation, and
+restart restoration. The original table-only path remains correctly described
+as the import spike it was. Full D1 release acceptance remains open for the
+five-family, reset/reimport, repetition/nondeterminism, accessibility,
+event/acceptance-artifact, CI-review, and explicit user-acceptance gates.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
