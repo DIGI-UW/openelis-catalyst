@@ -276,6 +276,7 @@ describe("Dashboard Builder supervised promotion", () => {
   });
 
   it("retains the previous execution as a stale Dataset after a successor is generated", async () => {
+    const user = userEvent.setup();
     const successorSession = {
       ...session,
       currentVersionId: "query-v2",
@@ -302,8 +303,14 @@ describe("Dashboard Builder supervised promotion", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Review dataset draft" })).toBeVisible();
+    const trigger = screen.getByRole("button", { name: "Review dataset draft" });
+    expect(trigger).toBeVisible();
     expect(screen.getByText("Stale · rerun the visible query before saving")).toBeVisible();
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Review panel" });
+    expect(within(dialog).getByText("Query v1", { exact: true })).toBeVisible();
+    expect(within(dialog).getByText("Query v1 SQL snapshot", { exact: true })).toBeVisible();
+    expect(within(dialog).queryByText("Query v2", { exact: true })).not.toBeInTheDocument();
   });
 
   it("contains keyboard focus in the review dialog and restores its trigger", async () => {

@@ -125,6 +125,10 @@ export const DashboardPublishPanel = ({
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const execution = newestSuccessfulExecution(session);
+  const executionVersion = execution
+    ? session?.versions.find((version) => version.versionId === execution.versionId) ?? null
+    : null;
+  const executionVersionOrdinal = executionVersion?.ordinal ?? "?";
   const editorMatchesCurrent = Boolean(
     session?.currentVersion &&
       editorContentMatchesVersion(
@@ -411,7 +415,7 @@ export const DashboardPublishPanel = ({
         >
           <DataBase size={20} aria-hidden="true" />
           <span>
-            <strong>{currentDataset ? entityTitle(currentDataset, "Saved Dataset") : `Dataset from Query v${session.currentVersion?.ordinal ?? "?"}`}</strong>
+            <strong>{currentDataset ? entityTitle(currentDataset, "Saved Dataset") : `Dataset from Query v${executionVersionOrdinal}`}</strong>
             <small>
               {resultIsStale
                 ? "Stale · rerun the visible query before saving"
@@ -649,7 +653,7 @@ export const DashboardPublishPanel = ({
                     labelText="Dataset name"
                     value={datasetTitle}
                     disabled={busy || Boolean(currentDataset)}
-                    placeholder={`Dataset from Query v${session.currentVersion?.ordinal ?? ""}`}
+                    placeholder={`Dataset from Query v${executionVersionOrdinal}`}
                     onChange={(event) => setDatasetTitle(event.currentTarget.value)}
                   />
                   {resultIsStale && (
@@ -662,14 +666,14 @@ export const DashboardPublishPanel = ({
                     />
                   )}
                   <dl className="builder-review__metrics">
-                    <div><dt>Exact query</dt><dd>Query v{session.currentVersion?.ordinal}</dd></div>
+                    <div><dt>Exact query</dt><dd>Query v{executionVersionOrdinal}</dd></div>
                     <div><dt>Execution</dt><dd>Run {execution.ordinal}</dd></div>
                     <div><dt>Source</dt><dd>{session.dataSourceId ?? "OpenELIS"}</dd></div>
                     <div><dt>Status</dt><dd>{execution.status}</dd></div>
                   </dl>
                   <ExecutionResult session={session} sql={sql} parameters={parameters} />
                   <details className="builder-review__sql">
-                    <summary>Query v{session.currentVersion?.ordinal} SQL snapshot</summary>
+                    <summary>Query v{executionVersionOrdinal} SQL snapshot</summary>
                     <pre>{execution.query.sql}</pre>
                   </details>
                 </>
