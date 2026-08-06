@@ -347,6 +347,17 @@ still contained five Datasets, nine Widgets, and five Dashboards after restart;
 the latest title remained `Current profile laboratory dashboard`. T187 remains
 open for the broader release matrix and explicit user acceptance.
 
+The next M4 pass repeated the exact M3 prompt through real Gemma E4B and Qwen
+14B. It selected the same complete SQL/query digest with run-specific trace,
+invocation digest, and latency evidence. A deliberately unknown manual column
+then demonstrated the explicit-run failure path and typed PostgreSQL `42703`
+diagnostic; a direct editor correction with a stable secondary sort succeeded
+without another model call. This exposed an open advisory-lint gap: the unknown
+column was labelled valid before PostgreSQL rejected it. The browser E2E now
+covers Dataset/Widget/Dashboard publication controls, keyboard traversal, and
+compact/200%-equivalent reflow; actual Dashboard Builder 200% zoom and the rest
+of T187 remain open.
+
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised
 draft lineage and publishes deterministic native bundles into a shared local

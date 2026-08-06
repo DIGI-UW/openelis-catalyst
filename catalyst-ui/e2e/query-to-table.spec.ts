@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   BoundParameter,
+  DashboardBuilderEntity,
   WorkbenchExecution,
   WorkbenchQueryVersion,
   WorkbenchSession,
@@ -20,8 +21,8 @@ const followupTurnId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
 const queryDigest = "a".repeat(64);
 const manualQueryDigest = "1".repeat(64);
 const successorQueryDigest = "2".repeat(64);
-const profileId = "catalyst-query-gemma-4-12b";
-const revisionProfileId = "catalyst-query-gemma-qwen-split";
+const profileId = "catalyst-query-e4b-qwen14b";
+const revisionProfileId = "catalyst-query-e4b-qwen14b-alt";
 const sql = [
   "SELECT patient_id, result_value, observed_at",
   "FROM analytics.lab_result_fact_v1",
@@ -59,7 +60,7 @@ const version: WorkbenchQueryVersion = {
   ],
   queryDigest,
   provenance: {
-    model: "gemma-4-12b",
+    model: "google/gemma-4-e4b",
     collaborationRole: "writer",
     catalystTraceId: "cat-trace-notebook-123",
     hubTraceId: "hub-trace-notebook-456",
@@ -100,10 +101,10 @@ const successorVersion: WorkbenchQueryVersion = {
     profileId: revisionProfileId,
     profileLabel: "Gemma E4B writer + Qwen reviewer",
     roleModels: {
-      query_generate: "gemma-4-e4b",
-      query_review: "qwen2.5-coder-14b",
+      query_generate: "google/gemma-4-e4b",
+      query_review: "qwen2.5-14b-instruct-mlx",
     },
-    model: "qwen2.5-coder-14b",
+    model: "qwen2.5-14b-instruct-mlx",
     collaborationRole: "reviewer",
     turnId: followupTurnId,
   },
@@ -164,8 +165,8 @@ const session = (
       profileId,
       profileLabel: "Catalyst query notebook",
       roleModels: {
-        query_generate: "gemma-4-12b",
-        query_review: "qwen2.5-14b",
+        query_generate: "google/gemma-4-e4b",
+        query_review: "qwen2.5-14b-instruct-mlx",
       },
     },
   },
@@ -194,8 +195,8 @@ const initialTurn: WorkbenchTurn = {
     profileId,
     profileName: "Catalyst query notebook",
     profileDigest: "d".repeat(64),
-    writer: { role: "writer", modelId: "gemma-4-12b" },
-    reviewer: { role: "reviewer", modelId: "qwen2.5-14b" },
+    writer: { role: "writer", modelId: "google/gemma-4-e4b" },
+    reviewer: { role: "reviewer", modelId: "qwen2.5-14b-instruct-mlx" },
     omissions: [],
   },
   observedBase: null,
@@ -255,8 +256,8 @@ const followupTurn: WorkbenchTurn = {
     profileId: revisionProfileId,
     profileName: "Gemma E4B writer + Qwen reviewer",
     profileDigest: "4".repeat(64),
-    writer: { role: "writer", modelId: "gemma-4-e4b" },
-    reviewer: { role: "reviewer", modelId: "qwen2.5-coder-14b" },
+    writer: { role: "writer", modelId: "google/gemma-4-e4b" },
+    reviewer: { role: "reviewer", modelId: "qwen2.5-14b-instruct-mlx" },
     omissions: [],
   },
   observedBase: {
@@ -313,6 +314,10 @@ const installDeterministicApi = async (
   let currentSession = session(false);
   let currentTimeline = timeline;
   let executionOrdinal = 0;
+  let dashboardOrdinal = 0;
+  const savedDatasets: DashboardBuilderEntity[] = [];
+  const savedWidgets: DashboardBuilderEntity[] = [];
+  const savedDashboards: DashboardBuilderEntity[] = [];
 
   await page.route("**/v1/catalyst/**", async (route) => {
     const request = route.request();
@@ -331,10 +336,13 @@ const installDeterministicApi = async (
               label: "Catalyst query notebook",
               available: true,
               revisionCapable: true,
-              requiredModels: ["gemma-4-12b", "qwen2.5-14b"],
+              requiredModels: [
+                "google/gemma-4-e4b",
+                "qwen2.5-14b-instruct-mlx",
+              ],
               roleModels: {
-                query_generate: "gemma-4-12b",
-                query_review: "qwen2.5-14b",
+                query_generate: "google/gemma-4-e4b",
+                query_review: "qwen2.5-14b-instruct-mlx",
               },
               stages: ["query_generate", "query_lint", "query_review"],
               unavailableReasons: [],
@@ -344,10 +352,13 @@ const installDeterministicApi = async (
               label: "Gemma E4B writer + Qwen reviewer",
               available: true,
               revisionCapable: true,
-              requiredModels: ["gemma-4-e4b", "qwen2.5-coder-14b"],
+              requiredModels: [
+                "google/gemma-4-e4b",
+                "qwen2.5-14b-instruct-mlx",
+              ],
               roleModels: {
-                query_generate: "gemma-4-e4b",
-                query_review: "qwen2.5-coder-14b",
+                query_generate: "google/gemma-4-e4b",
+                query_review: "qwen2.5-14b-instruct-mlx",
               },
               stages: ["query_generate", "query_lint", "query_review"],
               unavailableReasons: [],
@@ -456,6 +467,116 @@ const installDeterministicApi = async (
               ],
             },
           ],
+        },
+      });
+      return;
+    }
+
+    const dashboardCollection = (
+      kind: "dataset" | "widget" | "dashboard",
+      items: DashboardBuilderEntity[],
+    ) => ({
+      contractVersion: "catalyst.dashboard-builder.v1",
+      kind,
+      items,
+    });
+
+    if (method === "GET" && path === "/v1/catalyst/dashboard-builder/datasets") {
+      await route.fulfill({ status: 200, json: dashboardCollection("dataset", savedDatasets) });
+      return;
+    }
+
+    if (method === "GET" && path === "/v1/catalyst/dashboard-builder/widgets") {
+      await route.fulfill({ status: 200, json: dashboardCollection("widget", savedWidgets) });
+      return;
+    }
+
+    if (method === "GET" && path === "/v1/catalyst/dashboard-builder/dashboards") {
+      await route.fulfill({ status: 200, json: dashboardCollection("dashboard", savedDashboards) });
+      return;
+    }
+
+    if (method === "POST" && path === "/v1/catalyst/dashboard-builder/datasets") {
+      const body = request.postDataJSON() as Record<string, string>;
+      dashboardOrdinal += 1;
+      const entity: DashboardBuilderEntity = {
+        id: "dataset-1",
+        versionId: "dataset-version-1",
+        ordinal: dashboardOrdinal,
+        configuration: {
+          title: "Dataset from Query v3",
+          source: {
+            sessionId: body.sessionId,
+            executionId: body.executionId,
+          },
+        },
+        configurationDigest: "6".repeat(64),
+        createdAt: "2026-07-18T00:00:10Z",
+      };
+      savedDatasets.push(entity);
+      await route.fulfill({ status: 201, json: entity });
+      return;
+    }
+
+    if (method === "POST" && path === "/v1/catalyst/dashboard-builder/widgets") {
+      const body = request.postDataJSON() as Record<string, string>;
+      dashboardOrdinal += 1;
+      const entity: DashboardBuilderEntity = {
+        id: "widget-1",
+        versionId: `widget-version-${savedWidgets.length + 1}`,
+        ordinal: dashboardOrdinal,
+        configuration: {
+          title: body.title || "Dataset from Query v3",
+          datasetVersionId: body.datasetVersionId,
+          presentationKind: body.presentationKind,
+        },
+        configurationDigest: "7".repeat(64),
+        createdAt: "2026-07-18T00:00:11Z",
+      };
+      savedWidgets.push(entity);
+      await route.fulfill({ status: 201, json: entity });
+      return;
+    }
+
+    if (method === "POST" && path === "/v1/catalyst/dashboard-builder/dashboards") {
+      const body = request.postDataJSON() as {
+        title?: string;
+        widgetVersionIds: string[];
+      };
+      dashboardOrdinal += 1;
+      const entity: DashboardBuilderEntity = {
+        id: "dashboard-1",
+        versionId: "dashboard-version-1",
+        ordinal: dashboardOrdinal,
+        configuration: {
+          title: body.title || "Catalyst dashboard",
+          widgets: body.widgetVersionIds.map((item) => ({ versionId: item })),
+        },
+        configurationDigest: "8".repeat(64),
+        createdAt: "2026-07-18T00:00:12Z",
+      };
+      savedDashboards.push(entity);
+      await route.fulfill({ status: 201, json: entity });
+      return;
+    }
+
+    if (
+      method === "POST" &&
+      path === "/v1/catalyst/dashboard-builder/dashboards/dashboard-version-1/publish"
+    ) {
+      await route.fulfill({
+        status: 201,
+        json: {
+          status: "bundle_ready",
+          dashboard: savedDashboards[0],
+          pointer: {
+            bundle: {
+              fileName: "catalyst-dashboard.zip",
+              sha256: "9".repeat(64),
+              bytes: 2048,
+            },
+          },
+          downloadPath: "/v1/catalyst/dashboard-builder/dashboards/dashboard-1/bundle",
         },
       });
       return;
@@ -818,9 +939,9 @@ test("question to iterative notebook to validated typed results", async ({
     });
 
     const provenance = page.getByRole("region", { name: "Run provenance" });
-    await expect(provenance.getByText("gemma-4-12b", { exact: true }))
+    await expect(provenance.getByText("google/gemma-4-e4b", { exact: true }))
       .toBeVisible();
-    await expect(provenance.getByText("qwen2.5-14b", { exact: true }))
+    await expect(provenance.getByText("qwen2.5-14b-instruct-mlx", { exact: true }))
       .toBeVisible();
     await expect(provenance.getByText("pipeline-run-77", { exact: true }))
       .toBeVisible();
@@ -873,10 +994,10 @@ test("question to iterative notebook to validated typed results", async ({
         exact: true,
       }),
     ).toBeVisible();
-    await expect(switchedProvenance.getByText("gemma-4-e4b", { exact: true }))
+    await expect(switchedProvenance.getByText("google/gemma-4-e4b", { exact: true }))
       .toBeVisible();
     await expect(
-      switchedProvenance.getByText("qwen2.5-coder-14b", { exact: true }),
+      switchedProvenance.getByText("qwen2.5-14b-instruct-mlx", { exact: true }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Run query" }).click();
@@ -907,6 +1028,28 @@ test("question to iterative notebook to validated typed results", async ({
     ).toBeVisible();
     await expect(page.getByRole("combobox", { name: "Model profile" }))
       .toHaveValue(revisionProfileId);
+
+    const dashboardBuilder = page.getByRole("region", {
+      name: "Dashboard builder",
+    });
+    await dashboardBuilder.getByRole("textbox", { name: "Dashboard title" })
+      .fill("Virology dashboard");
+    await dashboardBuilder.getByRole("textbox", { name: "Widget title" })
+      .fill("Latest laboratory results");
+    await dashboardBuilder.getByRole("combobox", { name: "Visualization" })
+      .selectOption("time_series_line");
+    await dashboardBuilder.getByRole("button", { name: "Add widget" }).click();
+    await expect(dashboardBuilder.getByText("1 widget ready", { exact: true }))
+      .toBeVisible();
+    await expect(
+      dashboardBuilder.getByText("Latest laboratory results", { exact: true }),
+    ).toBeVisible();
+    await dashboardBuilder.getByRole("button", { name: "Publish to Superset" })
+      .click();
+    await expect(dashboardBuilder.getByText("Superset bundle ready", { exact: true }))
+      .toBeVisible();
+    await expect(dashboardBuilder.getByRole("link", { name: "Download bundle" }))
+      .toBeVisible();
   } else {
     await expect(
       execution.getByRole("heading", {
@@ -949,6 +1092,24 @@ test("question to iterative notebook to validated typed results", async ({
       [page.getByRole("button", { name: "Clear draft" }), "clear draft"],
       [page.getByRole("button", { name: "Validate query" }), "validate query"],
       [page.getByRole("button", { name: "Run query" }), "run query"],
+      [
+        page.getByRole("textbox", { name: "Dashboard title" }),
+        "dashboard title",
+      ],
+      [page.getByRole("textbox", { name: "Widget title" }), "widget title"],
+      [
+        page.getByRole("combobox", { name: "Visualization" }),
+        "visualization",
+      ],
+      [page.getByRole("button", { name: "Add widget" }), "add widget"],
+      [
+        page.getByRole("button", { name: "Remove", exact: true }),
+        "remove widget",
+      ],
+      [
+        page.getByRole("button", { name: "Publish to Superset" }),
+        "publish to Superset",
+      ],
     ];
     for (const [target, label] of keyboardTargets) {
       await tabTo(page, target, label);
@@ -969,5 +1130,13 @@ test("question to iterative notebook to validated typed results", async ({
     await expect(page.getByRole("button", { name: "Validate query" }))
       .toBeVisible();
     await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Dashboard title" }))
+      .toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Visualization" }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Add widget" }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish to Superset" }))
+      .toBeVisible();
   }
 });
