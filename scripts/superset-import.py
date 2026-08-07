@@ -282,7 +282,9 @@ def _importer_metadata(
     return {
         # A failed attempt can be recorded before the operator provenance is
         # available. Successful imports pass a validated exact revision.
-        "revision": revision or os.environ.get("CATALYST_IMPORTER_REVISION") or "unresolved",
+        "revision": revision
+        or os.environ.get("CATALYST_IMPORTER_REVISION")
+        or "unresolved",
         "supersetVersion": SUPERSET_VERSION,
         "imageDigest": os.environ.get(
             "CATALYST_SUPERSET_IMAGE_DIGEST", DEFAULT_IMAGE_DIGEST
@@ -608,12 +610,43 @@ def _last_verified_payload(
 def _latest_for_pointer(
     receipts: Path, pointer: dict[str, Any]
 ) -> dict[str, Any] | None:
-    path = receipts / "latest" / f"{pointer['bundle']['sha256']}.json"
+    bundle_digest = pointer["bundle"]["sha256"]
+    path = receipts / "latest" / f"{bundle_digest}.json"
     if not path.is_file():
         return None
     try:
         latest = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        latest_receipt = latest["latestReceipt"]
+        receipt_id = latest_receipt["receiptId"]
+        expected_receipt_path = f"receipts/attempts/{bundle_digest}/{receipt_id}.json"
+        if (
+            latest.get("schemaVersion") != "catalyst.superset.import-latest.v1"
+            or latest.get("bundleId") != pointer["bundleId"]
+            or latest.get("bundleDigest") != bundle_digest
+            or latest_receipt.get("path") != expected_receipt_path
+        ):
+            return None
+        receipt_path = receipts / "attempts" / bundle_digest / f"{receipt_id}.json"
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if (
+            receipt.get("receiptId") != receipt_id
+            or receipt.get("receiptDigest")
+            != state.digest_document(receipt, "receiptDigest")
+            or receipt.get("receiptDigest") != latest_receipt.get("receiptDigest")
+            or receipt.get("outcome") != latest_receipt.get("outcome")
+            or receipt.get("stage") != latest_receipt.get("stage")
+            or receipt.get("finishedAt") != latest_receipt.get("finishedAt")
+            or receipt.get("errorCode") != latest_receipt.get("errorCode")
+            or (receipt.get("recovery") or {}).get("requiredAction")
+            != latest_receipt.get("recoveryAction")
+        ):
+            return None
+        if receipt.get("outcome") == "imported" and (
+            receipt.get("bundleId") != pointer["bundleId"]
+            or (receipt.get("bundle") or {}).get("sha256") != bundle_digest
+        ):
+            return None
+    except (KeyError, OSError, TypeError, ValueError):
         return None
     return latest if isinstance(latest, dict) else None
 
@@ -665,9 +698,36 @@ def run_import(*, bootstrap: bool = False) -> int:
             return 0
         with state.import_lock(
             receipts / "import.lock",
-            operation="bootstrap" if bootstrap else "import",
+            publication_id=pointer["publicationId"],
+            bundle_id=pointer["bundleId"],
             bundle_digest=bundle_digest,
+            receipt_id=receipt_id,
         ):
+            # Another process may have completed this exact import after our
+            # initial fast-path read but before we acquired the lock.
+            latest = _latest_for_pointer(receipts, pointer)
+            if latest and latest.get("latestReceipt", {}).get("outcome") == "imported":
+                print(
+                    json.dumps(
+                        {"status": "already_imported", "bundleDigest": bundle_digest}
+                    )
+                )
+                return 0
+            if (
+                bootstrap
+                and latest
+                and latest.get("latestReceipt", {}).get("stage")
+                == "post_import_verification"
+            ):
+                print(
+                    json.dumps(
+                        {
+                            "status": "automatic_retry_suppressed",
+                            "bundleDigest": bundle_digest,
+                        }
+                    )
+                )
+                return 0
             bundle_path = resolve_bundle(outbox, pointer)
             manifest = inspect_bundle(bundle_path, pointer)
             validate_manifest(manifest, pointer, contracts)
@@ -749,8 +809,16 @@ def run_import(*, bootstrap: bool = False) -> int:
                 )
             )
             return 0
-    except state.ImportLockBusy as exc:
-        failure = ImportFailure("bundle_validation", "import_lock_busy", str(exc))
+    except state.ImportLockBusy:
+        print(
+            json.dumps(
+                {
+                    "status": "importing",
+                    "bundleDigest": bundle_digest,
+                }
+            )
+        )
+        return 2
     except ImportFailure as exc:
         failure = exc
 
@@ -800,20 +868,30 @@ def show_status() -> int:
     except ImportFailure as failure:
         print(json.dumps({"status": "draft", "errorCode": failure.code}))
         return 0
-    latest = _latest_for_pointer(receipts, pointer)
-    print(
-        json.dumps(
-            {
-                "status": (
-                    latest.get("latestReceipt", {}).get("outcome")
-                    if latest
-                    else "bundle_ready"
-                ),
-                "bundleDigest": pointer["bundle"]["sha256"],
-                "latest": latest,
-            }
+    bundle_digest = pointer["bundle"]["sha256"]
+    activity = state.read_import_activity(receipts / "import.lock", bundle_digest)
+    if activity["status"] == "importing":
+        print(
+            json.dumps(
+                {
+                    "status": "importing",
+                    "bundleDigest": bundle_digest,
+                    "import": activity["descriptor"],
+                }
+            )
         )
-    )
+        return 0
+    latest = _latest_for_pointer(receipts, pointer)
+    payload = {
+        "status": (
+            latest.get("latestReceipt", {}).get("outcome") if latest else "bundle_ready"
+        ),
+        "bundleDigest": bundle_digest,
+        "latest": latest,
+    }
+    if activity["status"] == "diagnostic":
+        payload["importerDiagnostic"] = activity["code"]
+    print(json.dumps(payload))
     return 0
 
 

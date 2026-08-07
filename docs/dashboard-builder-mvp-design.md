@@ -60,9 +60,11 @@ The accepted Ask invariants are testable requirements:
 - **THREAD-01 — chronology:** earlier turns collapse to read-only summaries and
   only the latest turn owns the active workbench.
 - **A11Y-01 — working surface access:** all controls are reachable in logical
-  keyboard order at 200% zoom; focus is visible; Escape closes the review panel
+  keyboard order through the desktop, 390×844, 320-CSS-pixel, and
+  640-CSS-pixel reflow checks; focus is visible; Escape closes the review panel
   and restores its invoker; fixed regions do not cover focused content; reduced
-  motion is respected.
+  motion is respected. Actual 200% browser zoom is deferred polish and is not an
+  MVP gate.
 
 1. Superset 6.1.0 is the dashboard renderer. Catalyst does not build a parallel
    chart runtime. Because the MVP is a one-way file handoff, Catalyst remains the
@@ -266,7 +268,9 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
 - Use a persistent programmatic label, `aria-describedby` for base/version and
   shortcut help, and a documented `Cmd/Ctrl+Enter` action. Empty input disables
   generation. Tab order is textarea → profile → action; focus and error status
-  remain visible above the fixed region, and the region reflows at 200% zoom.
+  remain visible above the fixed region, and the region reflows at the 320- and
+  640-CSS-pixel acceptance boundaries. Actual 200% browser zoom is deferred
+  polish.
 - Composer is present on Workbench only.
 
 ### 2. Workbench — first run / empty thread

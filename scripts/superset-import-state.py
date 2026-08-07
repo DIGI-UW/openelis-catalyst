@@ -10,12 +10,21 @@ import fcntl
 import hashlib
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Iterator
 
 
 class ImportLockBusy(RuntimeError):
     """Raised when another importer owns the non-blocking OS lock."""
+
+
+class LastVerifiedProjectionMissing(RuntimeError):
+    """Raised when explicit recovery has no durable verified projection."""
+
+
+class LastVerifiedProjectionInvalid(RuntimeError):
+    """Raised when a durable verified projection cannot be trusted."""
 
 
 def _reject_floats(value: Any) -> None:
@@ -94,12 +103,55 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> str:
     return digest
 
 
+def _is_uuid(value: Any, version: int) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError):
+        return False
+    return parsed.version == version and str(parsed) == value
+
+
+def _valid_lock_descriptor(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "schemaVersion",
+        "publicationId",
+        "bundleId",
+        "bundleDigest",
+        "receiptId",
+        "startedAt",
+    }:
+        return False
+    publication_id = value["publicationId"]
+    bundle_id = value["bundleId"]
+    bundle_digest = value["bundleDigest"]
+    return (
+        value["schemaVersion"] == "catalyst.superset.import-lock.v1"
+        and (publication_id is None or _is_uuid(publication_id, 4))
+        and (bundle_id is None or _is_uuid(bundle_id, 5))
+        and (
+            bundle_digest is None
+            or (
+                isinstance(bundle_digest, str)
+                and len(bundle_digest) == 64
+                and all(character in "0123456789abcdef" for character in bundle_digest)
+            )
+        )
+        and _is_uuid(value["receiptId"], 4)
+        and isinstance(value["startedAt"], str)
+        and value["startedAt"].endswith("Z")
+    )
+
+
 @contextlib.contextmanager
 def import_lock(
     path: Path,
     *,
-    operation: str,
-    bundle_digest: str | None = None,
+    publication_id: str | None,
+    bundle_id: str | None,
+    bundle_digest: str | None,
+    receipt_id: str,
 ) -> Iterator[dict[str, Any]]:
     path.parent.mkdir(parents=True, exist_ok=True)
     stream = path.open("a+", encoding="utf-8")
@@ -110,12 +162,12 @@ def import_lock(
             raise ImportLockBusy("another Superset import operation is active") from exc
         descriptor: dict[str, Any] = {
             "schemaVersion": "catalyst.superset.import-lock.v1",
-            "operation": operation,
-            "pid": os.getpid(),
+            "publicationId": publication_id,
+            "bundleId": bundle_id,
+            "bundleDigest": bundle_digest,
+            "receiptId": receipt_id,
             "startedAt": utc_now(),
         }
-        if bundle_digest is not None:
-            descriptor["bundleDigest"] = bundle_digest
         stream.seek(0)
         stream.truncate()
         stream.write(canonical_json_bytes(descriptor).decode("utf-8"))
@@ -127,6 +179,76 @@ def import_lock(
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
         finally:
             stream.close()
+
+
+def read_import_activity(
+    path: Path, requested_bundle_digest: str | None
+) -> dict[str, Any]:
+    """Project live import activity from the OS lock, never stale marker bytes."""
+
+    if not path.exists():
+        return {"status": "idle"}
+    stream = path.open("r", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                descriptor = json.load(stream)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                return {"status": "diagnostic", "code": "import_lock_marker_invalid"}
+            if not _valid_lock_descriptor(descriptor):
+                return {"status": "diagnostic", "code": "import_lock_marker_invalid"}
+            if descriptor["bundleDigest"] != requested_bundle_digest:
+                return {
+                    "status": "diagnostic",
+                    "code": "import_lock_digest_mismatch",
+                }
+            return {"status": "importing", "descriptor": descriptor}
+        else:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            return {"status": "idle"}
+    finally:
+        stream.close()
+
+
+def load_last_verified(path: Path, logical_dashboard_id: str) -> dict[str, Any]:
+    """Load the minimum trustworthy projection required before recovery/reset."""
+
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise LastVerifiedProjectionMissing(
+            f"last-verified projection is missing for {logical_dashboard_id}"
+        ) from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LastVerifiedProjectionInvalid(
+            f"last-verified projection is unreadable for {logical_dashboard_id}"
+        ) from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") != "catalyst.superset.last-verified.v1"
+        or value.get("logicalDashboardId") != logical_dashboard_id
+        or not isinstance(value.get("generation"), int)
+        or isinstance(value.get("generation"), bool)
+        or value["generation"] < 1
+    ):
+        raise LastVerifiedProjectionInvalid(
+            f"last-verified projection is invalid for {logical_dashboard_id}"
+        )
+    try:
+        digest_matches = value.get("projectionDigest") == digest_document(
+            value, "projectionDigest"
+        )
+    except ValueError as exc:
+        raise LastVerifiedProjectionInvalid(
+            f"last-verified projection is invalid for {logical_dashboard_id}"
+        ) from exc
+    if not digest_matches:
+        raise LastVerifiedProjectionInvalid(
+            f"last-verified projection is invalid for {logical_dashboard_id}"
+        )
+    return value
 
 
 def record_receipt(
@@ -176,14 +298,8 @@ def update_last_verified(
     path = receipts_root / "last-verified" / f"{logical_dashboard_id}.json"
     generation = 1
     if path.exists():
-        try:
-            current = json.loads(path.read_text(encoding="utf-8"))
-            if current.get("logicalDashboardId") == logical_dashboard_id:
-                generation = int(current.get("generation", 0)) + 1
-        except (OSError, ValueError, TypeError):
-            # Recovery validation rejects corrupt projections. A successful new
-            # verified import may replace one only by explicit importer action.
-            generation = 1
+        current = load_last_verified(path, logical_dashboard_id)
+        generation = current["generation"] + 1
 
     projection = copy.deepcopy(payload)
     projection["logicalDashboardId"] = logical_dashboard_id

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import uuid
 
 import pytest
 
@@ -31,6 +32,19 @@ def test_canonical_json_is_stable_and_rejects_floats() -> None:
         state.canonical_json_bytes({"unsafe": 1.25})
 
 
+def test_constrained_canonical_json_matches_rfc8785() -> None:
+    state = _load_state_module()
+    rfc8785 = pytest.importorskip("rfc8785")
+    fixtures = [
+        {"z": 2, "a": [True, None, "é"]},
+        {"nested": {"receiptId": str(uuid.uuid4()), "count": 0}},
+        {"unicode": "\u20ac\r\n", "safeInteger": 9007199254740991},
+    ]
+
+    for fixture in fixtures:
+        assert state.canonical_json_bytes(fixture) == rfc8785.dumps(fixture)
+
+
 def test_atomic_json_write_and_digest_are_reproducible(tmp_path: Path) -> None:
     state = _load_state_module()
     path = tmp_path / "nested/state.json"
@@ -49,14 +63,65 @@ def test_import_lock_is_nonblocking_and_carries_bounded_descriptor(
 ) -> None:
     state = _load_state_module()
     lock_path = tmp_path / "receipts/import.lock"
+    publication_id = "11111111-1111-4111-8111-111111111111"
+    bundle_id = "22222222-2222-5222-8222-222222222222"
+    receipt_id = "33333333-3333-4333-8333-333333333333"
+    digest = "a" * 64
 
-    with state.import_lock(lock_path, operation="import", bundle_digest="a" * 64):
+    with state.import_lock(
+        lock_path,
+        publication_id=publication_id,
+        bundle_id=bundle_id,
+        bundle_digest=digest,
+        receipt_id=receipt_id,
+    ):
         descriptor = json.loads(lock_path.read_text())
-        assert descriptor["operation"] == "import"
-        assert descriptor["bundleDigest"] == "a" * 64
+        assert set(descriptor) == {
+            "schemaVersion",
+            "publicationId",
+            "bundleId",
+            "bundleDigest",
+            "receiptId",
+            "startedAt",
+        }
+        assert descriptor["publicationId"] == publication_id
+        assert descriptor["bundleId"] == bundle_id
+        assert descriptor["bundleDigest"] == digest
+        assert descriptor["receiptId"] == receipt_id
+        assert state.read_import_activity(lock_path, digest) == {
+            "status": "importing",
+            "descriptor": descriptor,
+        }
         with pytest.raises(state.ImportLockBusy):
-            with state.import_lock(lock_path, operation="import"):
+            with state.import_lock(
+                lock_path,
+                publication_id=None,
+                bundle_id=None,
+                bundle_digest=None,
+                receipt_id="44444444-4444-4444-8444-444444444444",
+            ):
                 pass
+
+    # Marker bytes may remain after the lock is released, but they are not
+    # process state and therefore cannot claim that an import is live.
+    assert state.read_import_activity(lock_path, digest) == {"status": "idle"}
+
+
+def test_import_activity_rejects_a_held_foreign_digest_marker(tmp_path: Path) -> None:
+    state = _load_state_module()
+    lock_path = tmp_path / "receipts/import.lock"
+
+    with state.import_lock(
+        lock_path,
+        publication_id=None,
+        bundle_id=None,
+        bundle_digest="a" * 64,
+        receipt_id="11111111-1111-4111-8111-111111111111",
+    ):
+        assert state.read_import_activity(lock_path, "b" * 64) == {
+            "status": "diagnostic",
+            "code": "import_lock_digest_mismatch",
+        }
 
 
 def test_receipt_latest_and_last_verified_are_distinct_atomic_projections(
@@ -110,3 +175,51 @@ def test_receipt_latest_and_last_verified_are_distinct_atomic_projections(
         },
     )
     assert projection["generation"] == 2
+
+
+@pytest.mark.parametrize("contents", ["{", "[]", '{"generation": 1}'])
+def test_corrupt_last_verified_projection_is_not_replaced(
+    tmp_path: Path, contents: str
+) -> None:
+    state = _load_state_module()
+    dashboard_id = "22222222-2222-4222-8222-222222222222"
+    path = tmp_path / "last-verified" / f"{dashboard_id}.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(contents, encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(state.LastVerifiedProjectionInvalid):
+        state.update_last_verified(
+            tmp_path,
+            logical_dashboard_id=dashboard_id,
+            payload={
+                "schemaVersion": "catalyst.superset.last-verified.v1",
+                "logicalDashboardId": dashboard_id,
+                "bundleId": "33333333-3333-5333-8333-333333333333",
+                "bundleDigest": "a" * 64,
+            },
+        )
+
+    assert path.read_bytes() == before
+
+
+def test_recovery_projection_loader_fails_closed_for_missing_or_bad_digest(
+    tmp_path: Path,
+) -> None:
+    state = _load_state_module()
+    dashboard_id = "22222222-2222-4222-8222-222222222222"
+    path = tmp_path / "last-verified" / f"{dashboard_id}.json"
+
+    with pytest.raises(state.LastVerifiedProjectionMissing):
+        state.load_last_verified(path, dashboard_id)
+
+    path.parent.mkdir(parents=True)
+    projection = {
+        "schemaVersion": "catalyst.superset.last-verified.v1",
+        "logicalDashboardId": dashboard_id,
+        "generation": 1,
+        "projectionDigest": "a" * 64,
+    }
+    path.write_text(json.dumps(projection), encoding="utf-8")
+    with pytest.raises(state.LastVerifiedProjectionInvalid):
+        state.load_last_verified(path, dashboard_id)
