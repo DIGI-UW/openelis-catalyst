@@ -779,6 +779,15 @@ runtime artifacts remain ignored and serialized provenance/receipts exclude
 the configured demo credentials. This does not close the remaining canonical
 clean-import, importer/recovery, or final acceptance matrices.
 
+The canonical Superset 6.1 fixture is now checked in and clean-import proven for
+all five presentation families: table, KPI, time-series line/area,
+grouped/stacked bar, and proportion bar. It preserves each saved Dataset SQL as
+the reporting contract while locking Superset's required internal metric
+objects and ignoring the extra Catalyst manifest during native import. The
+fixture uses lexicographic archive-member order; current product publication
+still writes the Catalyst manifest last, so byte-for-byte serializer alignment
+remains an explicit D1c task rather than a relaxed fixture rule.
+
 Dashboard Builder MVP is complete only when a user can:
 
 1. Complete the accepted profile → generation → single SQL editor/manual version

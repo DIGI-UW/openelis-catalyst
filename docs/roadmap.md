@@ -428,8 +428,27 @@ configuration, redacted output, mount separation, ignored runtime state, and
 the clean-target guard. A Superset-only stop/start preserved both named-volume
 identities, all seven dashboards, the verified import receipt, and the healthy
 localhost route without a seed, model call, or volume reset. The canonical
-five-family clean-import fixture and importer/recovery matrices remain open at
-T141–T144/T163–T165.
+five-family clean-import fixture is now complete at T141; the importer/recovery
+matrices remain open at T142–T144/T163–T165.
+
+M4 T141 is now complete. The checked-in Superset 6.1 fixture is deterministically
+regenerated from two governed virtual Datasets and contains one read-only
+Database, seven charts, and one Dashboard covering table, KPI, line, area,
+grouped bar, stacked bar, and proportion bar. Fixture tests lock the saved SQL,
+native `viz_type`/`params`, internal `MAX` renderer metrics, root wrapping,
+member ordering, per-member digests, final ZIP digest, and byte-for-byte
+regeneration. A clean import into a newly created temporary metadata database
+produced exact counts `1 dashboard | 7 charts | 2 datasets | 1 database`; the
+extra Catalyst JSON manifest was ignored by Superset as intended. Both Dataset
+SQL statements returned the expected 1152 aggregate and 10 detail rows through
+the DB-enforced read-only role. The temporary metadata database was removed and
+the retained manual-test instance was not changed.
+
+The fixture red test also exposed an existing D1c serializer drift: product
+publication writes `catalyst/manifest.json` last, while the approved canonical
+ZIP contract orders every relative member lexicographically. The curated
+fixture follows the contract; product byte-for-byte reproduction remains open
+at T148/T149 and must not be solved by weakening the fixture.
 
 **Goal:** Implement the supplied iterative Ask → Dataset → Widget → Dashboard
 design while keeping Superset as the renderer. Catalyst persists supervised

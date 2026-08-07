@@ -1,0 +1,84 @@
+{
+  "bundleDigest": "76d652fec0880c21b58e451af721e107efcfcd72d236970286f671122fe51969",
+  "bundleRoot": "catalyst_dashboard_1a093157-0621-5e5f-990d-d332f0a95b0b",
+  "bytes": 23358,
+  "canonicalInputDigest": "29ee439d74a1d40b0bea96698426c8e51be95968f605bb59d73056f93489d470",
+  "generatorRevision": "catalyst-dashboard-builder-mvp.v1",
+  "members": [
+    {
+      "bytes": 10398,
+      "path": "catalyst/manifest.json",
+      "sha256": "5b45503a1d19b844c8d4828c3dae3a0dd4394d113d98c84119e40ab735dc9b3e"
+    },
+    {
+      "bytes": 680,
+      "path": "charts/445ddc89-5430-521c-8abe-dc0a3a9c977a.yaml",
+      "sha256": "d7b80b9fe0a9732c69b0b007f557d55afbe4ad438ee670314b6f6513139e77c5"
+    },
+    {
+      "bytes": 652,
+      "path": "charts/653ac952-3b42-51e0-a97f-1318f6a1501f.yaml",
+      "sha256": "90b1c58581f17e81ff56a337fd0f3ba2d42d06de2e206ed6080866a44b831134"
+    },
+    {
+      "bytes": 678,
+      "path": "charts/7e46e3b2-d2e1-5c8c-b34a-023fb98e438f.yaml",
+      "sha256": "a808c0671caa658e28784f7fe6416e0028df7090521e96d170ab1dd9d69b3c61"
+    },
+    {
+      "bytes": 654,
+      "path": "charts/8444ca14-393c-5a91-966c-970ec98899ef.yaml",
+      "sha256": "6cbc1463925ace338aab10c93da0c2a9440082459b1f4bab326f514f7768535a"
+    },
+    {
+      "bytes": 416,
+      "path": "charts/96c817aa-9f91-5c2a-a943-220df8118181.yaml",
+      "sha256": "b2434eb5b2acaf1cf75a61a6ac90441a0a83dcfc8efc059d61605b5c7f55f397"
+    },
+    {
+      "bytes": 560,
+      "path": "charts/de934401-b312-5548-a756-c9f59528ba23.yaml",
+      "sha256": "720ede419db197cc42f1a1d72b3498839010e4f9af5d7f4d962cfeb5285bd3c1"
+    },
+    {
+      "bytes": 696,
+      "path": "charts/ed07e186-49b6-59c3-883d-74bac1981202.yaml",
+      "sha256": "2fd66bada3141858108d67a0045d255203ca573b686c46c046c1c513a96443a9"
+    },
+    {
+      "bytes": 2838,
+      "path": "dashboards/4dc20cea-a604-5a37-a585-a8afc6b0d2fc.yaml",
+      "sha256": "b600be84503e13c665d1ee2a2a99561af7e3a350304fb7b6b05233a6833c3418"
+    },
+    {
+      "bytes": 434,
+      "path": "databases/09daed55-c9d2-58ac-8b74-960e7e69729b.yaml",
+      "sha256": "971d9141ad6b3832c8e8030b28468cfb9bbd00dace4e6970870e604ecb829959"
+    },
+    {
+      "bytes": 1040,
+      "path": "datasets/479bbc50-a494-558f-a4f9-016ae52f5685.yaml",
+      "sha256": "53aa027315ea91cad57901921f628f45d13759643633f3e2bb1c36833f04a6d2"
+    },
+    {
+      "bytes": 621,
+      "path": "datasets/59642a56-0e10-54c8-a2d5-fa4489bbef45.yaml",
+      "sha256": "0c9a531d7fbcc4ed32ebb9ad50f5dd83f4ce884dd1dd0584448b4a72dee72624"
+    },
+    {
+      "bytes": 77,
+      "path": "metadata.yaml",
+      "sha256": "289297b0706645a8a3adf5fe30089930b4a9175eca3765ac4314a225917a4536"
+    }
+  ],
+  "presentationKinds": [
+    "table",
+    "big_number",
+    "time_series_line",
+    "time_series_area",
+    "grouped_bar",
+    "stacked_bar",
+    "proportion_bar"
+  ],
+  "schemaVersion": "catalyst.superset.fixture.v1"
+}
