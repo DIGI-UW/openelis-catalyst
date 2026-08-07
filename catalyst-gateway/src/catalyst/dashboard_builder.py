@@ -933,7 +933,8 @@ class DashboardBuilder:
                     "receiptId": receipt.get("receiptId"),
                     "receiptDigest": receipt.get("receiptDigest"),
                     "errorCode": receipt.get("errorCode") or "superset_import_failed",
-                    "recoveryAction": receipt.get("recoveryAction") or "retry_same_bundle",
+                    "recoveryAction": receipt.get("recoveryAction")
+                    or "retry_same_bundle",
                 },
             }
 
