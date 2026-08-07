@@ -54,12 +54,10 @@ export const QuestionForm = ({
     <section
       id="ask-openelis"
       className="query-card query-card--question"
-      aria-labelledby="question-title"
+      aria-label="Query composer"
     >
       <div className="section-heading query-composer__heading">
-        <h1 id="question-title" tabIndex={-1}>
-          Ask OpenELIS
-        </h1>
+        <strong>Ask OpenELIS</strong>
       </div>
       <Form className="query-composer-form" onSubmit={handleSubmit}>
         <div className="query-composer">
@@ -69,7 +67,8 @@ export const QuestionForm = ({
               labelText="Question"
               placeholder="Describe the laboratory data you want to explore"
               value={question}
-              rows={4}
+              rows={2}
+              autoFocus
               disabled={busy || disabled}
               onChange={(event) => onQuestionChange(event.currentTarget.value)}
             />

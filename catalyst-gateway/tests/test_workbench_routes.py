@@ -410,7 +410,7 @@ class SwitchableAvailabilityHub(FakeHub):
         profiles = await super().list_query_profiles()
         profiles[0]["available"] = self.available
         profiles[0]["unavailable_reasons"] = (
-            [] if self.available else ["model_not_advertised:gemma-4-12b-q4"]
+            [] if self.available else ["model_not_advertised:google/gemma-4-e4b"]
         )
         return profiles
 

@@ -8,20 +8,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "docker-compose.mvp.yml"
-EXTERNAL_REVIEWED_PROFILE_ID = "catalyst-query-gemma-4-12b-qwen2.5-14b-checked"
-BUNDLED_WRITER_PROFILE_ID = "catalyst-query-qwen-coder-1.5b"
-BUNDLED_WRITER_MODEL_ID = "qwen2.5-coder-1.5b-instruct-q4_k_m"
+EXTERNAL_REVIEWED_PROFILE_ID = "catalyst-query-e4b-qwen14b"
+SUPERSET_IMAGE = (
+    "apache/superset:6.1.0-dev@sha256:"
+    "5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
+)
+SUPERSET_PLATFORM = "linux/arm64"
+SUPERSET_DRIVER_REVISION = "psycopg2-binary==2.9.9"
 
 
 class MvpComposeContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.compose = COMPOSE.read_text()
+        cls.demo_compose = (ROOT / "docker-compose.demo.yml").read_text()
         cls.env = (ROOT / "env.recommended").read_text()
         cls.up_script = (ROOT / "scripts/mvp-up.sh").read_text()
         cls.health_script = (ROOT / "scripts/mvp-health.sh").read_text()
+        cls.superset_script = (ROOT / "scripts/mvp-superset.sh").read_text()
         cls.model_config_script = (ROOT / "scripts/mvp-model-config.sh").read_text()
         cls.hub_bootstrap = (ROOT / "scripts/bootstrap-med-agent-hub.sh").read_text()
+        cls.fhir_data_pipes_bootstrap = (
+            ROOT / "scripts/bootstrap-fhir-data-pipes.sh"
+        ).read_text()
+        cls.openelis_bootstrap = (ROOT / "scripts/bootstrap-openelis.sh").read_text()
 
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
@@ -29,13 +39,13 @@ class MvpComposeContractTests(unittest.TestCase):
             "analytics-db",
             "hapi-mtls-proxy",
             "fhir-data-pipes",
-            "model-router",
-            "model-router-fake",
             "med-agent-hub",
             "catalyst-gateway",
             "catalyst-ui",
         ):
             self.assertRegex(self.compose, rf"(?m)^  {re.escape(service)}:")
+        self.assertNotRegex(self.compose, r"(?m)^  model-router(?:-fake)?:")
+        self.assertFalse((ROOT / "scripts/fake-model-router.py").exists())
         self.assertNotRegex(self.compose, r"(?m)^  spark:")
 
     def test_openelis_checkout_and_runtime_images_are_immutable(self):
@@ -124,6 +134,7 @@ class MvpComposeContractTests(unittest.TestCase):
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
                 "HAPI_HTTPS_PORT",
+                "SUPERSET_PORT",
             ),
             "mvp-seed.sh": (
                 "GATEWAY_PORT",
@@ -142,6 +153,7 @@ class MvpComposeContractTests(unittest.TestCase):
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
                 "HAPI_HTTPS_PORT",
+                "SUPERSET_PORT",
             ),
         }
         for script_name, variables in expected.items():
@@ -171,18 +183,21 @@ class MvpComposeContractTests(unittest.TestCase):
             proxy_config,
         )
 
+    def test_pinned_runtime_dependency_checkouts_are_reused_until_refresh_requested(self):
+        for script, pinned_reference in (
+            (self.fhir_data_pipes_bootstrap, "FHIR_DATA_PIPES_COMMIT"),
+            (self.openelis_bootstrap, "OPENELIS_DOCKER_REF"),
+        ):
+            with self.subTest(reference=pinned_reference):
+                self.assertIn('MVP_REFRESH_DEPENDENCIES:-false', script)
+                self.assertIn('REFRESH_DEPENDENCIES}" != "true"', script)
+                self.assertIn(
+                    f'actual_commit}}" = "${{{pinned_reference}}}"', script
+                )
+
     def test_router_identity_hub_and_ui_ports_do_not_collide(self):
-        self.assertIn("bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF", self.env)
-        self.assertIn("Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf", self.compose)
-        self.assertIn("qwen2.5-coder-1.5b-instruct-q4_k_m", self.compose)
-        self.assertNotIn("qwen2.5-coder-14b", self.compose)
-        self.assertIn(
-            "ghcr.io/ggml-org/llama.cpp@sha256:"
-            "6bc9134e3278a0ecab23d7ef2f6a46b4595740014fe9bc2f67e8ba7dca8395b4",
-            self.compose,
-        )
-        self.assertIn("./.models:/models:ro", self.compose)
-        self.assertIn("--model", self.compose)
+        self.assertNotRegex(self.compose, r"(?m)^  model-router(?:-fake)?:")
+        self.assertNotIn("./.models:/models:ro", self.compose)
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
         for port_mapping in (
@@ -209,75 +224,46 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_external_gemma_router_is_the_recommended_manual_backend(self):
         self.assertIn("MVP_MODEL_BACKEND=external", self.env)
         self.assertIn(
-            "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
+            "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234", self.env
         )
-        self.assertIn("MVP_EXTERNAL_MODEL_ID=gemma-4-12b", self.env)
         self.assertIn(
             f"MVP_EXTERNAL_PROFILE_ID={EXTERNAL_REVIEWED_PROFILE_ID}",
             self.env,
         )
         self.assertIn(
-            "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON='"
-            '{"query_generate":"gemma-4-12b","query_review":"qwen2.5-14b"}'
-            "'",
-            self.env,
-        )
-        self.assertIn(
-            'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"',
+            'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:1234}"',
             self.compose,
         )
-        self.assertIn("HUB_LLM_PROVIDER=llama.cpp", self.env)
-        self.assertIn('LLM_PROVIDER: "${HUB_LLM_PROVIDER:-llama.cpp}"', self.compose)
+        self.assertIn("HUB_LLM_PROVIDER=openai-compatible", self.env)
+        self.assertIn(
+            'LLM_PROVIDER: "${HUB_LLM_PROVIDER:-openai-compatible}"', self.compose
+        )
         self.assertIn("host.docker.internal:host-gateway", self.compose)
         self.assertIn("mvp_resolve_model_config", self.up_script)
-        self.assertIn(
-            "gemma-e4b,gemma-4-12b,qwen2.5-14b,qwen2.5-coder-1.5b-instruct-q4_k_m",
+
+    def test_no_fake_or_bundled_router_configuration_remains(self):
+        for text in (
+            self.env,
             self.compose,
-        )
-
-    def test_bundled_router_uses_the_writer_only_gateway_profile(self):
+            self.demo_compose,
+            self.up_script,
+            self.health_script,
+        ):
+            self.assertNotIn("MVP_FAKE_", text)
+            self.assertNotIn("model-router-fake", text)
+        self.assertNotRegex(self.demo_compose, r"(?m)^  model-router:")
         self.assertIn(
-            f"MVP_BUNDLED_PROFILE_ID={BUNDLED_WRITER_PROFILE_ID}",
-            self.env,
+            "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}",
+            self.demo_compose,
         )
-        self.assertIn(
-            f"MVP_BUNDLED_MODEL_ID={BUNDLED_WRITER_MODEL_ID}",
-            self.env,
-        )
-        self.assertIn(
-            "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON='"
-            f'{{"query_generate":"{BUNDLED_WRITER_MODEL_ID}"}}'
-            "'",
-            self.env,
-        )
-
-    def test_fake_router_uses_the_writer_only_gateway_profile(self):
-        self.assertIn(
-            "MVP_FAKE_PROFILE_ID=catalyst-query-gemma-4-12b",
-            self.env,
-        )
-        self.assertIn(
-            "MVP_FAKE_MODEL_ID=gemma-4-12b",
-            self.env,
-        )
-        self.assertIn(
-            "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON='"
-            '{"query_generate":"gemma-4-12b"}'
-            "'",
-            self.env,
-        )
+        self.assertNotIn("CATALYST_ROUTER_URL", self.compose)
+        self.assertNotIn("CATALYST_ROUTER_URL", self.demo_compose)
+        self.assertNotIn("MVP_BUNDLED_", self.env)
+        self.assertNotIn("MVP_BUNDLED_", self.up_script)
 
     def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
         self.assertIn(
-            'router_url="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
-            self.model_config_script,
-        )
-        self.assertIn(
-            'router_url="${MVP_LOCAL_ROUTER_URL:-http://model-router:8077}"',
-            self.model_config_script,
-        )
-        self.assertIn(
-            'router_url="${MVP_FAKE_ROUTER_URL:-http://model-router-fake:8077}"',
+            'MVP_RESOLVED_ROUTER_URL="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}"',
             self.model_config_script,
         )
         for script in (self.up_script, self.health_script, self.model_config_script):
@@ -286,11 +272,10 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertNotIn("MVP_HUB_LLM_BASE_URL", self.compose)
         self.assertIn('export MVP_SELECTED_ROUTER_URL="${router_url}"', self.up_script)
 
-    def test_up_stops_routers_not_selected_by_the_configured_mode(self):
-        self.assertIn("stale_model_services", self.up_script)
-        self.assertIn("stale_model_services+=(model-router)", self.up_script)
-        self.assertIn("stale_model_services+=(model-router-fake)", self.up_script)
-        self.assertIn('stop "${stale_model_services[@]}"', self.up_script)
+    def test_up_does_not_manage_a_product_router_service(self):
+        self.assertNotIn("stale_model_services", self.up_script)
+        self.assertNotIn("model-router", self.up_script)
+        self.assertIn("/v1/hub/query-profiles", self.up_script)
 
     def test_health_never_infers_mode_from_leftover_router_containers(self):
         self.assertNotIn("running_services", self.health_script)
@@ -300,9 +285,8 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn('-e "EXPECTED_ROUTER_URL=${router_url}"', self.health_script)
 
     def test_health_and_provenance_use_the_selected_router_identity(self):
-        self.assertIn("MVP_EXTERNAL_MODEL_ID", self.model_config_script)
-        self.assertIn("MVP_BUNDLED_MODEL_ID", self.model_config_script)
-        self.assertIn('model_router["modelId"] = model_ids[0]', self.health_script)
+        self.assertNotIn("MVP_EXTERNAL_MODEL_ID", self.model_config_script)
+        self.assertNotIn("MVP_BUNDLED_MODEL_ID", self.model_config_script)
         self.assertIn('"baseUrl": os.environ["ROUTER_URL"]', self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.health_script)
         self.assertNotIn("qwen2.5-coder-14b", self.up_script)
@@ -317,46 +301,26 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("itechuw/openelis-global-2@sha256:", self.health_script)
 
     def test_health_validates_and_records_the_exact_profile_role_model_map(self):
-        self.assertIn("MVP_EXPECTED_ROLE_MODELS_JSON", self.health_script)
+        self.assertNotIn("MVP_EXPECTED_ROLE_MODELS_JSON", self.health_script)
+        self.assertIn("/v1/hub/query-profiles", self.health_script)
         self.assertIn(
-            "EXPECTED_ROLE_MODELS_JSON=${role_models_json}", self.health_script
-        )
-        self.assertIn(
-            "missing = sorted(set(expected.values()) - served)",
+            'if set(role_models) != {"query_generate", "query_review"}:',
             self.health_script,
         )
         self.assertIn(
-            "if role_models != expected_role_models:",
+            'evidence = profile.get("profileEvidence")',
             self.health_script,
         )
         self.assertIn(
-            'if profile.get("revisionCapable") is not True:',
+            'evidence.get("profileId") != profile_id',
             self.health_script,
         )
         self.assertIn(
-            'provenance = profile.get("provenance")',
+            'if not str(evidence.get("profileDigest", "")):',
             self.health_script,
         )
-        self.assertIn(
-            'if provenance.get("profileId") != profile_id:',
-            self.health_script,
-        )
-        self.assertIn(
-            'if provenance.get("profileLabel") != profile.get("label"):',
-            self.health_script,
-        )
-        self.assertIn(
-            'if not str(provenance.get("profileConfigurationDigest", "")):',
-            self.health_script,
-        )
-        self.assertIn(
-            '{"query_generate": model_id}',
-            self.model_config_script,
-        )
-        self.assertIn('{"query_generate"}', self.health_script)
-        self.assertIn("if len(model_ids) == 1:", self.health_script)
         self.assertIn('"roleModels": role_models', self.health_script)
-        self.assertIn('"modelIds": model_ids', self.health_script)
+        self.assertIn('model_router["modelIds"] = sorted', self.health_script)
 
     def test_gateway_image_contains_runtime_contracts_and_catalog(self):
         dockerfile = (ROOT / "catalyst-gateway/Dockerfile").read_text()
@@ -376,25 +340,154 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("!docs/contracts/**", dockerignore)
         self.assertIn("!analytics/catalog/**", dockerignore)
 
+    def test_superset_runtime_is_digest_pinned_initialized_and_persistent(self):
+        for service in (
+            "superset-metadata-db",
+            "superset-init",
+            "superset",
+            "superset-importer",
+        ):
+            self.assertRegex(self.compose, rf"(?m)^  {service}:")
+        self.assertGreaterEqual(self.compose.count(f"image: {SUPERSET_IMAGE}"), 3)
+        self.assertIn("catalyst_superset_metadata", self.compose)
+        init_script = (ROOT / "scripts/superset-init.sh").read_text()
+        self.assertIn("superset db upgrade", init_script)
+        self.assertIn("superset init", init_script)
+        self.assertIn("service_completed_successfully", self.compose)
+        self.assertIn("superset-metadata-data:/var/lib/postgresql/data", self.compose)
+        self.assertIn("superset-home:/app/superset_home", self.compose)
+        self.assertIn('127.0.0.1:${SUPERSET_PORT:-8088}:8088', self.compose)
+        self.assertIn("/health", self.compose)
+
+    def test_superset_runtime_records_the_pinned_platform_and_driver_revision(self):
+        self.assertGreaterEqual(
+            self.compose.count(
+                'platform: "${SUPERSET_PLATFORM:-' + SUPERSET_PLATFORM + '}"'
+            ),
+            3,
+        )
+        self.assertIn(f"SUPERSET_PLATFORM={SUPERSET_PLATFORM}", self.env)
+        self.assertIn(f"SUPERSET_DRIVER_REVISION={SUPERSET_DRIVER_REVISION}", self.env)
+        self.assertIn(
+            'CATALYST_SUPERSET_PLATFORM: "${SUPERSET_PLATFORM:-linux/arm64}"',
+            self.compose,
+        )
+        self.assertIn(
+            'CATALYST_SUPERSET_DRIVER_REVISION: '
+            '"${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}"',
+            self.compose,
+        )
+        self.assertIn("SUPERSET_PLATFORM=", self.health_script)
+        self.assertIn("SUPERSET_DRIVER_REVISION=", self.health_script)
+        self.assertIn('"platform": os.environ["SUPERSET_PLATFORM"]', self.health_script)
+        self.assertIn(
+            '"driverRevision": os.environ["SUPERSET_DRIVER_REVISION"]',
+            self.health_script,
+        )
+
+    def test_hapi_proxy_allows_the_pinned_fhir_first_start_to_finish(self):
+        proxy = self.compose[
+            self.compose.index("  hapi-mtls-proxy:") : self.compose.index(
+                "  fhir-data-pipes:"
+            )
+        ]
+        self.assertIn("wget -qO /dev/null http://127.0.0.1:8080/fhir/metadata", proxy)
+        self.assertIn("start_period: 10m", proxy)
+
+    def test_superset_runtime_separates_read_only_input_and_writable_receipts(self):
+        gitignore = (ROOT / ".gitignore").read_text()
+        config = (ROOT / "superset/superset_config.py").read_text()
+        roles = (ROOT / "analytics/sql/000_analytics_roles.sql").read_text()
+        self.assertIn("/runtime/superset/", gitignore)
+        self.assertIn("CATALYST_SUPERSET_METADATA_DSN", config)
+        self.assertIn("SQLALCHEMY_DATABASE_URI", config)
+        self.assertNotIn("catalyst_readonly", config)
+        self.assertIn(
+            "ALTER ROLE catalyst_readonly SET default_transaction_read_only = on;",
+            roles,
+        )
+        self.assertIn("REVOKE CREATE ON SCHEMA public FROM PUBLIC;", roles)
+
+    def test_superset_lifecycle_retains_state_until_explicit_reset(self):
+        down_script = (ROOT / "scripts/mvp-down.sh").read_text()
+        reset_script = (ROOT / "scripts/mvp-reset.sh").read_text()
+
+        self.assertIn('"${compose[@]}" down --remove-orphans "$@"', down_script)
+        self.assertNotIn("down --volumes", down_script)
+        self.assertIn('"${compose[@]}" down --volumes --remove-orphans', reset_script)
+        self.assertIn('"${ROOT_DIR}/runtime/superset/outbox"', self.up_script)
+        self.assertIn(
+            '"${ROOT_DIR}/runtime/superset/receipts/last-verified"',
+            self.up_script,
+        )
+        self.assertRegex(self.compose, r"(?m)^  superset-metadata-data:$")
+        self.assertRegex(self.compose, r"(?m)^  superset-home:$")
+
+    def test_superset_local_config_is_injected_without_serializing_credentials(self):
+        importer = (ROOT / "scripts/superset-import.py").read_text()
+        provenance_writer = self.health_script[
+            self.health_script.index("payload = {") :
+        ]
+
+        for variable in (
+            "SUPERSET_SECRET_KEY",
+            "SUPERSET_ADMIN_PASSWORD",
+            "SUPERSET_METADATA_PASSWORD",
+        ):
+            with self.subTest(variable=variable):
+                self.assertIn(f"${{{variable}:-", self.compose)
+                self.assertNotIn(f'os.environ["{variable}"]', provenance_writer)
+        self.assertIn('os.environ.get("SUPERSET_ADMIN_PASSWORD", "")', importer)
+        self.assertIn('os.environ.get("SUPERSET_METADATA_PASSWORD", "")', importer)
+        self.assertIn('"redacted": True', importer)
+        self.assertNotIn('"password":', importer)
+
+    def test_superset_importer_receipts_identify_the_exact_catalyst_revision(self):
+        self.assertIn(
+            'catalyst_revision="$(git -C "${ROOT_DIR}" rev-parse --verify HEAD)"',
+            self.superset_script,
+        )
+        self.assertIn(
+            'export CATALYST_IMPORTER_REVISION="${catalyst_revision}"',
+            self.superset_script,
+        )
+        self.assertIn(
+            'CATALYST_IMPORTER_REVISION: "${CATALYST_IMPORTER_REVISION:-}"',
+            self.compose,
+        )
+        self.assertIn(
+            'run --rm --no-deps superset-importer status', self.superset_script
+        )
+        self.assertIn(
+            'up -d --wait --wait-timeout 180 analytics-db superset',
+            self.superset_script,
+        )
+        self.assertIn(
+            'run --rm --no-deps superset-importer import', self.superset_script
+        )
+        self.assertIn("./runtime/superset/outbox:/opt/catalyst/outbox:ro", self.compose)
+        self.assertIn(
+            "./runtime/superset/receipts:/opt/catalyst/receipts:rw", self.compose
+        )
+        self.assertIn(
+            "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics",
+            self.compose,
+        )
+        self.assertNotIn("set-database-uri", self.compose)
+
+    def test_superset_init_and_operator_scripts_are_executable_and_parse(self):
+        for name in ("superset-init.sh", "mvp-superset.sh"):
+            script = ROOT / "scripts" / name
+            self.assertTrue(os.access(script, os.X_OK))
+            subprocess.run(["bash", "-n", script], check=True)
+
 
 class MvpScriptContractTests(unittest.TestCase):
     _MODEL_OVERRIDE_KEYS = (
         "MVP_MODEL_BACKEND",
         "MVP_EXTERNAL_ROUTER_URL",
-        "MVP_LOCAL_ROUTER_URL",
-        "MVP_FAKE_ROUTER_URL",
-        "MVP_EXTERNAL_MODEL_ID",
         "MVP_EXTERNAL_PROFILE_ID",
-        "MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON",
-        "MVP_BUNDLED_MODEL_ID",
-        "MVP_BUNDLED_PROFILE_ID",
-        "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON",
-        "MVP_FAKE_MODEL_ID",
-        "MVP_FAKE_PROFILE_ID",
-        "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON",
-        "MVP_EXPECTED_MODEL_ID",
         "MVP_PROFILE_ID",
-        "MVP_EXPECTED_ROLE_MODELS_JSON",
     )
 
     def _resolved_model_config(self, script_name, backend, **overrides):
@@ -438,80 +531,43 @@ class MvpScriptContractTests(unittest.TestCase):
         self,
     ):
         expected = {
-            "external": {
-                "modelId": "gemma-4-12b",
-                "profileId": EXTERNAL_REVIEWED_PROFILE_ID,
-                "routerUrl": "http://host.docker.internal:8077",
-                "roleModels": {
-                    "query_generate": "gemma-4-12b",
-                    "query_review": "qwen2.5-14b",
-                },
-            },
-            "fake": {
-                "modelId": "gemma-4-12b",
-                "profileId": "catalyst-query-gemma-4-12b",
-                "routerUrl": "http://model-router-fake:8077",
-                "roleModels": {
-                    "query_generate": "gemma-4-12b",
-                },
-            },
-            "local": {
-                "modelId": BUNDLED_WRITER_MODEL_ID,
-                "profileId": BUNDLED_WRITER_PROFILE_ID,
-                "routerUrl": "http://model-router:8077",
-                "roleModels": {
-                    "query_generate": BUNDLED_WRITER_MODEL_ID,
-                },
-            },
-        }
-        for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
-            for backend, backend_expected in expected.items():
-                with self.subTest(script=script_name, backend=backend):
-                    overrides = {}
-                    if backend in {"fake", "local"}:
-                        # Keep this contract test independent of a developer's
-                        # ignored .env copied from an older branch.
-                        role_map_key = (
-                            "MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON"
-                            if backend == "local"
-                            else "MVP_FAKE_EXPECTED_ROLE_MODELS_JSON"
-                        )
-                        overrides[role_map_key] = json.dumps(
-                            backend_expected["roleModels"]
-                        )
-                    resolved = self._resolved_model_config(
-                        script_name,
-                        backend,
-                        **overrides,
-                    )
-                    self.assertEqual(resolved["backend"], backend)
-                    for key, value in backend_expected.items():
-                        self.assertEqual(resolved[key], value)
-
-    def test_explicit_model_invocation_overrides_survive_every_env_file_load(self):
-        role_models = {
-            "query_generate": "custom-writer",
-            "query_review": "custom-reviewer",
-        }
-        overrides = {
-            "MVP_LOCAL_ROUTER_URL": "http://custom-local-router:9000",
-            "MVP_EXPECTED_MODEL_ID": "custom-writer",
-            "MVP_PROFILE_ID": "custom-local-profile",
-            "MVP_EXPECTED_ROLE_MODELS_JSON": json.dumps(role_models),
+            "backend": "external",
+            "profileId": EXTERNAL_REVIEWED_PROFILE_ID,
+            "routerUrl": "http://host.docker.internal:1234",
         }
         for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
             with self.subTest(script=script_name):
                 resolved = self._resolved_model_config(
                     script_name,
-                    "local",
+                    "external",
+                    MVP_EXTERNAL_ROUTER_URL=expected["routerUrl"],
+                    MVP_EXTERNAL_PROFILE_ID=expected["profileId"],
+                )
+                self.assertEqual(resolved, expected)
+
+    def test_unsupported_router_modes_fail_in_every_lifecycle_script(self):
+        for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
+            for backend in ("fake", "local"):
+                with self.subTest(script=script_name, backend=backend):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self._resolved_model_config(script_name, backend)
+
+    def test_explicit_model_invocation_overrides_survive_every_env_file_load(self):
+        overrides = {
+            "MVP_EXTERNAL_ROUTER_URL": "http://custom-external-router:9000",
+            "MVP_PROFILE_ID": "custom-hub-profile",
+        }
+        for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
+            with self.subTest(script=script_name):
+                resolved = self._resolved_model_config(
+                    script_name,
+                    "external",
                     **overrides,
                 )
                 self.assertEqual(
-                    resolved["routerUrl"], overrides["MVP_LOCAL_ROUTER_URL"]
+                    resolved["routerUrl"], overrides["MVP_EXTERNAL_ROUTER_URL"]
                 )
-                self.assertEqual(resolved["modelId"], "custom-writer")
-                self.assertEqual(resolved["profileId"], "custom-local-profile")
-                self.assertEqual(resolved["roleModels"], role_models)
+                self.assertEqual(resolved["profileId"], "custom-hub-profile")
 
     def test_up_omits_openelis_frontend_and_proxy(self):
         script = (ROOT / "scripts/mvp-up.sh").read_text()
@@ -555,13 +611,16 @@ class MvpScriptContractTests(unittest.TestCase):
             "HAPI seed resources",
             "FHIR Data Pipes controller",
             "analytics mart exact rows",
-            "model router",
+            "hub router configuration",
             "hub query profile",
+            "gateway view of Hub query profile",
             "Catalyst gateway",
             "Catalyst UI",
+            "Superset renderer",
             "mvp-provenance.json",
         ):
             self.assertIn(marker, script)
+        self.assertIn('if body != "OK":', script)
 
 
 if __name__ == "__main__":

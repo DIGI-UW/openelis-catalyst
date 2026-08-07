@@ -21,6 +21,9 @@
 logs/
 *.log
 
+# Catalyst-owned local Superset outbox, receipts, locks, and generated state
+/runtime/superset/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -20,6 +20,17 @@ Canonical architecture and planning:
 - `docs/roadmap.md`
 - `docs/med-agent-hub.md`
 
+For the Dashboard Builder MVP, the binding product contract is
+`docs/dashboard-builder-mvp-design.md` and the binding visual reference is
+`docs/prototypes/dashboard-builder-mvp/Catalyst Dashboard Builder 4c.dc.html`.
+The existing Gateway, Superset importer, and publication panel are reusable
+foundation; they do not by themselves satisfy a Dashboard Builder milestone.
+Do not reinterpret "lightweight" as reduced product scope, substitute backend
+or mock evidence for the required live browser workflow, or close a milestone
+while its user-facing UX tasks remain open. Any proposed change to milestone
+meaning or to the approved Ask → Dataset → Widget → Dashboard → Superset
+workflow must be surfaced for user approval before implementation continues.
+
 Do not duplicate product architecture in this file. This file is an environment
 and test runbook.
 
@@ -58,11 +69,9 @@ cp env.recommended .env
 ./scripts/mvp-health.sh
 ```
 
-The recommended live run uses the configured external Gemma router. The React
-sidecar is at `http://localhost:3000`.
-
-Export `MVP_MODEL_BACKEND=fake` before running `mvp-up.sh`, `mvp-seed.sh`, and
-`mvp-health.sh` for deterministic CI-style assembly without the GGUF.
+The live run uses the configured external router at
+`http://host.docker.internal:1234`. It must advertise the exact role models in
+the selected Hub profile. The React sidecar is at `http://localhost:3000`.
 
 #### Full stack
 
@@ -107,7 +116,7 @@ All services share `openelis-network`.
 `docker-compose.full-stack.yml` is the older co-location stack.
 `docker-compose.mvp.yml` is the tested query-to-table assembly.
 
-#### Current Catalyst prototype
+#### Legacy Catalyst prototype components
 
 From the repository root:
 
@@ -115,7 +124,7 @@ From the repository root:
 ./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
 ```
 
-This starts:
+This starts the historical components for isolated maintenance only:
 
 - Gateway `:8000`
 - RouterAgent `:9100`
@@ -135,25 +144,26 @@ OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
 
 #### MVP path
 
-Catalyst Gateway owns governed-query profiles, role-to-model mapping, prompts,
-writer/reviewer stage ordering, deterministic lint/re-lint, and query evidence.
-med-agent-hub provides the generic `POST /v1/hub/generate` model-provider
-boundary and forwards each Gateway-selected role to its local model router.
-Hub's separate clinical-answer/report profiles are not the Catalyst query
-engine. The standalone bootstrap checks out the pinned Hub commit without local
-patches; the harness owns and pins the same Hub repository as a sibling
-submodule.
+med-agent-hub's shared profile catalog owns Catalyst query role models, role
+knobs, and prompts. Catalyst Gateway owns context assembly, writer/reviewer
+stage ordering, deterministic lint/re-lint, query evidence, execution, and
+lineage. Gateway discovers available profiles from
+`GET /v1/hub/query-profiles` and invokes a configured role through
+`POST /v1/hub/query-profiles/{profile}/roles/{role}/generate`; it cannot select
+or override that role's model, prompt, or knobs. Hub's clinical profiles use
+the same base profile schema through a separate hosted workflow adapter. The
+standalone bootstrap checks out the pinned Hub commit without local patches;
+the harness owns and pins the same Hub repository as a sibling submodule.
 
 #### Current prototype
 
-The legacy `/v1/chat/completions` path still uses Catalyst-local configuration:
+The historical Catalyst agent code still uses Catalyst-local configuration:
 
 - `CATALYST_LLM_PROVIDER=lmstudio` with an OpenAI-compatible endpoint at
   `LMSTUDIO_BASE_URL`; or
 - `CATALYST_LLM_PROVIDER=gemini` with `GOOGLE_API_KEY`.
 
-Without a provider, health and unit tests pass but the legacy provider E2E does
-not.
+It is not exposed by Gateway and is not a supported manual product path.
 
 Inside the full-stack compose, the hub uses `HUB_LLM_BASE_URL`, normally
 pointing to a local model router through `host.docker.internal`.
@@ -177,14 +187,8 @@ Full current-prototype smoke suite:
 The smoke script requires a repository-root `.env` because `Procfile.dev`
 passes it to Uvicorn.
 
-Legacy provider E2E:
-
-```bash
-./tests/e2e/test_provider_e2e.sh
-```
-
-Do not use `tests/e2e/test_multiagent_e2e.sh` as evidence of the target
-architecture. It covers the older Catalyst-local agent topology.
+Do not use the older Catalyst-local agent topology as evidence of the target
+architecture.
 
 For roadmap implementation:
 

@@ -7,7 +7,7 @@ from .catalog import Catalog
 
 # Default governed-query profile: writer-only (no independent review) per the
 # product default. The self-checked writer+reviewer profile is the opt-in option.
-QUERY_PROFILE_ID = "catalyst-query-gemma-4-12b-q4"
+QUERY_PROFILE_ID = "catalyst-query-e4b-qwen14b"
 QUERY_OUTPUT_CONTRACT = "catalyst.query.v1"
 
 

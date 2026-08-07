@@ -4,12 +4,13 @@ from src import gateway
 from src.config import load_config
 
 
-def test_gateway_exposes_chat_completions_endpoint():
+def test_gateway_exposes_only_catalyst_product_endpoints():
     app = gateway.create_app()
     assert isinstance(app, FastAPI)
     paths = {route.path for route in app.router.routes}
-    assert "/v1/chat/completions" in paths
+    assert "/v1/chat/completions" not in paths
     assert "/health" in paths
+    assert "/v1/catalyst/workbench/sessions" in paths
 
 
 def test_config_builds_default_data_source_registry():

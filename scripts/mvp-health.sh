@@ -12,20 +12,8 @@ CURL_MAX_TIME_SECONDS="${MVP_CURL_MAX_TIME_SECONDS:-15}"
 . "${ROOT_DIR}/scripts/mvp-model-config.sh"
 model_backend_override="${MVP_MODEL_BACKEND:-}"
 external_router_url_override="${MVP_EXTERNAL_ROUTER_URL:-}"
-local_router_url_override="${MVP_LOCAL_ROUTER_URL:-}"
-fake_router_url_override="${MVP_FAKE_ROUTER_URL:-}"
-external_model_override="${MVP_EXTERNAL_MODEL_ID:-}"
 external_profile_override="${MVP_EXTERNAL_PROFILE_ID:-}"
-external_role_models_override="${MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON:-}"
-bundled_model_override="${MVP_BUNDLED_MODEL_ID:-}"
-bundled_profile_override="${MVP_BUNDLED_PROFILE_ID:-}"
-bundled_role_models_override="${MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON:-}"
-fake_model_override="${MVP_FAKE_MODEL_ID:-}"
-fake_profile_override="${MVP_FAKE_PROFILE_ID:-}"
-fake_role_models_override="${MVP_FAKE_EXPECTED_ROLE_MODELS_JSON:-}"
-expected_model_override="${MVP_EXPECTED_MODEL_ID:-}"
 profile_override="${MVP_PROFILE_ID:-}"
-expected_role_models_override="${MVP_EXPECTED_ROLE_MODELS_JSON:-}"
 hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
@@ -35,6 +23,7 @@ data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
 hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
+superset_port_override="${SUPERSET_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -43,54 +32,17 @@ set -a
 # shellcheck disable=SC1090
 . "${ENV_FILE}"
 set +a
-unset MVP_EXPECTED_ROLE_MODELS_JSON
 if [ -n "${model_backend_override}" ]; then
   export MVP_MODEL_BACKEND="${model_backend_override}"
 fi
 if [ -n "${external_router_url_override}" ]; then
   export MVP_EXTERNAL_ROUTER_URL="${external_router_url_override}"
 fi
-if [ -n "${local_router_url_override}" ]; then
-  export MVP_LOCAL_ROUTER_URL="${local_router_url_override}"
-fi
-if [ -n "${fake_router_url_override}" ]; then
-  export MVP_FAKE_ROUTER_URL="${fake_router_url_override}"
-fi
-if [ -n "${external_model_override}" ]; then
-  export MVP_EXTERNAL_MODEL_ID="${external_model_override}"
-fi
 if [ -n "${external_profile_override}" ]; then
   export MVP_EXTERNAL_PROFILE_ID="${external_profile_override}"
 fi
-if [ -n "${external_role_models_override}" ]; then
-  export MVP_EXTERNAL_EXPECTED_ROLE_MODELS_JSON="${external_role_models_override}"
-fi
-if [ -n "${bundled_model_override}" ]; then
-  export MVP_BUNDLED_MODEL_ID="${bundled_model_override}"
-fi
-if [ -n "${bundled_profile_override}" ]; then
-  export MVP_BUNDLED_PROFILE_ID="${bundled_profile_override}"
-fi
-if [ -n "${bundled_role_models_override}" ]; then
-  export MVP_BUNDLED_EXPECTED_ROLE_MODELS_JSON="${bundled_role_models_override}"
-fi
-if [ -n "${fake_model_override}" ]; then
-  export MVP_FAKE_MODEL_ID="${fake_model_override}"
-fi
-if [ -n "${fake_profile_override}" ]; then
-  export MVP_FAKE_PROFILE_ID="${fake_profile_override}"
-fi
-if [ -n "${fake_role_models_override}" ]; then
-  export MVP_FAKE_EXPECTED_ROLE_MODELS_JSON="${fake_role_models_override}"
-fi
-if [ -n "${expected_model_override}" ]; then
-  export MVP_EXPECTED_MODEL_ID="${expected_model_override}"
-fi
 if [ -n "${profile_override}" ]; then
   export MVP_PROFILE_ID="${profile_override}"
-fi
-if [ -n "${expected_role_models_override}" ]; then
-  export MVP_EXPECTED_ROLE_MODELS_JSON="${expected_role_models_override}"
 fi
 if [ -n "${hub_context_override}" ]; then
   export MED_AGENT_HUB_CONTEXT="${hub_context_override}"
@@ -119,6 +71,9 @@ fi
 if [ -n "${hapi_https_port_override}" ]; then
   export HAPI_HTTPS_PORT="${hapi_https_port_override}"
 fi
+if [ -n "${superset_port_override}" ]; then
+  export SUPERSET_PORT="${superset_port_override}"
+fi
 
 compose=(
   docker compose
@@ -133,41 +88,16 @@ if [ -n "${compose_override_file}" ]; then
   fi
   compose+=(-f "${compose_override_file}")
 fi
-compose+=(--profile fake)
-
 mvp_resolve_model_config
 model_backend="${MVP_RESOLVED_MODEL_BACKEND}"
 router_mode="${model_backend}"
 router_url="${MVP_RESOLVED_ROUTER_URL}"
-model_id="${MVP_RESOLVED_MODEL_ID}"
 profile_id="${MVP_RESOLVED_PROFILE_ID}"
-role_models_json="${MVP_RESOLVED_ROLE_MODELS_JSON}"
-role_models_json="$(
-  EXPECTED_ROLE_MODELS_JSON="${role_models_json}" python3 - <<'PY'
-import json
-import os
-
-role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-allowed_role_sets = (
-    {"query_generate"},
-    {"query_generate", "query_review"},
-)
-if not isinstance(role_models, dict) or set(role_models) not in allowed_role_sets:
-    raise SystemExit(
-        "MVP_EXPECTED_ROLE_MODELS_JSON must map query_generate and may map query_review"
-    )
-if any(not isinstance(model, str) or not model.strip() for model in role_models.values()):
-    raise SystemExit("MVP_EXPECTED_ROLE_MODELS_JSON model IDs must be non-empty strings")
-print(json.dumps(role_models, sort_keys=True, separators=(",", ":")))
-PY
-)"
 
 if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
   MODEL_BACKEND="${model_backend}" \
   ROUTER_URL="${router_url}" \
-  MODEL_ID="${model_id}" \
   PROFILE_ID="${profile_id}" \
-  ROLE_MODELS_JSON="${role_models_json}" \
   python3 - <<'PY'
 import json
 import os
@@ -175,9 +105,7 @@ import os
 print(json.dumps({
     "backend": os.environ["MODEL_BACKEND"],
     "routerUrl": os.environ["ROUTER_URL"],
-    "modelId": os.environ["MODEL_ID"],
     "profileId": os.environ["PROFILE_ID"],
-    "roleModels": json.loads(os.environ["ROLE_MODELS_JSON"]),
 }, sort_keys=True))
 PY
   exit 0
@@ -320,27 +248,6 @@ check_mart() {
     )" -ge 1
 }
 
-check_router() {
-  "${compose[@]}" exec -T \
-    -e "ROUTER_URL=${router_url}" \
-    -e "EXPECTED_ROLE_MODELS_JSON=${role_models_json}" \
-    med-agent-hub python - <<'PY'
-import json
-import os
-import urllib.request
-
-with urllib.request.urlopen(
-    os.environ["ROUTER_URL"] + "/v1/models", timeout=5
-) as response:
-    models = json.load(response).get("data", [])
-expected = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-served = {item.get("id") for item in models}
-missing = sorted(set(expected.values()) - served)
-if missing:
-    raise SystemExit(f"expected profile models are not served: {missing!r}")
-PY
-}
-
 check_hub_router_config() {
   "${compose[@]}" exec -T \
     -e "EXPECTED_ROUTER_URL=${router_url}" \
@@ -356,10 +263,44 @@ if configured != expected:
 PY
 }
 
-# The governed-query profiles moved out of the hub when the gateway took over
-# orchestration: the hub is now a generic model executor and advertises no
-# catalyst-query-* ids at all. Probe the gateway, which owns them.
 check_hub_profile() {
+  HUB_URL="http://localhost:${MED_AGENT_HUB_PORT:-8082}" \
+  PROFILE_ID="${profile_id}" \
+  python3 - <<'PY'
+import json
+import os
+import urllib.request
+
+url = os.environ["HUB_URL"] + "/v1/hub/query-profiles"
+with urllib.request.urlopen(url, timeout=5) as response:
+    payload = json.load(response)
+profiles = payload.get("profiles", [])
+if not profiles:
+    profiles = payload.get("data", [])
+profile_id = os.environ["PROFILE_ID"]
+profile = next((item for item in profiles if item.get("id") == profile_id), None)
+if profile is None:
+    raise SystemExit(
+        f"{profile_id} is not defined by Hub; Hub advertises "
+        f"{[item.get('id') for item in profiles]}"
+    )
+if profile.get("available") is not True:
+    raise SystemExit(
+        f"{profile_id} is unavailable: {profile.get('unavailableReasons', [])}"
+    )
+role_models = profile.get("role_models", {})
+if set(role_models) != {"query_generate", "query_review"}:
+    raise SystemExit(f"{profile_id} must define writer and reviewer roles: {role_models!r}")
+evidence = profile.get("profileEvidence")
+if not isinstance(evidence, dict) or evidence.get("profileId") != profile_id:
+    raise SystemExit(f"{profile_id} does not expose matching Hub profile evidence")
+if not str(evidence.get("profileDigest", "")):
+    raise SystemExit("Hub profile evidence must have profileDigest")
+print(json.dumps(role_models, sort_keys=True, separators=(",", ":")))
+PY
+}
+
+check_gateway_profile() {
   GATEWAY_URL="http://localhost:${GATEWAY_PORT:-8000}" \
   PROFILE_ID="${profile_id}" \
   EXPECTED_ROLE_MODELS_JSON="${role_models_json}" \
@@ -368,47 +309,18 @@ import json
 import os
 import urllib.request
 
-url = os.environ["GATEWAY_URL"] + "/v1/catalyst/query-options"
-with urllib.request.urlopen(url, timeout=5) as response:
-    payload = json.load(response)
-profiles = payload.get("profiles", [])
-profile_id = os.environ["PROFILE_ID"]
-expected_role_models = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
-
-profile = next((item for item in profiles if item.get("id") == profile_id), None)
+with urllib.request.urlopen(
+    os.environ["GATEWAY_URL"] + "/v1/catalyst/query-options", timeout=5
+) as response:
+    profiles = json.load(response).get("profiles", [])
+profile = next((item for item in profiles if item.get("id") == os.environ["PROFILE_ID"]), None)
 if profile is None:
-    raise SystemExit(
-        f"{profile_id} is not offered; gateway advertises "
-        f"{[item.get('id') for item in profiles]}"
-    )
+    raise SystemExit("Gateway did not expose the selected available Hub profile")
+expected = json.loads(os.environ["EXPECTED_ROLE_MODELS_JSON"])
+if profile.get("roleModels") != expected:
+    raise SystemExit("Gateway profile role models differ from Hub discovery")
 if profile.get("available") is not True:
-    raise SystemExit(
-        f"{profile_id} is unavailable: {profile.get('unavailableReasons', [])}"
-    )
-
-role_models = profile.get("roleModels", {})
-if role_models != expected_role_models:
-    raise SystemExit(
-        f"{profile_id} role models {role_models!r} do not match "
-        f"{expected_role_models!r}"
-    )
-
-provenance = profile.get("provenance")
-if not isinstance(provenance, dict):
-    raise SystemExit(f"{profile_id} does not expose provenance")
-if provenance.get("profileId") != profile_id:
-    raise SystemExit("provenance.profileId does not match the selected profile")
-if provenance.get("profileLabel") != profile.get("label"):
-    raise SystemExit("provenance.profileLabel does not match the profile label")
-if not str(provenance.get("profileConfigurationDigest", "")):
-    raise SystemExit("provenance.profileConfigurationDigest is required")
-
-# A reviewed profile has to actually run a review stage and be able to revise.
-if "query_review" in expected_role_models:
-    if profile.get("revisionCapable") is not True:
-        raise SystemExit(f"{profile_id} is not advertised as revision capable")
-    if "query_review" not in profile.get("stages", []):
-        raise SystemExit(f"{profile_id} does not run a query_review stage")
+    raise SystemExit("Gateway exposed an unavailable Hub profile")
 PY
 }
 
@@ -432,17 +344,38 @@ check_ui() {
     "http://localhost:${CATALYST_UI_PORT:-3000}/health" >/dev/null
 }
 
+check_superset() {
+  SUPERSET_URL="http://localhost:${SUPERSET_PORT:-8088}" python3 - <<'PY'
+import json
+import os
+import urllib.request
+
+with urllib.request.urlopen(os.environ["SUPERSET_URL"] + "/health", timeout=5) as response:
+    body = response.read().decode("utf-8").strip()
+try:
+    health = json.loads(body)
+except json.JSONDecodeError:
+    if body != "OK":
+        raise SystemExit(body)
+else:
+    if health.get("status") != "OK":
+        raise SystemExit(json.dumps(health))
+PY
+}
+
 wait_for "OpenELIS deployment pin" check_openelis_deployment_pin
 wait_for "OpenELIS database" check_openelis_db
 wait_for "OpenELIS application" check_openelis_app
 wait_for "HAPI seed resources" check_hapi_seed
 wait_for "FHIR Data Pipes controller" check_data_pipes
 wait_for "analytics mart exact rows" check_mart
-wait_for "model router" check_router
 wait_for "hub router configuration" check_hub_router_config
 wait_for "hub query profile" check_hub_profile
+role_models_json="$(check_hub_profile)"
+wait_for "gateway view of Hub query profile" check_gateway_profile
 wait_for "Catalyst gateway" check_gateway
 wait_for "Catalyst UI" check_ui
+wait_for "Superset renderer" check_superset
 
 pipeline_json="$(
   analytics_psql --command="
@@ -491,6 +424,9 @@ ROLE_MODELS_JSON="${role_models_json}" \
 PROFILE_ID="${profile_id}" \
 MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
 MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
+SUPERSET_IMAGE="apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef" \
+SUPERSET_PLATFORM="${SUPERSET_PLATFORM:-linux/arm64}" \
+SUPERSET_DRIVER_REVISION="${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}" \
 python3 - <<'PY'
 import datetime
 import json
@@ -498,23 +434,13 @@ import os
 from pathlib import Path
 
 role_models = json.loads(os.environ["ROLE_MODELS_JSON"])
-model_ids = sorted(set(role_models.values()))
 model_router = {
     "mode": os.environ["ROUTER_MODE"],
     "baseUrl": os.environ["ROUTER_URL"],
-    "modelIds": model_ids,
     "roleModels": role_models,
     "profileId": os.environ["PROFILE_ID"],
 }
-if len(model_ids) == 1:
-    model_router["modelId"] = model_ids[0]
-if os.environ["ROUTER_MODE"] == "local":
-    model_router["artifact"] = {
-        "repository": os.environ["MODEL_REPO"],
-        "file": os.environ["MODEL_FILE"],
-    }
-elif os.environ["ROUTER_MODE"] == "fake":
-    model_router["simulated"] = True
+model_router["modelIds"] = sorted(set(role_models.values()))
 
 payload = {
     "contractVersion": "catalyst.mvp.provenance.v1",
@@ -541,6 +467,13 @@ payload = {
     "catalog": {
         "contractVersion": "catalyst.analytics.catalog.v1",
         "catalogVersion": "analytics-catalog-v1",
+    },
+    "superset": {
+        "version": "6.1.0",
+        "image": os.environ["SUPERSET_IMAGE"],
+        "platform": os.environ["SUPERSET_PLATFORM"],
+        "driverRevision": os.environ["SUPERSET_DRIVER_REVISION"],
+        "metadataStore": "superset-metadata-db",
     },
     "pipelineRun": json.loads(os.environ["PIPELINE_JSON"]),
 }

@@ -277,6 +277,22 @@
   max-height: min(32rem, 58dvh);
 }
 
+.workbench-execution__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  border: 1px solid #e0e0e0;
+  border-top: 0;
+  gap: 0.25rem;
+}
+
+.workbench-execution__pagination p {
+  margin: 0 auto 0 0;
+  padding: 0 0.75rem;
+  color: var(--workbench-muted);
+  font-size: 0.875rem;
+}
+
 .workbench-execution table {
   width: 100%;
   border-collapse: collapse;
@@ -415,6 +431,13 @@
 .workbench-history dl {
   margin-top: 0.75rem;
   grid-template-columns: 0.7fr 1fr 1.5fr;
+}
+
+.workbench-history pre {
+  overflow: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .workbench-empty-note {

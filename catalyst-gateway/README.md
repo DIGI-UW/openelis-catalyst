@@ -1,10 +1,9 @@
 # Catalyst Gateway
 
-The Gateway is Catalyst's OpenAI-compatible HTTP boundary.
-
-The current implementation forwards chat completions to the legacy
-RouterAgent. The target architecture keeps the public boundary but delegates
-inference to med-agent-hub through the Catalyst integration layer.
+The Gateway owns Catalyst's governed-query orchestration, read-only execution,
+lineage, and Dashboard Builder APIs. It invokes role models only through a
+named med-agent-hub query profile; it does not expose a generic chat-completion
+relay or call a model router directly.
 
 See the repository
 [product specification](../docs/specification.md),

@@ -26,7 +26,6 @@ class DataSourceConfig:
 
 @dataclass(frozen=True)
 class GatewayConfig:
-    router_url: str
     hub_base_url: str
     analytics_dsn: str
     catalog_path: str
@@ -38,6 +37,8 @@ class GatewayConfig:
     data_sources: tuple[DataSourceConfig, ...]
     default_data_source_id: str
     default_query_profile_id: str
+    superset_outbox_path: str
+    superset_receipts_path: str
 
 
 def _load_extra_data_sources() -> tuple[DataSourceConfig, ...]:
@@ -85,7 +86,6 @@ def load_config() -> GatewayConfig:
     )
     data_sources = (default_source, *_load_extra_data_sources())
     return GatewayConfig(
-        router_url=os.getenv("CATALYST_ROUTER_URL", "http://localhost:9100"),
         hub_base_url=os.getenv("MED_AGENT_HUB_BASE_URL", "http://localhost:8082"),
         analytics_dsn=analytics_dsn,
         catalog_path=catalog_path,
@@ -103,5 +103,11 @@ def load_config() -> GatewayConfig:
         default_data_source_id=default_source_id,
         default_query_profile_id=os.getenv(
             "CATALYST_QUERY_PROFILE_ID", QUERY_PROFILE_ID
+        ),
+        superset_outbox_path=os.getenv(
+            "CATALYST_SUPERSET_OUTBOX", "/tmp/catalyst-superset-outbox"
+        ),
+        superset_receipts_path=os.getenv(
+            "CATALYST_SUPERSET_RECEIPTS", "/tmp/catalyst-superset-receipts"
         ),
     )

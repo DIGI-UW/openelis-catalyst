@@ -4,12 +4,12 @@ The generate -> lint-correct -> review -> repair -> finalize orchestration is
 moved here verbatim so the Catalyst gateway owns its own orchestration. The only
 changes from the hub original are:
 
-* the model-call seam ``_backend_chat`` now calls the hub's generic
-  ``/v1/hub/generate`` role executor instead of the model router directly, so the
-  hub is used purely as a domain-agnostic executor;
+* the model-call seam ``_backend_chat`` calls a Hub-configured named role instead
+  of the model router directly, so the Hub controls model, knobs, and prompt;
 * a writer-only branch: a profile that declares no ``query_review`` role
   finalizes the writer's lint-passing candidate without an independent review;
-* prompts, provider id, and profiles are gateway-owned config.
+* Catalyst retains only its query orchestration and receives the Hub's complete
+  profile evidence through discovery.
 
 All deterministic logic (schemas, parsing, lint, semantic grounding, patch
 application) is imported from the already-moved query_schemas / query_parse /
@@ -72,35 +72,28 @@ from .query_parse import (
 
 logger = logging.getLogger(__name__)
 
-_PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-_PROVIDER_ID = os.getenv("CATALYST_MODEL_PROVIDER_ID", "llama.cpp")
-_HUB_GENERATE_URL = os.getenv(
-    "CATALYST_HUB_GENERATE_URL", "http://med-agent-hub:8080/v1/hub/generate"
+_PROVIDER_ID = os.getenv("CATALYST_MODEL_PROVIDER_ID", "med-agent-hub")
+_HUB_QUERY_PROFILE_URL = os.getenv(
+    "CATALYST_HUB_QUERY_PROFILE_URL", "http://med-agent-hub:8080/v1/hub/query-profiles"
 )
 _HUB_TIMEOUT_SECONDS = float(os.getenv("CATALYST_HUB_TIMEOUT_SECONDS", "1800"))
 
 
-def _load_prompt(name: str) -> str:
-    """Read a gateway-owned prompt, matching the hub loader's trailing-newline strip."""
-
-    return (_PROMPTS_DIR / f"{name}.txt").read_text(encoding="utf-8").rstrip("\n")
-
-
 @dataclass(frozen=True)
 class EngineProfile:
-    """Gateway-owned query profile with the interface the engine expects.
+    """Hub-discovered query profile required by the local Catalyst engine.
 
-    ``models`` / ``knobs`` / ``prompts`` are keyed by role (``query_generate``
-    and, for reviewed profiles, ``query_review``). A profile without a
-    ``query_review`` role is writer-only.
+    ``models`` and ``knobs`` are evidence received from the Hub, not caller
+    configuration. ``profile_evidence`` is the Hub's complete credential-free
+    profile snapshot, including prompt references and digests.
     """
 
     id: str
     label: str
     models: Mapping[str, str]
     knobs: Mapping[str, Mapping[str, Any]]
-    prompts: Mapping[str, str]
     policies: Mapping[str, Any] = field(default_factory=dict)
+    profile_evidence: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def has_review(self) -> bool:
@@ -148,6 +141,8 @@ def _request_payload(
 
 async def _backend_chat(
     client: httpx.AsyncClient,
+    profile_id: str,
+    role: str,
     model: str,
     messages: list[dict[str, str]],
     *,
@@ -156,26 +151,15 @@ async def _backend_chat(
     dry_multiplier: float,
     max_tokens: Optional[int],
 ) -> str:
-    """Call the hub's generic role executor and return the assistant content.
+    """Call a named Hub query role; caller-provided model settings are ignored."""
 
-    This is the one seam that differs from the hub original: instead of hitting
-    the model router directly, the gateway posts a single structured completion
-    to ``/v1/hub/generate``. A backend error surfaces as an httpx error (the hub
-    raises 502), matching the router error semantics ``_invoke_backend`` expects.
-    """
-
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "dry_multiplier": dry_multiplier,
-    }
+    payload: Dict[str, Any] = {"messages": messages}
     if response_format is not None:
         payload["response_format"] = dict(response_format)
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
     resp = await client.post(
-        _HUB_GENERATE_URL, json=payload, timeout=_HUB_TIMEOUT_SECONDS
+        f"{_HUB_QUERY_PROFILE_URL}/{profile_id}/roles/{role}/generate",
+        json=payload,
+        timeout=_HUB_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
     message = resp.json()
@@ -205,12 +189,15 @@ def _canonical_evidence_digest(value: Any) -> str:
 def query_profile_evidence(
     profile: Any, *, max_tokens: Optional[int] = None
 ) -> dict[str, Any]:
-    """Return the exact credential-free writer/reviewer profile snapshot."""
+    """Return the exact credential-free Hub-owned profile snapshot."""
+    if profile.profile_evidence:
+        return deepcopy(dict(profile.profile_evidence))
+
+    # Unit tests may construct a minimal in-memory EngineProfile. Production
+    # profiles always arrive from Hub discovery and take the branch above.
     model_classes = profile.policies.get("model_classes") or {}
 
     def role_evidence(public_role: str, configured_role: str) -> dict[str, Any]:
-        prompt_id = str(profile.prompts[configured_role])
-        prompt_text = _load_prompt(prompt_id)
         config = dict(profile.knobs.get(configured_role) or {})
         if max_tokens is not None:
             config["maxTokens"] = max_tokens
@@ -224,11 +211,11 @@ def query_profile_evidence(
             "modelId": profile.models[configured_role],
             "config": config,
             "systemPrompt": {
-                "promptId": prompt_id,
+                "promptId": "test-only",
                 "version": "1",
-                "promptRef": (f"catalyst-gateway:src/catalyst/prompts/{prompt_id}.txt"),
-                "promptDigest": _evidence_digest(prompt_text),
-                "text": prompt_text,
+                "promptRef": "test-only",
+                "promptDigest": _evidence_digest("test-only"),
+                "text": "test-only",
             },
         }
 
@@ -253,6 +240,20 @@ def _profile_evidence(request: Any) -> dict[str, Any]:
         request.profile,
         max_tokens=request.max_tokens,
     )
+
+
+def _role_max_tokens(request: Any, configured_role: str) -> Optional[int]:
+    """Use the selected role's Hub-discovered cap; retain test-only fallback."""
+    value = (request.profile.knobs.get(configured_role) or {}).get("maxTokens")
+    return request.max_tokens if value is None else int(value)
+
+
+def _role_provider_id(request: Any, public_role: str) -> str:
+    role = _profile_evidence(request).get(public_role) or {}
+    provider_id = role.get("providerId")
+    if not isinstance(provider_id, str) or not provider_id:
+        raise QueryContractError(f"profile evidence omitted {public_role} providerId")
+    return provider_id
 
 
 def _utc_now() -> str:
@@ -290,9 +291,12 @@ def _mark_model_validation(
 
 async def _invoke_backend(
     client: httpx.AsyncClient,
+    profile_id: str,
+    profile_role: str,
     model: str,
     messages: list[dict[str, str]],
     *,
+    provider_id: str,
     response_format: Mapping[str, Any],
     temperature: float,
     dry_multiplier: float,
@@ -326,7 +330,7 @@ async def _invoke_backend(
         "role": role,
         "stage": stage,
         "attempt": attempt,
-        "providerId": _PROVIDER_ID,
+        "providerId": provider_id,
         "modelId": model,
         "configuration": configuration,
         "startedAt": started_at,
@@ -341,6 +345,8 @@ async def _invoke_backend(
     try:
         content = await _backend_chat(
             client,
+            profile_id,
+            profile_role,
             model,
             messages,
             response_format=response_format,
@@ -381,9 +387,7 @@ async def _generate(
     invocations: list[dict[str, Any]],
 ) -> tuple[Dict[str, Any], int, bool, list[dict[str, Any]]]:
     profile = request.profile
-    prompt = _load_prompt(str(profile.prompts["query_generate"]))
     messages = [
-        {"role": "system", "content": prompt},
         {
             "role": "user",
             "content": json.dumps(
@@ -417,12 +421,15 @@ async def _generate(
         )
         content = await _invoke_backend(
             client,
+            profile.id,
+            "query_generate",
             profile.models["query_generate"],
             messages,
+            provider_id=_role_provider_id(request, "writer"),
             response_format=response_format,
             temperature=float(profile.knobs["query_generate"]["temperature"]),
             dry_multiplier=float(profile.knobs["query_generate"]["dry"]),
-            max_tokens=request.max_tokens,
+            max_tokens=_role_max_tokens(request, "query_generate"),
             invocations=invocations,
             role="writer",
             stage=(
@@ -662,9 +669,7 @@ async def _review(
     deterministic_findings: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[Dict[str, Any], int]:
     profile = request.profile
-    prompt = _load_prompt(str(profile.prompts["query_review"]))
     messages = [
-        {"role": "system", "content": prompt},
         {
             "role": "user",
             "content": json.dumps(
@@ -682,12 +687,15 @@ async def _review(
     response_format = _REPAIR_FORMAT if deterministic_findings else _REVIEW_FORMAT
     content = await _invoke_backend(
         client,
+        profile.id,
+        "query_review",
         profile.models["query_review"],
         messages,
+        provider_id=_role_provider_id(request, "reviewer"),
         response_format=response_format,
         temperature=float(profile.knobs["query_review"]["temperature"]),
         dry_multiplier=float(profile.knobs["query_review"]["dry"]),
-        max_tokens=request.max_tokens,
+        max_tokens=_role_max_tokens(request, "query_review"),
         invocations=invocations,
         role="reviewer",
         stage="review",
@@ -727,6 +735,8 @@ async def _review(
             )
         corrected = await _invoke_backend(
             client,
+            profile.id,
+            "query_review",
             profile.models["query_review"],
             [
                 *messages,
@@ -736,10 +746,11 @@ async def _review(
                     "content": correction_instruction,
                 },
             ],
+            provider_id=_role_provider_id(request, "reviewer"),
             response_format=response_format,
             temperature=float(profile.knobs["query_review"]["temperature"]),
             dry_multiplier=float(profile.knobs["query_review"]["dry"]),
-            max_tokens=request.max_tokens,
+            max_tokens=_role_max_tokens(request, "query_review"),
             invocations=invocations,
             role="reviewer",
             stage="review",

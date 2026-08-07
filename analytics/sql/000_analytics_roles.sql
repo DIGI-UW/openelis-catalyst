@@ -10,6 +10,9 @@ END
 $$;
 
 GRANT CONNECT ON DATABASE catalyst_analytics TO catalyst_readonly;
+ALTER ROLE catalyst_readonly SET default_transaction_read_only = on;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM catalyst_readonly;
 GRANT USAGE ON SCHEMA public TO catalyst_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO catalyst_readonly;
 ALTER DEFAULT PRIVILEGES FOR ROLE catalyst_analytics_writer

@@ -23,4 +23,4 @@ if [ -n "${compose_override_file}" ]; then
   compose+=(-f "${compose_override_file}")
 fi
 
-"${compose[@]}" --profile fake down --remove-orphans "$@"
+"${compose[@]}" down --remove-orphans "$@"

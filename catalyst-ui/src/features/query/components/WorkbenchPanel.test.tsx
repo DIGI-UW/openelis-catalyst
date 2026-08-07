@@ -195,7 +195,6 @@ const defaultProps = {
   onWrapLinesChange: vi.fn(),
   onClearDraft: vi.fn(),
   onRestoreCurrentVersion: vi.fn(),
-  onNewSession: vi.fn(),
   onValidate: vi.fn(),
   onRun: vi.fn(),
 };
@@ -302,7 +301,6 @@ describe("WorkbenchPanel", () => {
     expect(
       screen.getByRole("button", { name: "Remove parameter 1" }),
     ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
@@ -546,6 +544,33 @@ describe("WorkbenchPanel", () => {
     expect(screen.getAllByText(writerSql).length).toBeGreaterThan(0);
     expect(screen.getAllByText(reviewerSql).length).toBeGreaterThan(0);
     expect(screen.getByText("model repair")).toBeVisible();
+  });
+
+  it("can hide initial generation evidence when notebook turns own that evidence", () => {
+    const session = makeSession({
+      provenance: {
+        generationOutcome: {
+          modelCollaboration: {
+            writer: {
+              model: "gemma-4-12b",
+              candidate: { sql: SQL, parameters: [] },
+            },
+          },
+        },
+      },
+    });
+
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={session}
+        showInitialGenerationEvidence={false}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Generation evidence" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders a successful dynamic execution table", () => {

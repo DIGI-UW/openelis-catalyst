@@ -409,6 +409,53 @@ export interface WorkbenchExecution {
   completedAt: string;
 }
 
+export interface DashboardBuilderEntity {
+  id: string;
+  versionId: string;
+  ordinal: number;
+  configuration: Record<string, unknown>;
+  configurationDigest: string;
+  createdAt: string;
+}
+
+export interface DashboardBuilderCollection {
+  contractVersion: "catalyst.dashboard-builder.v1";
+  kind: "dataset" | "widget" | "dashboard";
+  items: DashboardBuilderEntity[];
+}
+
+export type DashboardBuilderSection =
+  | "ask"
+  | "datasets"
+  | "widgets"
+  | "dashboards";
+
+export type DashboardPresentationKind =
+  | "table"
+  | "big_number"
+  | "time_series_line"
+  | "time_series_area"
+  | "grouped_bar"
+  | "stacked_bar"
+  | "proportion_bar";
+
+export interface DashboardPublication {
+  status: "bundle_ready" | "imported" | "import_failed";
+  dashboard: DashboardBuilderEntity;
+  pointer: {
+    bundle: { fileName: string; sha256: string; bytes: number };
+  };
+  downloadPath: string;
+  importState?: {
+    outcome: "imported" | "import_failed";
+    receiptId?: string;
+    receiptDigest?: string;
+    dashboardUrl?: string;
+    errorCode?: string;
+    recoveryAction?: string;
+  };
+}
+
 export interface WorkbenchSession {
   contractVersion: "catalyst.workbench.session.v1";
   sessionId: string;

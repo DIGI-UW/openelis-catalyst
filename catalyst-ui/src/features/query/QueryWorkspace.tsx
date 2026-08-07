@@ -1,10 +1,11 @@
-import { Renew } from "@carbon/icons-react";
+import { Chat, ChartLine, ChevronLeft, Dashboard, DataBase, Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
 import { useEffect, useState } from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
 import { DatasetBrowser } from "./components/DatasetBrowser";
+import { DashboardPublishPanel } from "./components/DashboardPublishPanel";
 import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
@@ -28,6 +29,7 @@ import {
   type CatalystPreview,
   type CatalystQueryOutcome,
   type DataSourcesResponse,
+  type DashboardBuilderSection,
   type CatalystTable,
   type QueryOptions,
   type WorkbenchEditorCatalog,
@@ -58,6 +60,17 @@ interface QueryWorkspaceProps {
   api?: CatalystApi;
   pollIntervalMs?: number;
 }
+
+const dashboardSections: Array<{
+  id: DashboardBuilderSection;
+  label: string;
+  icon: typeof Chat;
+}> = [
+  { id: "ask", label: "Workbench", icon: Chat },
+  { id: "datasets", label: "Datasets", icon: DataBase },
+  { id: "widgets", label: "Widgets", icon: ChartLine },
+  { id: "dashboards", label: "Dashboards", icon: Dashboard },
+];
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : "An unexpected request error occurred.";
@@ -411,6 +424,8 @@ export const QueryWorkspace = ({
   api = catalystApi,
   pollIntervalMs = 1000,
 }: QueryWorkspaceProps) => {
+  const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
+  const [navigationExpanded, setNavigationExpanded] = useState(true);
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
@@ -453,6 +468,18 @@ export const QueryWorkspace = ({
   const usesNotebook = Boolean(
     api.createWorkbenchTurn && api.getWorkbenchTurns,
   );
+  const availableProfiles = queryOptions?.profiles.filter(
+    (profile) => profile.available,
+  ) ?? [];
+  const fallbackProfileId =
+    availableProfiles.find(
+      (profile) => profile.id === queryOptions?.defaultProfileId,
+    )?.id ?? availableProfiles[0]?.id ?? "";
+  const selectedAvailableProfileId = availableProfiles.some(
+    (profile) => profile.id === profileId,
+  )
+    ? profileId
+    : fallbackProfileId;
   const revisionProfiles = queryOptions?.profiles.filter(
     (profile) => profile.available && profile.revisionCapable === true,
   ) ?? [];
@@ -606,7 +633,7 @@ export const QueryWorkspace = ({
       if (usesWorkbench) {
         const session = await api.createWorkbenchSession!(
           normalizedQuestion,
-          (queryOptions && profileId) || undefined,
+          (queryOptions && selectedAvailableProfileId) || undefined,
           undefined,
           dataSourceId || undefined,
         );
@@ -671,6 +698,9 @@ export const QueryWorkspace = ({
 
   const startNewSession = () => {
     if (followupBusy) return;
+    if (selectedAvailableProfileId) {
+      setProfileId(selectedAvailableProfileId);
+    }
     setQuestion("");
     setState({ kind: "idle" });
     setWorkbenchSession(null);
@@ -687,6 +717,7 @@ export const QueryWorkspace = ({
     setGenerationEvidenceLoadingTurnId(null);
     setGenerationEvidenceError(null);
     forgetActiveWorkbenchSession();
+    setActiveSection("ask");
     window.setTimeout(() => {
       document.getElementById("catalyst-question")?.focus();
     }, 0);
@@ -944,17 +975,45 @@ export const QueryWorkspace = ({
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
   return (
-    <main
-      className={`app-shell${hasQueryDock ? " app-shell--with-query-dock" : ""}`}
-    >
-      <div className="app-shell__intro">
-        <div>
-          <p className="product-mark">Catalyst</p>
-          <p>Governed query review and typed table results</p>
+    <div className={`dashboard-builder-shell${navigationExpanded ? "" : " dashboard-builder-shell--nav-collapsed"}`}>
+      <nav className="dashboard-navigation" aria-label="Catalyst">
+        <div className="dashboard-navigation__header">
+          <div className="dashboard-navigation__brand">
+            <span aria-hidden="true">C</span>
+            <div>
+              <strong>Catalyst</strong>
+              <small>Dashboard builder</small>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="dashboard-navigation__toggle"
+            aria-label="Toggle navigation"
+            aria-expanded={navigationExpanded}
+            onClick={() => setNavigationExpanded((current) => !current)}
+          >
+            <ChevronLeft size={20} aria-hidden="true" />
+          </button>
         </div>
-        <div className="app-shell__session-controls">
-          {dataSources && dataSources.dataSources.length > 1 && (
-            <label className="profile-selector" htmlFor="catalyst-data-source">
+        <div className="dashboard-navigation__items">
+          {dashboardSections.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className="dashboard-navigation__item"
+              aria-label={label}
+              aria-current={activeSection === id ? "page" : undefined}
+              title={navigationExpanded ? undefined : label}
+              onClick={() => setActiveSection(id)}
+            >
+              <Icon size={20} aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="dashboard-navigation__source">
+          {dataSources && dataSources.dataSources.some((source) => source.available) ? (
+            <label htmlFor="catalyst-data-source">
               <span>Data source</span>
               <select
                 id="catalyst-data-source"
@@ -971,26 +1030,57 @@ export const QueryWorkspace = ({
                   ))}
               </select>
             </label>
+          ) : (
+            <span>OpenELIS</span>
           )}
+        </div>
+      </nav>
+
+      <main
+        className={`app-shell${hasQueryDock && activeSection === "ask" ? " app-shell--with-query-dock" : ""}`}
+      >
+        <section hidden={activeSection !== "ask"} aria-labelledby="question-title">
+          <header className="dashboard-page-header">
+            <div>
+              <p className="eyebrow">Ask OpenELIS</p>
+              <h1 id="question-title" tabIndex={-1}>
+                {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
+              </h1>
+              <p>
+                Nothing is saved until you review it. Drafts stay in this thread.
+              </p>
+            </div>
+            {workbenchSession && (
+              <Button
+                type="button"
+                kind="tertiary"
+                size="sm"
+                disabled={followupBusy || workbenchBusy !== null}
+                onClick={startNewSession}
+              >
+                New session
+              </Button>
+            )}
+          </header>
+
           {workbenchSession && (
-            <span className="app-shell__session-meta">
+            <div className="dashboard-session-meta">
               Session {workbenchSession.sessionId.slice(0, 8)}
               {workbenchTimeline
                 ? ` · ${workbenchTimeline.turns.length} turn${
                     workbenchTimeline.turns.length === 1 ? "" : "s"
                   }`
                 : ""}
-            </span>
+            </div>
           )}
-        </div>
-      </div>
 
-      <DatasetBrowser
-        api={api}
-        catalog={workbenchCatalog}
-        catalogLoadingFailed={workbenchCatalogFailed}
-        dataSourceId={dataSourceId || undefined}
-      />
+          <DatasetBrowser
+            api={api}
+            catalog={workbenchCatalog}
+            catalogLoadingFailed={workbenchCatalogFailed}
+            dataSourceId={dataSourceId || undefined}
+            compact
+          />
 
       {!workbenchSession && (
         <QuestionForm
@@ -1000,7 +1090,7 @@ export const QueryWorkspace = ({
           onQuestionChange={setQuestion}
           onSubmit={submitQuestion}
           profiles={queryOptions?.profiles ?? []}
-          selectedProfileId={profileId}
+          selectedProfileId={selectedAvailableProfileId}
           onProfileChange={setProfileId}
         />
       )}
@@ -1060,12 +1150,19 @@ export const QueryWorkspace = ({
           error={workbenchError}
           announcement={workbenchAnnouncement}
           sqlEditorFocusRequestId={sqlEditorFocusRequestId}
+          showExecutionResult={workbenchSession.executions.some(
+            (execution) =>
+              execution.status === "failed" &&
+              execution.ordinal === Math.max(
+                ...workbenchSession.executions.map((candidate) => candidate.ordinal),
+              ),
+          )}
+          showInitialGenerationEvidence={!usesNotebook}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}
           onClearDraft={clearWorkbenchDraft}
           onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
-          onNewSession={startNewSession}
           onValidate={validateWorkbenchDraft}
           onRun={runWorkbenchDraft}
         />
@@ -1142,6 +1239,18 @@ export const QueryWorkspace = ({
           kind="error"
         />
       )}
+        </section>
+
+        <DashboardPublishPanel
+          api={api}
+          session={workbenchSession}
+          sql={workbenchSql}
+          parameters={workbenchParameters}
+          activeSection={activeSection}
+          disabled={followupBusy || workbenchBusy !== null}
+          onNavigate={setActiveSection}
+        />
     </main>
+    </div>
   );
 };

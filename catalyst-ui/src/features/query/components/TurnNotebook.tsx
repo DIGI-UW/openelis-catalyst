@@ -275,77 +275,116 @@ export const TurnNotebook = ({
     onGenerate();
   };
 
+  const renderTurn = (turn: NotebookTurn) => {
+    const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
+    const regionId = `query-turn-${turn.turnId}`;
+    return (
+      <article className="query-turn" key={turn.turnId}>
+        <button
+          type="button"
+          className="query-turn__disclosure"
+          aria-expanded={expanded}
+          aria-controls={regionId}
+          onClick={() => toggleTurn(turn.turnId)}
+        >
+          <span className="query-turn__summary">
+            <strong>Query turn {turn.ordinal}</strong>
+            <span>{turn.instruction}</span>
+          </span>
+          {turn.dataSourceLabel && (
+            <span className="query-turn__source">{turn.dataSourceLabel}</span>
+          )}
+          <span>{turn.status}</span>
+        </button>
+        {expanded && (
+          <section
+            id={regionId}
+            className="query-turn__detail"
+            aria-label={`Query turn ${turn.ordinal}`}
+          >
+            <p className="query-turn__instruction">{turn.instruction}</p>
+            <p className="query-turn__profile">
+              {turn.profileSnapshot.profileName ?? "Profile unavailable"}
+            </p>
+            {turn.outputVersions.map((output, index) => {
+              const version = output.version;
+              if (!version) return null;
+              let summary: string;
+              if (turn.status === "failed" && output.role === "writer") {
+                summary = `Structured writer output — Query v${version.ordinal} — not selected`;
+              } else if (output.selected) {
+                summary = `Query v${version.ordinal} — selected ${output.role} output`;
+              } else {
+                summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
+              }
+              return <p key={`${version.versionId}-${index}`}>{summary}</p>;
+            })}
+            {turn.status === "failed" && (
+              <div className="query-turn__failure" role="status">
+                <strong>Generation failed</strong>
+                <p>{turn.failure?.message ?? "The generation did not complete."}</p>
+              </div>
+            )}
+            <Button
+              type="button"
+              kind="ghost"
+              size="sm"
+              disabled={evidenceLoadingTurnId === turn.turnId}
+              onClick={() => onShowEvidence(turn.turnId)}
+            >
+              {evidenceLoadingTurnId === turn.turnId
+                ? "Loading generation evidence…"
+                : "View generation evidence"}
+            </Button>
+          </section>
+        )}
+      </article>
+    );
+  };
+
+  const earlierTurns = turns.slice(0, -1);
+  const latestTurn = turns.at(-1);
+
   return (
     <section className="turn-notebook" aria-label="Iterative query notebook">
       <div className="turn-notebook__timeline">
-        {turns.map((turn) => {
-          const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
-          const regionId = `query-turn-${turn.turnId}`;
-          return (
-            <article className="query-turn" key={turn.turnId}>
-              <button
-                type="button"
-                className="query-turn__disclosure"
-                aria-expanded={expanded}
-                aria-controls={regionId}
-                onClick={() => toggleTurn(turn.turnId)}
-              >
-                <span className="query-turn__summary">
-                  <strong>Query turn {turn.ordinal}</strong>
-                  <span>{turn.instruction}</span>
-                </span>
-                {turn.dataSourceLabel && (
-                  <span className="query-turn__source">
-                    {turn.dataSourceLabel}
-                  </span>
-                )}
-                <span>{turn.status}</span>
-              </button>
-              {expanded && (
-                <section
-                  id={regionId}
-                  className="query-turn__detail"
-                  aria-label={`Query turn ${turn.ordinal}`}
-                >
-                  <p className="query-turn__instruction">{turn.instruction}</p>
-                  <p className="query-turn__profile">
-                    {turn.profileSnapshot.profileName ?? "Profile unavailable"}
-                  </p>
-                  {turn.outputVersions.map((output, index) => {
-                    const version = output.version;
-                    if (!version) return null;
-                    let summary: string;
-                    if (turn.status === "failed" && output.role === "writer") {
-                      summary = `Structured writer output — Query v${version.ordinal} — not selected`;
-                    } else if (output.selected) {
-                      summary = `Query v${version.ordinal} — selected ${output.role} output`;
-                    } else {
-                      summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
-                    }
-                    return <p key={`${version.versionId}-${index}`}>{summary}</p>;
-                  })}
-                  {turn.status === "failed" && (
-                    <div className="query-turn__failure" role="status">
-                      <strong>Generation failed</strong>
-                      <p>{turn.failure?.message ?? "The generation did not complete."}</p>
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    kind="ghost"
-                    size="sm"
-                    disabled={evidenceLoadingTurnId === turn.turnId}
-                    onClick={() => onShowEvidence(turn.turnId)}
-                  >
-                    {evidenceLoadingTurnId === turn.turnId
-                      ? "Loading generation evidence…"
-                      : "View generation evidence"}
-                  </Button>
-                </section>
-              )}
-            </article>
-          );
-        })}
+        {earlierTurns.length > 0 && (
+          <details className="turn-notebook__history">
+            <summary>Earlier turns ({earlierTurns.length}) · read-only summaries</summary>
+            <div>{earlierTurns.map(renderTurn)}</div>
+          </details>
+        )}
+        {latestTurn && (
+          <div className="query-turn__message">{latestTurn.instruction}</div>
+        )}
+        {latestTurn?.status === "completed" && (
+          <div className="query-turn__latest-meta">
+            <p>
+              {baseVersion ? `Query v${baseVersion.ordinal}` : "Latest query"}
+              {latestTurn.profileSnapshot.profileName
+                ? ` · Generated by ${latestTurn.profileSnapshot.profileName}`
+                : ""}
+              {latestTurn.profileSnapshot.writer?.modelId
+                ? ` · ${latestTurn.profileSnapshot.writer.modelId} writer`
+                : ""}
+              {latestTurn.profileSnapshot.reviewer?.modelId
+                ? ` · ${latestTurn.profileSnapshot.reviewer.modelId} reviewer`
+                : ""}
+            </p>
+            <Button
+              type="button"
+              kind="ghost"
+              size="sm"
+              disabled={evidenceLoadingTurnId === latestTurn.turnId}
+              onClick={() => onShowEvidence(latestTurn.turnId)}
+            >
+              {evidenceLoadingTurnId === latestTurn.turnId
+                ? "Loading generation evidence…"
+                : "View latest generation evidence"}
+            </Button>
+          </div>
+        )}
+        {latestTurn?.status === "failed" && renderTurn(latestTurn)}
       </div>
 
       <section
@@ -355,7 +394,7 @@ export const TurnNotebook = ({
         data-minimized={composerMinimized}
       >
         <div className="turn-composer__heading">
-          <div>
+          <div className="turn-composer__title">
             <h2 id="refine-query-title">{composerTitle}</h2>
             {baseVersion ? (
               <p>
@@ -381,27 +420,22 @@ export const TurnNotebook = ({
             {composerMinimized ? "Expand" : "Minimize"}
           </Button>
         </div>
-        <p
-          className="turn-composer__grounding"
-          data-kind={grounding.kind}
-          role="status"
-        >
-          {grounding.text}
-        </p>
         <form
           id="refine-openelis-body"
           className="turn-composer__form"
           hidden={composerMinimized}
           onSubmit={handleSubmit}
         >
-          <label htmlFor="catalyst-followup">Follow-up instruction</label>
+          <label className="visually-hidden" htmlFor="catalyst-followup">
+            Follow-up instruction
+          </label>
           <textarea
             id="catalyst-followup"
-            rows={composerMinimized ? 1 : 3}
+            rows={composerMinimized ? 1 : 2}
             value={instruction}
             disabled={busy}
             onChange={(event) => onInstructionChange(event.currentTarget.value)}
-            placeholder="Describe how to revise the current query"
+            placeholder="Ask a question, or say how you want the current query changed"
           />
           <div className="turn-composer__toolbar">
             <label htmlFor="catalyst-followup-profile">
@@ -427,6 +461,13 @@ export const TurnNotebook = ({
                 ))}
               </select>
             </label>
+            <span
+              className="turn-composer__grounding"
+              data-kind={grounding.kind}
+              role="status"
+            >
+              {grounding.text}
+            </span>
             <Button
               type="submit"
               disabled={editorEmpty || busy || noRevisionProfiles}

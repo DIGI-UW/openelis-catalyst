@@ -24,7 +24,7 @@ if [ -n "${compose_override_file}" ]; then
   compose+=(-f "${compose_override_file}")
 fi
 
-"${compose[@]}" --profile fake down --volumes --remove-orphans
+"${compose[@]}" down --volumes --remove-orphans
 
 if [ -d "${OE_DB_DATA_DIR}" ]; then
   docker run --rm \

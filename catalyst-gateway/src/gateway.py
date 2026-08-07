@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 
-from .a2a_client import A2AClient
 from .catalyst.analytics import PostgresAnalyticsAdapter
 from .catalyst.catalog import Catalog
 from .catalyst.contracts import ContractRegistry
+from .catalyst.dashboard_builder import DashboardBuilder
+from .catalyst.dashboard_routes import install_dashboard_routes
 from .catalyst.local_hub import LocalHub
 from .catalyst.policy import SqlPolicy
 from .catalyst.routes import install_catalyst_routes
@@ -62,9 +64,9 @@ def _default_catalyst_service() -> CatalystService:
         )
     return CatalystService(
         contracts=contracts,
-        # Orchestration now runs in-process (the gateway owns the governed-query
-        # engine); the hub is called only as a generic model executor from inside
-        # the engine. LocalHub implements the same interface the service expects.
+        # The gateway owns governed-query orchestration and asks Hub to execute
+        # the named writer/reviewer roles from its configured query profile.
+        # LocalHub implements the same interface the service expects.
         hub=LocalHub(hub_base_url=config.hub_base_url),
         store=PreviewStore(
             config.preview_store_path,
@@ -83,10 +85,22 @@ def _default_catalyst_service() -> CatalystService:
     )
 
 
-def create_app(*, catalyst_service: CatalystService | None = None) -> FastAPI:
+def create_app(
+    *,
+    catalyst_service: CatalystService | None = None,
+    dashboard_builder: DashboardBuilder | None = None,
+) -> FastAPI:
     config = load_config()
-    client = A2AClient(config.router_url)
     catalyst = catalyst_service or _default_catalyst_service()
+    builder = dashboard_builder or DashboardBuilder(
+        config.preview_store_path,
+        # Production always configures this store. The cast retains the
+        # existing narrow legacy-service test seam, whose routes never invoke
+        # Dashboard Builder.
+        workbench=cast(WorkbenchStore, catalyst.workbench_store),
+        outbox=config.superset_outbox_path,
+        receipts=config.superset_receipts_path,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -94,7 +108,7 @@ def create_app(*, catalyst_service: CatalystService | None = None) -> FastAPI:
             yield
         finally:
             await catalyst.aclose()
-            await client.aclose()
+            builder.close()
 
     app = FastAPI(
         title="Catalyst Gateway",
@@ -102,12 +116,8 @@ def create_app(*, catalyst_service: CatalystService | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.catalyst = catalyst
-    app.state.a2a_client = client
     install_catalyst_routes(app, catalyst)
-
-    @app.post("/v1/chat/completions")
-    async def chat_completions(payload: dict) -> dict:
-        return await client.send_chat_completion(payload)
+    install_dashboard_routes(app, builder)
 
     return app
 

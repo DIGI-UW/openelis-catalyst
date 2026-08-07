@@ -6,16 +6,29 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${ROOT_DIR}/.openelis-docker"
 OPENELIS_DOCKER_REPO="${OPENELIS_DOCKER_REPO:-https://github.com/DIGI-UW/openelis-docker.git}"
 OPENELIS_DOCKER_REF="${OPENELIS_DOCKER_REF:-f118d0ae778a30028c16be2af549843ec166f655}"
+REFRESH_DEPENDENCIES="${MVP_REFRESH_DEPENDENCIES:-false}"
 
 if [ -d "${TARGET_DIR}/.git" ]; then
-  echo "OpenELIS docker checkout already exists at ${TARGET_DIR}"
+  actual_commit="$(git -C "${TARGET_DIR}" rev-parse HEAD 2>/dev/null || true)"
+  if [ "${REFRESH_DEPENDENCIES}" != "true" ] && \
+    [ "${actual_commit}" = "${OPENELIS_DOCKER_REF}" ]; then
+    echo "OpenELIS docker checkout already matches ${OPENELIS_DOCKER_REF}; reusing it"
+  else
+    echo "Refreshing OpenELIS docker checkout at ${TARGET_DIR}"
+    if ! git -C "${TARGET_DIR}" diff --quiet || \
+      ! git -C "${TARGET_DIR}" diff --cached --quiet; then
+      echo "ERROR: ${TARGET_DIR} has tracked local changes; refusing to replace them" >&2
+      exit 1
+    fi
+    git -C "${TARGET_DIR}" fetch --depth 1 origin "${OPENELIS_DOCKER_REF}"
+    git -C "${TARGET_DIR}" checkout --detach FETCH_HEAD
+  fi
 else
   echo "Cloning ${OPENELIS_DOCKER_REPO} (${OPENELIS_DOCKER_REF}) into ${TARGET_DIR}"
   git clone --filter=blob:none --no-checkout "${OPENELIS_DOCKER_REPO}" "${TARGET_DIR}"
+  git -C "${TARGET_DIR}" fetch --depth 1 origin "${OPENELIS_DOCKER_REF}"
+  git -C "${TARGET_DIR}" checkout --detach FETCH_HEAD
 fi
-
-git -C "${TARGET_DIR}" fetch --depth 1 origin "${OPENELIS_DOCKER_REF}"
-git -C "${TARGET_DIR}" checkout --detach FETCH_HEAD
 
 if [ "$(git -C "${TARGET_DIR}" rev-parse HEAD)" != "${OPENELIS_DOCKER_REF}" ]; then
   echo "ERROR: OpenELIS docker checkout does not match ${OPENELIS_DOCKER_REF}" >&2
