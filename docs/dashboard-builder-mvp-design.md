@@ -200,7 +200,7 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 - Counts are live: Datasets and Widgets increment as objects are saved.
 - Footer (expanded only), above a `1px solid #e0e0e0` top border: label "Data source" `0.75rem` `#6f6f6f` and a Carbon Select — "OpenELIS laboratory (demo)" / "OpenMRS HIV/ART (demo)".
 
-**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); inner container `width: min(100% - 3rem, 60rem)`, centered. Padding top `2rem`; bottom `18rem` on Workbench (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
+**Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); the inner container fills the remaining main-panel width with `1.5rem` inline gutters. Do not impose a page-level max width: the fixed side navigation and bottom workbench dock already bound the workspace, and data tables, SQL, results, and dashboard layouts need the available horizontal space. Keep narrower measure constraints only on prose or compact controls that benefit from them. Padding top `2rem`; bottom `18rem` on Workbench (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
 
 **Page header pattern** (all four screens): eyebrow `0.75rem`/600 `#0f62fe`, `letter-spacing: 0.08em`, uppercase; H1 `2rem`/400, `letter-spacing: -0.025em`, `line-height: 1.15`; description `0.875rem` `#525252`, `line-height: 1.5`. Primary action, when present, sits top-right.
 
