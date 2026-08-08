@@ -188,12 +188,22 @@ The notebook UI uses the workbench API as its primary surface:
 - `GET /v1/catalyst/workbench/catalog` returns the runtime schema guide and
   completion catalog from the same database-role-visible relations supplied to
   the models and validator.
-- `POST /v1/catalyst/workbench/sessions` creates an isolated session and records
-  the initial requested and terminal turn.
+- `POST /v1/catalyst/workbench/sessions` creates an isolated session. Given a
+  `question` it also records the initial requested and terminal turn; without
+  one it creates an empty session and asks nothing of any model.
+- `POST /v1/catalyst/workbench/sessions/{sessionId}/question` asks the first
+  question of a session opened empty, seeding it by exactly the routine that
+  creation-with-a-question uses. A second attempt is
+  `409 session_already_started`.
+- `PATCH /v1/catalyst/workbench/sessions/{sessionId}/name` renames a session.
+  An unnamed session takes its first question's text; `question` itself is
+  never rewritten, being evidence of what was asked rather than a label.
+- `GET /v1/catalyst/workbench/sessions?limit=` lists recent sessions for the
+  session picker.
 - `GET /v1/catalyst/workbench/sessions/{sessionId}` restores the current query,
   editor snapshot, validation, execution and provenance without inference.
 - `GET /v1/catalyst/workbench/sessions/{sessionId}/turns` returns the compact
-  chronological timeline.
+  chronological timeline, which may be empty for a session not yet asked.
 - `POST /v1/catalyst/workbench/sessions/{sessionId}/turns` generates one complete
   successor query from the exact active editor snapshot and instruction.
 - Version, validation, execution and generation-evidence routes store manual
@@ -204,6 +214,22 @@ snapshot/digest. Stale lineage returns `409 stale_query_version`; only one
 generation may be active per session. A failed generation records raw typed
 evidence and leaves the preceding query editable. `New session` is the boundary
 for unrelated work.
+
+**The thread is one sequence of cells.** Model generations are recorded as
+turns and hand edits as query versions, but the analyst sees a single
+numbered thread: versions are numbered in the order they were appended, which
+is the one clock both kinds share, so it orders the two against each other and
+a cell's `[n]` is its position in that thread. A hand-edited version that has
+not been run is not a cell — it is the draft in the editor. Version and
+execution ordinals are not cited in the thread; they remain in the details and
+dataset-review surfaces, where identity is the point.
+
+**Running is one action.** It saves the editor as an immutable version, checks
+it, and executes it. The check is advisory and never blocks. When a run
+completes — whether the database returned rows or a diagnostic — the result
+leads: the editor closes, the cell carrying the outcome takes focus, and
+editing again is an offered choice. Only a failure of the action itself, which
+records no execution, leaves the editor open with the error above it.
 
 ### Data sources
 
@@ -298,12 +324,17 @@ v1** while Query v1 is current → contextual follow-up → explicit Query v2 re
 → **Save Dataset v2** while the successor is current. Saving only after the
 follow-up is not equivalent because Query v1 is then stale.
 
-1. In the persistent Ask thread, the user promotes results labelled with their
-   exact Query vN into a Dataset draft. Catalyst binds the exact session, query
-   digest/version, execution, data source/catalog, typed schema/parameters and
-   canonical bounded-result digest without copying result rows. The digest
-   covers ordered schema and returned rows plus the row cap, truncation state/
+1. In the persistent thread, the user promotes a cell's result into a Dataset
+   draft. Catalyst binds the exact session, turn, query digest/version,
+   execution, data source/catalog, typed schema/parameters and canonical
+   bounded-result digest without copying result rows. The digest covers
+   ordered schema and returned rows plus the row cap, truncation state/
    reason, and warning codes; it never claims an unobserved full-result total.
+   Saving is refused unless the execution succeeded **and** is the currently
+   visible query's run. Once saved, the review panel offers building a Widget
+   from that Dataset in place: the promotion chain continues where the user
+   is standing rather than resuming in a section they must already know to
+   visit.
 2. Catalyst deterministically suggests one compatible presentation from table,
    big-number KPI, time-series line/area, grouped/stacked bar, and proportion
    bar. The user reviews or overrides the compatible type in one slide-over

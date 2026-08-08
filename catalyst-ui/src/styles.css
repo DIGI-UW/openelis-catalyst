@@ -585,6 +585,29 @@ input {
   text-transform: uppercase;
 }
 
+/* Same shape as a library header, so every section names itself the same way. */
+.workbench-header {
+  margin-bottom: 1.25rem;
+}
+
+.workbench-header .eyebrow {
+  margin-bottom: 0.25rem !important;
+}
+
+.workbench-header h1 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+}
+
+.workbench-header h1:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: 4px;
+}
+
 .query-card .cds--btn {
   width: max-content;
   max-width: 100%;

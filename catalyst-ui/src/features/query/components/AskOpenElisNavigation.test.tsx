@@ -187,7 +187,7 @@ describe("Ask OpenELIS reachability navigation", () => {
       configurable: true,
       value: scrollIntoView,
     });
-    const jump = screen.getByRole("button", { name: "Ask OpenELIS" });
+    const jump = screen.getByRole("button", { name: "Ask a question" });
 
     await user.click(jump);
 

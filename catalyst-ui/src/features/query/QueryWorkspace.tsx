@@ -1518,13 +1518,22 @@ export const QueryWorkspace = ({
       >
         <section hidden={activeSection !== "ask"} aria-labelledby="question-title">
           {/*
-            The rail names the session and its source, so the page no longer
-            repeats them in a heading. The heading stays for document
-            structure and as the skip link's target.
+            Datasets, Widgets and Dashboards each state where you are; this
+            screen said nothing, so the one you spend the most time in was the
+            one that never named itself. The eyebrow names the section — the
+            same word the nav uses — and the heading names the session, which
+            is the thing on screen.
           */}
-          <h1 id="question-title" className="visually-hidden" tabIndex={-1}>
-            {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
-          </h1>
+          <header className="workbench-header">
+            {workbenchSession && <p className="eyebrow">Workbench</p>}
+            <h1 id="question-title" tabIndex={-1}>
+              {workbenchSession
+                ? (workbenchSession.name ?? "").trim() ||
+                  workbenchSession.question.trim() ||
+                  "New session"
+                : "Workbench"}
+            </h1>
+          </header>
 
           {workbenchSession && (
             // Rendered into the demo banner's trailing edge. The banner is a

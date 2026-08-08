@@ -279,18 +279,60 @@
   border-top: 1px solid #e0e0e0;
   background: #f4f4f4;
   grid-template-columns: repeat(4, 1fr);
+  container-type: inline-size;
+  container-name: rail-nav;
 }
 
 .workbench-rail__nav button {
   display: flex;
   height: 2.75rem;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.125rem;
+  padding: 0 0.125rem;
   border: 0;
   border-bottom: 2px solid transparent;
   background: none;
   color: #525252;
   cursor: pointer;
+}
+
+/*
+  Four labels need room. Below that width the icons stand alone and the label
+  stays in the accessibility tree, where it is still the button's name.
+*/
+.workbench-rail__nav-label {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+  13.5rem is below the rail's 240px default, so the labels are there on
+  arrival; only a rail dragged near its 200px minimum falls back to icons.
+*/
+@container rail-nav (min-width: 13.5rem) {
+  .workbench-rail__nav button {
+    height: 3.25rem;
+  }
+
+  .workbench-rail__nav-label {
+    position: static;
+    overflow: hidden;
+    width: 100%;
+    height: auto;
+    clip-path: none;
+    font-size: 0.625rem;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .workbench-rail__nav button:hover {

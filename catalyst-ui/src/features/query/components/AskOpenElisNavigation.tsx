@@ -32,7 +32,12 @@ const getComposerElements = () => {
     target: target instanceof HTMLElement ? target : null,
     section: section instanceof HTMLElement ? section : null,
     heading: heading instanceof HTMLElement ? heading : null,
-    label: heading?.textContent?.trim() || "Ask OpenELIS",
+    // This control names where it takes you, which is the composer. The
+    // refine heading already says that ("Refine [4]"); the page heading names
+    // the session, so borrowing it would put the wrong word on the button.
+    label: hasFollowup
+      ? heading?.textContent?.trim() || "Refine the current query"
+      : "Ask a question",
   };
 };
 
@@ -42,7 +47,7 @@ export const AskOpenElisNavigation = () => {
   const [jumpHasFocus, setJumpHasFocus] = useState(false);
   const [compactViewport, setCompactViewport] = useState(isCompactViewport);
   const [targetId, setTargetId] = useState("catalyst-question");
-  const [targetLabel, setTargetLabel] = useState("Ask OpenELIS");
+  const [targetLabel, setTargetLabel] = useState("Ask a question");
   const observedTargetRef = useRef<HTMLElement | null>(null);
   const jumpIsExposed = compactViewport || !inputIsVisible || jumpHasFocus;
 

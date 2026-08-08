@@ -574,7 +574,7 @@ describe("Catalyst query workflow", () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} />);
 
-    await user.click(screen.getByRole("button", { name: "Ask OpenELIS" }));
+    await user.click(screen.getByRole("button", { name: "Ask a question" }));
 
     expect(screen.getByLabelText("Question")).toHaveFocus();
   });
@@ -596,8 +596,8 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Question")).toBeDisabled();
     expect(screen.getByLabelText("Model profile")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Generate query" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Ask OpenELIS" }));
-    expect(screen.getByRole("heading", { name: "Ask OpenELIS" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Ask a question" }));
+    expect(screen.getByRole("heading", { name: "Workbench" })).toHaveFocus();
     expect(screen.getByLabelText("Question")).toBeDisabled();
     expect(screen.getByLabelText("Generated SQL")).toHaveTextContent(
       "SELECT collected_on, result_value FROM analytics.vw_viral_load_results WHERE result_value >= :minimum_result",
@@ -1786,7 +1786,7 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Question")).toBeEnabled();
     expect(screen.getByLabelText("Model profile")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Generate query" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Ask OpenELIS" }));
+    await user.click(screen.getByRole("button", { name: "Ask a question" }));
     expect(screen.getByLabelText("Question")).toHaveFocus();
   });
 

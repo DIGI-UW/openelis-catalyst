@@ -224,7 +224,7 @@ describe("Dashboard Builder Ask shell", () => {
 
     const rail = screen.getByRole("complementary", { name: "Catalyst" });
     const sections = within(rail).getByRole("navigation", { name: "Sections" });
-    for (const name of ["Ask", "Datasets", "Widgets", "Dashboards"]) {
+    for (const name of ["Workbench", "Datasets", "Widgets", "Dashboards"]) {
       expect(within(sections).getByRole("button", { name })).toBeVisible();
     }
     expect(screen.queryByText(/example questions/i)).not.toBeInTheDocument();
@@ -603,6 +603,136 @@ describe("Dashboard Builder Ask shell", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit query" }));
     expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+  });
+
+  it("names the section in the nav and titles the page it opens", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    // Every other section states where you are in a visible heading; this one
+    // said nothing, so the one screen you spend the most time on was the one
+    // screen that never named itself.
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: session.name!,
+    });
+    expect(title).toBeVisible();
+    const header = title.closest("header")!;
+    expect(within(header).getByText("Workbench")).toBeVisible();
+
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    const sections = within(rail).getByRole("navigation", { name: "Sections" });
+    // The label is text, not just an accessible name on an icon.
+    expect(
+      within(sections).getByRole("button", { name: "Workbench" }),
+    ).toHaveTextContent("Workbench");
+
+    await user.click(within(sections).getByRole("button", { name: "Datasets" }));
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Datasets" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: session.name! }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers the next step once a result is saved as a dataset", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      validationStatus: "valid",
+      query: { sql: version.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "test_name",
+            databaseType: "text",
+            typeOid: null,
+            logicalType: "string",
+          },
+          {
+            ordinal: 1,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "string", value: "Viral Load" }, { type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "88888888-8888-4888-8888-888888888888",
+      sessionId: session.sessionId,
+      versionId: version.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    const savedDataset = {
+      contractVersion: "catalyst.dashboard-builder.entity.v1" as const,
+      kind: "dataset" as const,
+      id: "dataset-1",
+      versionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      ordinal: 1,
+      configurationDigest: "0".repeat(64),
+      configuration: {
+        title: "Results by test",
+        source: {
+          sessionId: session.sessionId,
+          executionId: ran.executionId,
+          dataSourceId: "openelis",
+        },
+        columns: ran.result!.columns,
+        rowCount: ran.result!.rowCount,
+      },
+      createdAt: "2026-08-06T00:01:00Z",
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [ran] });
+    client.listDashboardDatasets = vi.fn().mockResolvedValue({ items: [] });
+    client.listDashboardWidgets = vi.fn().mockResolvedValue({ items: [] });
+    client.listDashboards = vi.fn().mockResolvedValue({ items: [] });
+    client.saveDashboardDataset = vi.fn().mockResolvedValue(savedDataset);
+    client.saveDashboardWidget = vi.fn();
+    client.saveDashboard = vi.fn();
+    client.publishDashboard = vi.fn();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Save to datasets" }),
+    );
+    const review = await screen.findByRole("dialog", { name: "Review panel" });
+    await user.click(within(review).getByRole("button", { name: "Save Dataset" }));
+
+    await waitFor(() =>
+      expect(client.saveDashboardDataset).toHaveBeenCalledWith({
+        sessionId: session.sessionId,
+        executionId: ran.executionId,
+      }),
+    );
+    // Saving used to be the end of the road: the next step lived in a nav
+    // section you had to already know about.
+    expect(
+      await screen.findByRole("button", { name: /Build a widget/ }),
+    ).toBeVisible();
   });
 
   it("keeps a hand-edited run where it happened in the thread", async () => {

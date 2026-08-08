@@ -528,7 +528,8 @@ export const DashboardPublishPanel = ({
       }
     }
     if (next === "widget") {
-      const datasetVersionId = currentDataset?.versionId ?? datasets[0]?.versionId ?? "";
+      const datasetVersionId =
+        entityVersionId ?? currentDataset?.versionId ?? datasets[0]?.versionId ?? "";
       const dataset =
         datasets.find((candidate) => candidate.versionId === datasetVersionId) ?? null;
       setSelectedDatasetVersionId(datasetVersionId);
@@ -565,7 +566,11 @@ export const DashboardPublishPanel = ({
       setDatasets((current) => [saved, ...current.filter((item) => item.versionId !== saved.versionId)]);
       setSelectedDatasetVersionId(saved.versionId);
       setToast(`“${entityTitle(saved, "Dataset")}” saved to Datasets.`);
-      closePanel();
+      // Stay open. Saving used to close onto the thread, and the next step —
+      // a Widget — lived in a nav section you had to already know about, so
+      // the chain ended at the moment it should have continued. Re-pointing
+      // the panel at the saved entity turns its footer into that next step.
+      setReviewedDatasetVersionId(saved.versionId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Catalyst could not save this Dataset.");
     } finally {
@@ -1251,15 +1256,29 @@ export const DashboardPublishPanel = ({
             </div>
 
             <footer className="builder-review__footer">
-              {panel === "dataset" && (
-                <Button
-                  type="button"
-                  disabled={busy || resultIsStale || Boolean(reviewedDataset) || !reviewedExecution || datasetEvidenceLoading}
-                  onClick={() => void saveDataset()}
-                >
-                  {reviewedDataset ? "Dataset saved" : busy ? "Saving…" : "Save Dataset"}
-                </Button>
-              )}
+              {panel === "dataset" &&
+                (reviewedDataset ? (
+                  <Button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openPanel("widget", reviewedDataset.versionId)}
+                  >
+                    Build a widget from this Dataset
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    disabled={
+                      busy ||
+                      resultIsStale ||
+                      !reviewedExecution ||
+                      datasetEvidenceLoading
+                    }
+                    onClick={() => void saveDataset()}
+                  >
+                    {busy ? "Saving…" : "Save Dataset"}
+                  </Button>
+                ))}
               {panel === "widget" && (
                 <Button
                   type="button"

@@ -283,7 +283,10 @@ describe("Dashboard Builder supervised promotion", () => {
     await user.click(screen.getByRole("button", { name: "Review Count result" }));
     expect(screen.getByRole("heading", { name: "Review saved Dataset" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Results from Query v1" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Dataset saved" })).toBeDisabled();
+    // A saved Dataset's footer is the next step, not a spent button.
+    expect(
+      screen.getByRole("button", { name: "Build a widget from this Dataset" }),
+    ).toBeEnabled();
   });
 
   it("hydrates an older saved Dataset from its recorded source session", async () => {

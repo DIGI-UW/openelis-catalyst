@@ -29,7 +29,9 @@ const sections: Array<{
   label: string;
   icon: typeof Chat;
 }> = [
-  { id: "ask", label: "Ask", icon: Chat },
+  // "Ask" named the gesture; this names the place, which is what a nav is for
+  // and what the section's own heading says once you are in it.
+  { id: "ask", label: "Workbench", icon: Chat },
   { id: "datasets", label: "Datasets", icon: DataBase },
   { id: "widgets", label: "Widgets", icon: ChartLine },
   { id: "dashboards", label: "Dashboards", icon: Dashboard },
@@ -439,12 +441,18 @@ export const WorkbenchRail = ({
           <button
             key={id}
             type="button"
-            aria-label={label}
             title={label}
             aria-current={activeSection === id ? "page" : undefined}
             onClick={() => onSectionChange(id)}
           >
             <Icon size={18} aria-hidden="true" />
+            {/*
+              The label is the button's accessible name rather than an
+              aria-label beside it, so what is read and what is seen are the
+              same string. It hides itself only when the rail is too narrow to
+              hold four of them.
+            */}
+            <span className="workbench-rail__nav-label">{label}</span>
           </button>
         ))}
       </nav>
