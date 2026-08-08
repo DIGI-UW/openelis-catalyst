@@ -1189,6 +1189,24 @@ export const QueryWorkspace = ({
             </div>
           )}
 
+      {!workbenchSession && state.kind !== "submitting" && (
+        /*
+          The rail names the product and the composer holds the question, so
+          this says only what neither can: what a session is for, and that
+          nothing leaves it without review.
+        */
+        <div className="workbench-empty">
+          <p className="workbench-empty__lead">
+            Ask a question about {activeDataSourceLabel ?? "the connected data"}.
+          </p>
+          <p>
+            Catalyst writes SQL you can read and edit, runs it against the
+            catalog in <strong>DATA</strong>, and keeps every version. Nothing
+            is saved until you review it.
+          </p>
+        </div>
+      )}
+
       {!workbenchSession && (
         <QuestionForm
           question={question}

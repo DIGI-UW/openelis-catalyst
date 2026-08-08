@@ -878,3 +878,21 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
+.workbench-empty {
+  max-width: 34rem;
+  padding: 3rem 0;
+  color: #525252;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.workbench-empty p {
+  margin: 0 0 0.5rem;
+}
+
+.workbench-empty__lead {
+  color: #161616;
+  font-size: 1.125rem;
+  font-weight: 500;
+}
