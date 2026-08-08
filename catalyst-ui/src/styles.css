@@ -896,3 +896,49 @@ input {
   font-size: 1.125rem;
   font-weight: 500;
 }
+
+.workbench-empty__catalog {
+  padding: 1rem 1.25rem;
+  border: 1px solid #e0e0e0;
+  border-left: 3px solid #0f62fe;
+  margin-top: 1.25rem;
+  background: #fff;
+}
+
+.workbench-empty__catalog dl {
+  display: flex;
+  margin: 0 0 0.75rem;
+  gap: 2rem;
+}
+
+.workbench-empty__catalog dt {
+  color: #6f6f6f;
+  font-size: 0.6875rem;
+}
+
+.workbench-empty__catalog dd {
+  margin: 0.125rem 0 0;
+  font-size: 0.875rem;
+}
+
+.workbench-empty__catalog code {
+  font-family: "IBM Plex Mono", "Menlo", monospace;
+  font-size: 0.8125rem;
+}
+
+.workbench-empty__catalog > p {
+  margin: 0 0 0.75rem;
+  color: #525252;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.workbench-empty__catalog button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #0f62fe;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}

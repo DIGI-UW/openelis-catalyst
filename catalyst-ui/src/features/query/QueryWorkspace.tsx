@@ -927,6 +927,7 @@ export const QueryWorkspace = ({
       rememberActiveWorkbenchSession(session.sessionId);
       adoptWorkbenchSession(session);
       setDraftSessionName("");
+      setRailSection("data");
     } catch (error) {
       setWorkbenchError(messageFromError(error));
     }
@@ -1203,6 +1204,19 @@ export const QueryWorkspace = ({
       (source) => source.id === effectiveDataSourceId,
     )?.label ??
     (effectiveDataSourceId || null);
+
+  // Enough of the catalog to know what can be asked about, with the rail as
+  // the way to the rest of it.
+  const catalogSummary = (() => {
+    const relations = (workbenchCatalog?.schemas ?? []).flatMap(
+      (schema) => schema.views,
+    );
+    if (relations.length === 0) return null;
+    const widest = relations.reduce((largest, view) =>
+      view.columns.length > largest.columns.length ? view : largest,
+    );
+    return { relations: relations.length, widest };
+  })();
 
   const catalogRelationCount = (workbenchCatalog?.schemas ?? []).reduce(
     (total, schema) => total + schema.views.length,
@@ -1486,10 +1500,36 @@ export const QueryWorkspace = ({
             Ask a question about {activeDataSourceLabel ?? "the connected data"}.
           </p>
           <p>
-            Catalyst writes SQL you can read and edit, runs it against the
-            catalog in <strong>DATA</strong>, and keeps every version. Nothing
-            is saved until you review it.
+            Catalyst writes SQL you can read and edit, runs it, and keeps every
+            version. Nothing is saved until you review it.
           </p>
+          {catalogSummary && (
+            <div className="workbench-empty__catalog">
+              <dl>
+                <div>
+                  <dt>Relations</dt>
+                  <dd>{catalogSummary.relations}</dd>
+                </div>
+                <div>
+                  <dt>Largest</dt>
+                  <dd>
+                    <code>{catalogSummary.widest.qualifiedName}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Columns</dt>
+                  <dd>{catalogSummary.widest.columns.length}</dd>
+                </div>
+              </dl>
+              <p>{catalogSummary.widest.grain}</p>
+              <button
+                type="button"
+                onClick={() => changeRailSection("data")}
+              >
+                Browse every relation and column in DATA →
+              </button>
+            </div>
+          )}
         </div>
       )}
 
