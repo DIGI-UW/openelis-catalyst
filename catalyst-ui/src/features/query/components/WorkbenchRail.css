@@ -481,9 +481,14 @@
 }
 
 .workbench-rail__session-new {
+  /* Sticky so a long history never buries the primary action. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   min-height: 2.25rem;
   align-items: center;
-  border-top: 1px solid #e0e0e0 !important;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fff;
   color: #0f62fe;
   font-size: 0.75rem;
 }

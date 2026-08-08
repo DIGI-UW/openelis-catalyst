@@ -363,6 +363,44 @@ const completedFollowupTurn = {
   ],
 };
 
+// Creating with no question opens an empty session: named and grounded in a
+// source, with nothing asked yet. Mirrors the Gateway so tests exercise the
+// two-step flow the rail drives.
+const EMPTY_SESSION_ID = "00000000-0000-4000-8000-000000000eee";
+
+const emptySessionFields = {
+  sessionId: EMPTY_SESSION_ID,
+  question: "",
+  currentVersionId: null,
+  currentVersion: null,
+  versions: [],
+  validations: [],
+  latestValidation: null,
+  executions: [],
+  draftSeed: null,
+} as const;
+
+const emptySessionFrom = (session: WorkbenchSession): WorkbenchSession => ({
+  ...session,
+  sessionId: EMPTY_SESSION_ID,
+  question: "",
+  currentVersionId: null,
+  currentVersion: null,
+  versions: [],
+  validations: [],
+  latestValidation: null,
+  executions: [],
+  draftSeed: null,
+});
+
+const emptyTimeline = {
+  contractVersion: "catalyst.workbench.turn.timeline.v1",
+  sessionId: EMPTY_SESSION_ID,
+  currentTurnId: null,
+  currentVersion: null,
+  turns: [],
+};
+
 const makeNotebookApi = (
   session: WorkbenchSession = notebookSession,
   timeline: unknown = notebookTimeline,
@@ -370,9 +408,24 @@ const makeNotebookApi = (
   Object.assign(makeApi(), {
     getQueryOptions: vi.fn().mockResolvedValue(notebookQueryOptions),
     getWorkbenchCatalog: vi.fn().mockResolvedValue(editorCatalog),
-    createWorkbenchSession: vi.fn().mockResolvedValue(session),
-    getWorkbenchSession: vi.fn().mockResolvedValue(session),
-    getWorkbenchTurns: vi.fn().mockResolvedValue(timeline),
+    createWorkbenchSession: vi
+      .fn()
+      .mockImplementation((question: string) =>
+        Promise.resolve(question.trim() ? session : emptySessionFrom(session)),
+      ),
+    askWorkbenchSessionQuestion: vi.fn().mockResolvedValue(session),
+    getWorkbenchSession: vi
+      .fn()
+      .mockImplementation((sessionId: string) =>
+        Promise.resolve(
+          sessionId === EMPTY_SESSION_ID ? emptySessionFrom(session) : session,
+        ),
+      ),
+    getWorkbenchTurns: vi
+      .fn()
+      .mockImplementation((sessionId: string) =>
+        Promise.resolve(sessionId === EMPTY_SESSION_ID ? emptyTimeline : timeline),
+      ),
     createWorkbenchTurn: vi.fn().mockResolvedValue(completedFollowupTurn),
     getWorkbenchGenerationEvidence: vi.fn(),
     createWorkbenchVersion: vi.fn(),
@@ -783,7 +836,15 @@ describe("Catalyst query workflow", () => {
   it("starts a clean browser session without deleting retained server evidence", async () => {
     const api = makeApi();
     api.getQueryOptions = vi.fn().mockResolvedValue(queryOptions);
-    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchSession = vi
+      .fn()
+      .mockImplementation((question: string) =>
+        Promise.resolve(
+          question.trim()
+            ? workbenchSession
+            : { ...workbenchSession, ...emptySessionFields },
+        ),
+      );
     api.createWorkbenchVersion = vi.fn();
     api.executeWorkbenchVersion = vi.fn();
     render(<App api={api} />);
@@ -801,7 +862,11 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Model profile")).toHaveValue(
       "catalyst-query-gemma-e4b",
     );
-    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBeNull();
+    await waitFor(() =>
+      expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
+        EMPTY_SESSION_ID,
+      ),
+    );
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
   });
 
@@ -1193,17 +1258,23 @@ describe("Catalyst query workflow", () => {
       .not.toBeInTheDocument();
     expect(screen.getByLabelText("Question")).toHaveValue("");
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
-    expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBeNull();
+    // The new session is real and remembered, but nothing is in it yet.
+    await waitFor(() =>
+      expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
+        EMPTY_SESSION_ID,
+      ),
+    );
 
     await user.type(screen.getByLabelText("Question"), "Count creatinine results");
     await user.click(screen.getByRole("button", { name: "Generate query" }));
-    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
-      "Count creatinine results",
-      "catalyst-query-gemma-4-12b",
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    // The question seeds the session it was asked in, rather than opening a
+    // second one: its source was already settled when it was created.
+    await waitFor(() =>
+      expect(api.askWorkbenchSessionQuestion).toHaveBeenCalledWith(
+        EMPTY_SESSION_ID,
+        "Count creatinine results",
+        "catalyst-query-gemma-4-12b",
+      ),
     );
     expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
   });
@@ -1230,8 +1301,23 @@ describe("Catalyst query workflow", () => {
     const api = makeApi();
     api.getQueryOptions = vi.fn().mockResolvedValue(currentOptions);
     api.getWorkbenchSession = vi.fn().mockResolvedValue(retiredSession);
-    api.getWorkbenchTurns = vi.fn().mockResolvedValue(notebookTimeline);
-    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.askWorkbenchSessionQuestion = vi.fn().mockResolvedValue(workbenchSession);
+    api.getWorkbenchTurns = vi
+      .fn()
+      .mockImplementation((sessionId: string) =>
+        Promise.resolve(
+          sessionId === EMPTY_SESSION_ID ? emptyTimeline : notebookTimeline,
+        ),
+      );
+    api.createWorkbenchSession = vi
+      .fn()
+      .mockImplementation((question: string) =>
+        Promise.resolve(
+          question.trim()
+            ? workbenchSession
+            : { ...workbenchSession, ...emptySessionFields },
+        ),
+      );
     api.createWorkbenchVersion = vi.fn();
     api.executeWorkbenchVersion = vi.fn();
     localStorage.setItem(
@@ -1247,21 +1333,21 @@ describe("Catalyst query workflow", () => {
     await openNewSessionForm(user);
     await user.click(screen.getByRole("button", { name: "Start session" }));
 
-    const profileSelector = screen.getByRole("combobox", {
+    // The retired profile does not follow the analyst into the new session:
+    // the question is asked with one the Gateway still advertises.
+    const profileSelector = await screen.findByRole("combobox", {
       name: "Model profile",
     });
     expect(profileSelector).toHaveValue("catalyst-query-gemma-e4b");
     await user.type(screen.getByLabelText("Question"), "Count recent results");
     await user.click(screen.getByRole("button", { name: "Generate query" }));
 
-    await waitFor(() => expect(api.createWorkbenchSession).toHaveBeenCalledOnce());
-    expect(api.createWorkbenchSession).toHaveBeenCalledWith(
-      "Count recent results",
-      "catalyst-query-gemma-e4b",
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    await waitFor(() =>
+      expect(api.askWorkbenchSessionQuestion).toHaveBeenCalledWith(
+        EMPTY_SESSION_ID,
+        "Count recent results",
+        "catalyst-query-gemma-e4b",
+      ),
     );
   });
 

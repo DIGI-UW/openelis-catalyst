@@ -655,9 +655,9 @@ class CatalystService:
                 "catalyst-workbench-session-request-v1.schema.json",
                 payload,
             )
-            question = str(payload["question"])
-            if not question.strip():
-                raise ContractError("Question must contain non-whitespace text.")
+            # A session may be opened before there is a question: choosing
+            # where to work should not require already knowing what to ask.
+            question = str(payload.get("question") or "")
         except (ContractError, KeyError, TypeError) as error:
             return self._workbench_error(400, "invalid_request", str(error))
 
@@ -695,18 +695,6 @@ class CatalystService:
                 str(error),
             )
 
-        initial_request = build_query_request(
-            question,
-            runtime_catalog,
-            max_rows=self.max_rows,
-            statement_timeout_ms=self.statement_timeout_ms,
-            request_id=str(uuid.uuid4()),
-            trace_id=catalyst_trace_id,
-            profile_id=profile_id,
-        )
-        self.contracts.validate(
-            "catalyst-query-request-v1.schema.json", initial_request
-        )
         assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             overview = await bundle.analytics.dataset_overview()
@@ -746,6 +734,141 @@ class CatalystService:
             ),
             browser_state=dict(payload.get("browserState") or {}),
             provenance=provenance,
+        )
+        if not question.strip():
+            # An empty session: named, grounded in a source, nothing asked
+            # of a model yet.
+            restored = store.get_session(session["sessionId"])
+            assert restored is not None
+            return ServiceResponse(201, self._present_workbench_session(restored))
+
+        return await self._seed_workbench_session(
+            store,
+            session,
+            question=question,
+            profile_id=profile_id,
+            bundle=bundle,
+            runtime_catalog=runtime_catalog,
+            catalyst_trace_id=catalyst_trace_id,
+            selected_profile=selected_profile,
+            profile_evidence=profile_evidence,
+            initial_profile_snapshot=initial_profile_snapshot,
+        )
+
+    async def ask_workbench_session_question(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> ServiceResponse:
+        """Ask the first question of a session that was opened empty."""
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual query workbench is not configured.",
+            )
+        session = store.get_session(session_id)
+        if session is None:
+            return self._workbench_error(
+                404, "workbench_session_not_found", "Workbench session was not found."
+            )
+        question = str(payload.get("question") or "")
+        if not question.strip():
+            return self._workbench_error(
+                400, "invalid_request", "Question must contain non-whitespace text."
+            )
+        if store.list_turns(session_id)["turns"]:
+            # A session's first question is asked once. Later questions are
+            # turns, which carry a base and a revision context this does not.
+            return self._workbench_error(
+                409,
+                "session_already_started",
+                "This session already has a turn. Refine it with a follow-up "
+                "instead.",
+            )
+
+        profile_id = str(payload.get("profileId") or session["profileId"])
+        # The session is grounded in one source; a question cannot move it.
+        bundle = self._require_bundle(self._session_data_source_id(session))
+        if isinstance(bundle, ServiceResponse):
+            return bundle
+        try:
+            profiles = await self.hub.list_query_profiles()
+            selected_profile = next(
+                (profile for profile in profiles if profile.get("id") == profile_id),
+                None,
+            )
+            if (
+                selected_profile is None
+                or selected_profile.get("available") is not True
+            ):
+                return self._workbench_error(
+                    422,
+                    "profile_unavailable",
+                    f"Gateway does not advertise available profile {profile_id}.",
+                )
+            profile_evidence = self._require_profile_evidence(selected_profile)
+            initial_profile_snapshot = self._turn_profile_snapshot(selected_profile)
+            runtime_catalog = await self._runtime_catalog(bundle)
+        except HubError as error:
+            return self._workbench_error(502, error.code, str(error))
+        except AnalyticsError as error:
+            return self._workbench_error(502, "catalog_unavailable", str(error))
+        except ContractError as error:
+            return self._workbench_error(
+                422, "profile_evidence_unavailable", str(error)
+            )
+
+        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        if catalog_conflict is not None:
+            return catalog_conflict
+
+        store.set_session_question(session_id, question)
+        session = store.get_session(session_id)
+        assert session is not None
+        return await self._seed_workbench_session(
+            store,
+            session,
+            question=question,
+            profile_id=profile_id,
+            bundle=bundle,
+            runtime_catalog=runtime_catalog,
+            catalyst_trace_id=str(uuid.uuid4()),
+            selected_profile=selected_profile,
+            profile_evidence=profile_evidence,
+            initial_profile_snapshot=initial_profile_snapshot,
+        )
+
+    async def _seed_workbench_session(
+        self,
+        store: Any,
+        session: dict[str, Any],
+        *,
+        question: str,
+        profile_id: str,
+        bundle: DataSourceBundle,
+        runtime_catalog: Catalog,
+        catalyst_trace_id: str,
+        selected_profile: dict[str, Any],
+        profile_evidence: dict[str, Any],
+        initial_profile_snapshot: dict[str, Any],
+    ) -> ServiceResponse:
+        """Generate a session's first query and record it as the initial turn.
+
+        Addressed by session id alone, so it serves both a session created
+        with a question and the first question asked of one opened empty.
+        """
+
+        initial_request = build_query_request(
+            question,
+            runtime_catalog,
+            max_rows=self.max_rows,
+            statement_timeout_ms=self.statement_timeout_ms,
+            request_id=str(uuid.uuid4()),
+            trace_id=catalyst_trace_id,
+            profile_id=profile_id,
+        )
+        self.contracts.validate(
+            "catalyst-query-request-v1.schema.json", initial_request
         )
         initial_turn = store.claim_initial_turn(
             session["sessionId"],
@@ -798,6 +921,9 @@ class CatalystService:
         except (ContractError, QueryInvariantError) as error:
             generation = self._error(502, "hub_invalid_response", str(error))
 
+        # The session already carries the provenance it was created with;
+        # this records what the generation added to it.
+        provenance = dict(session["provenance"])
         provenance.update(
             {
                 "generationHttpStatus": generation.status_code,

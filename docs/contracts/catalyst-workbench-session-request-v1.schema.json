@@ -6,8 +6,7 @@
   "additionalProperties": false,
   "required": [
     "contractVersion",
-    "deploymentMode",
-    "question"
+    "deploymentMode"
   ],
   "properties": {
     "contractVersion": {
@@ -18,7 +17,7 @@
     },
     "question": {
       "type": "string",
-      "minLength": 1
+      "description": "Omit to open an empty session: named and grounded in a data source, with nothing asked of a model yet."
     },
     "profileId": {
       "type": "string",

@@ -20,21 +20,33 @@
       "format": "uuid"
     },
     "currentTurnId": {
-      "type": "string",
-      "format": "uuid"
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "uuid"
+        }
+      ],
+      "description": "Null for a session opened with no question: it has turns to come, but none yet."
     },
     "currentVersion": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "turns": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "$ref": "catalyst-workbench-turn-v1.schema.json"
-      }
+      },
+      "description": "Empty for a session opened with no question. Every other session has at least its initial turn."
     }
   }
 }

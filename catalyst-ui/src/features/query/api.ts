@@ -63,6 +63,13 @@ export interface CatalystApi {
     name?: string,
   ): Promise<WorkbenchSession>;
   listWorkbenchSessions?(signal?: AbortSignal): Promise<WorkbenchSessionList>;
+  /** Ask the first question of a session that was opened empty. */
+  askWorkbenchSessionQuestion?(
+    sessionId: string,
+    question: string,
+    profileId?: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
   getWorkbenchSession?(
     sessionId: string,
     signal?: AbortSignal,
@@ -361,6 +368,26 @@ export const createCatalystApi = ({
         }),
         signal,
       });
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async askWorkbenchSessionQuestion(sessionId, question, profileId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/question`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            ...(profileId ? { profileId } : {}),
+          }),
+          signal,
+        },
+      );
       const body = await parseJson(response);
       if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
         throw new CatalystApiError(errorMessage(body, response.status), response.status);

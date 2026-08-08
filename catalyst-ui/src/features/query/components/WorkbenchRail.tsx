@@ -208,6 +208,15 @@ export const WorkbenchRail = ({
 
         {sessionMenu === "list" && (
           <div className="workbench-rail__session-menu" role="menu">
+            {/* Pinned above a history that scrolls, so it is never buried. */}
+            <button
+              type="button"
+              role="menuitem"
+              className="workbench-rail__session-new"
+              onClick={() => onSessionMenuChange("new")}
+            >
+              <span aria-hidden="true">＋ </span>New session…
+            </button>
             <p className="workbench-rail__session-menu-title">
               RECENT SESSIONS
             </p>
@@ -247,14 +256,6 @@ export const WorkbenchRail = ({
                 </button>
               ))
             )}
-            <button
-              type="button"
-              role="menuitem"
-              className="workbench-rail__session-new"
-              onClick={() => onSessionMenuChange("new")}
-            >
-              <span aria-hidden="true">＋ </span>New session…
-            </button>
           </div>
         )}
 

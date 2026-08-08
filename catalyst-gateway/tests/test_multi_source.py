@@ -434,3 +434,117 @@ def test_session_name_survives_reload(tmp_path: Path) -> None:
     ).json()
     assert reloaded["name"] == "Turnaround time, Q3"
     assert reloaded["question"] == QUESTION
+
+
+def test_session_opens_empty_without_asking_a_model(tmp_path: Path) -> None:
+    """Choosing where to work must not require knowing what to ask yet."""
+    client, hub, _, _ = _two_source_client(tmp_path)
+
+    response = client.post(
+        "/v1/catalyst/workbench/sessions",
+        json={
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "name": "CD4 cohort review",
+            "profileId": PROFILE_ID,
+            "dataSourceId": "openmrs-hiv",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert session["name"] == "CD4 cohort review"
+    assert session["question"] == ""
+    assert session["dataSourceId"] == "openmrs-hiv"
+    assert session["currentVersion"] is None
+    assert session["versions"] == []
+    # Opening a session is not a generation.
+    assert hub.requests == []
+
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    assert timeline["turns"] == []
+    assert timeline["currentTurnId"] is None
+
+    listed = client.get("/v1/catalyst/workbench/sessions").json()["sessions"]
+    assert listed[0]["sessionId"] == session["sessionId"]
+    assert listed[0]["turnCount"] == 0
+
+
+def _open_empty_session(client: TestClient, **extra) -> dict:
+    response = client.post(
+        "/v1/catalyst/workbench/sessions",
+        json={
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "profileId": PROFILE_ID,
+            **extra,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_first_question_seeds_an_empty_session_as_its_initial_turn(
+    tmp_path: Path,
+) -> None:
+    """The first question runs the same initial generation a session created
+    with a question runs — an initial turn, not a revision of nothing."""
+    client, hub, _, _ = _two_source_client(tmp_path)
+    session = _open_empty_session(client, name="CD4", dataSourceId="openmrs-hiv")
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/question",
+        json={"question": QUESTION, "profileId": PROFILE_ID},
+    )
+
+    assert response.status_code == 201, response.text
+    seeded = response.json()
+    assert seeded["question"] == QUESTION
+    assert seeded["currentVersion"] is not None
+    # Generated against the source the session is grounded in.
+    assert "openmrs-hiv-demo" in json.dumps(hub.requests[-1])
+
+    turns = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"]
+    assert len(turns) == 1
+    # kind: initial keeps its meaning — nothing observed, nothing revised.
+    assert turns[0]["kind"] == "initial"
+    assert turns[0]["observedBase"] is None
+    assert turns[0]["editorSnapshot"] is None
+    assert turns[0]["revisionContext"] is None
+
+
+def test_a_session_is_only_asked_its_first_question_once(tmp_path: Path) -> None:
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _open_empty_session(client)
+    first = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/question",
+        json={"question": QUESTION},
+    )
+    assert first.status_code == 201, first.text
+
+    again = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/question",
+        json={"question": "Something else entirely"},
+    )
+
+    assert again.status_code == 409, again.text
+    assert again.json()["error"]["code"] == "session_already_started"
+
+
+def test_creating_a_session_with_a_question_is_unchanged(tmp_path: Path) -> None:
+    """The existing one-step flow keeps generating on creation."""
+    client, hub, _, _ = _two_source_client(tmp_path)
+
+    session = _create_session(client)
+
+    assert session["question"] == QUESTION
+    assert session["currentVersion"] is not None
+    assert len(hub.requests) == 1
+    turns = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"]
+    assert [turn["kind"] for turn in turns] == ["initial"]

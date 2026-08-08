@@ -159,12 +159,46 @@ const api = (): CatalystApi => ({
     offset: 0,
     rows: [],
   }),
-  createWorkbenchSession: vi.fn().mockResolvedValue(session),
+  createWorkbenchSession: vi
+    .fn()
+    .mockImplementation((question: string) =>
+      Promise.resolve(
+        question.trim()
+          ? session
+          : {
+              ...session,
+              sessionId: "empty-session",
+              question: "",
+              currentVersionId: null,
+              currentVersion: null,
+              versions: [],
+              validations: [],
+              latestValidation: null,
+              executions: [],
+              draftSeed: null,
+            },
+      ),
+    ),
+  askWorkbenchSessionQuestion: vi.fn().mockResolvedValue(session),
   getWorkbenchSession: vi.fn().mockResolvedValue(session),
   createWorkbenchVersion: vi.fn(),
   executeWorkbenchVersion: vi.fn(),
   createWorkbenchTurn: vi.fn(),
-  getWorkbenchTurns: vi.fn().mockResolvedValue(timeline),
+  getWorkbenchTurns: vi
+    .fn()
+    .mockImplementation((sessionId: string) =>
+      Promise.resolve(
+        sessionId === "empty-session"
+          ? {
+              contractVersion: "catalyst.workbench.turn.timeline.v1",
+              sessionId: "empty-session",
+              currentTurnId: null,
+              currentVersion: null,
+              turns: [],
+            }
+          : timeline,
+      ),
+    ),
 });
 
 /**
@@ -361,19 +395,31 @@ describe("Dashboard Builder Ask shell", () => {
       expect(within(rail).getByText("OpenMRS HIV/ART")).toBeVisible(),
     );
 
-    await user.type(screen.getByLabelText("Question"), "How many CD4 results?");
-    await user.click(screen.getByRole("button", { name: "Generate query" }));
-
-    // The name and source chosen in the rail are what the session is created
-    // with — the composer only ever carried the question and the profile.
+    // The name and source chosen in the rail are what the session is opened
+    // with, before any question exists.
     await waitFor(() =>
       expect(client.createWorkbenchSession).toHaveBeenCalledWith(
-        "How many CD4 results?",
+        "",
         "catalyst-query",
         undefined,
         "openmrs-hiv",
         undefined,
         "CD4 cohort review",
+      ),
+    );
+
+    await user.type(
+      await screen.findByLabelText("Question"),
+      "How many CD4 results?",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    // The question seeds that session rather than opening a second one.
+    await waitFor(() =>
+      expect(client.askWorkbenchSessionQuestion).toHaveBeenCalledWith(
+        "empty-session",
+        "How many CD4 results?",
+        "catalyst-query",
       ),
     );
   });

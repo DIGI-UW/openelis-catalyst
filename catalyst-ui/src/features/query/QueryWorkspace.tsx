@@ -724,6 +724,21 @@ export const QueryWorkspace = ({
     setState({ kind: "submitting" });
     setWorkbenchError(null);
     try {
+      if (
+        workbenchSession &&
+        !sessionHasWork &&
+        api.askWorkbenchSessionQuestion
+      ) {
+        adoptWorkbenchSession(
+          await api.askWorkbenchSessionQuestion(
+            workbenchSession.sessionId,
+            normalizedQuestion,
+            (queryOptions && selectedAvailableProfileId) || undefined,
+          ),
+        );
+        setState({ kind: "idle" });
+        return;
+      }
       if (usesWorkbench) {
         const session = await api.createWorkbenchSession!(
           normalizedQuestion,
@@ -792,8 +807,11 @@ export const QueryWorkspace = ({
     }
   };
 
-  const startNewSession = () => {
-    if (followupBusy) return;
+  // Opening a session is a real act: it is created, named and grounded in a
+  // source before any question exists, so the source you are targeting is
+  // settled before you decide what to ask.
+  const startNewSession = async () => {
+    if (followupBusy || !api.createWorkbenchSession) return;
     setSessionMenu("closed");
     if (selectedAvailableProfileId) {
       setProfileId(selectedAvailableProfileId);
@@ -815,6 +833,21 @@ export const QueryWorkspace = ({
     setGenerationEvidenceError(null);
     forgetActiveWorkbenchSession();
     setActiveSection("ask");
+    try {
+      const session = await api.createWorkbenchSession(
+        "",
+        (queryOptions && selectedAvailableProfileId) || undefined,
+        undefined,
+        dataSourceId || undefined,
+        undefined,
+        draftSessionName.trim() || undefined,
+      );
+      rememberActiveWorkbenchSession(session.sessionId);
+      adoptWorkbenchSession(session);
+      setDraftSessionName("");
+    } catch (error) {
+      setWorkbenchError(messageFromError(error));
+    }
     window.setTimeout(() => {
       document.getElementById("catalyst-question")?.focus();
     }, 0);
@@ -1056,10 +1089,20 @@ export const QueryWorkspace = ({
     persistBrowserState({ sqlWrapLines: wrapLines });
   };
 
+
+  // A draft seed counts as work: the model produced something, even if it is
+  // not yet an immutable version.
+  const sessionHasWork = Boolean(
+    workbenchSession &&
+      (workbenchSession.currentVersion !== null ||
+        workbenchSession.draftSeed != null ||
+        (workbenchTimeline?.turns.length ?? 0) > 0),
+  );
+
+  // The question is asked once per session. A session opened empty has not
+  // been asked yet, so its question box stays live until it is.
   const questionIsLocked =
-    state.kind === "preview" ||
-    state.kind === "polling" ||
-    workbenchSession !== null;
+    state.kind === "preview" || state.kind === "polling" || sessionHasWork;
 
   const activeNotebookTurns = notebookTurns(workbenchTimeline, workbenchSession);
 
@@ -1251,7 +1294,7 @@ export const QueryWorkspace = ({
             </div>
           )}
 
-      {!workbenchSession && state.kind !== "submitting" && (
+      {!sessionHasWork && state.kind !== "submitting" && (
         /*
           The rail names the product and the composer holds the question, so
           this says only what neither can: what a session is for, and that
@@ -1269,7 +1312,7 @@ export const QueryWorkspace = ({
         </div>
       )}
 
-      {!workbenchSession && (
+      {!sessionHasWork && (
         <QuestionForm
           question={question}
           busy={state.kind === "submitting"}
@@ -1297,7 +1340,7 @@ export const QueryWorkspace = ({
         />
       )}
 
-      {usesNotebook && workbenchSession && workbenchTimeline && (
+      {usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline && (
         <TurnNotebook
           turns={activeNotebookTurns}
           session={workbenchSession}
@@ -1324,7 +1367,7 @@ export const QueryWorkspace = ({
         />
       )}
 
-      {workbenchSession && (
+      {sessionHasWork && workbenchSession && (
         <WorkbenchPanel
           session={workbenchSession}
           sql={workbenchSql}

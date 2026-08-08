@@ -2109,6 +2109,22 @@ class WorkbenchStore:
                 (_json(provenance), timestamp, session_id),
             )
 
+    def set_session_question(self, session_id: str, question: str) -> None:
+        """Record the question a session opened empty was finally asked.
+
+        Written once, when the session's first question arrives; the question
+        is immutable evidence of what was asked from then on.
+        """
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE catalyst_workbench_sessions
+                SET question = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (question, _timestamp(self._now()), session_id),
+            )
+
     def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
         """Recent sessions, newest first, with just enough to pick one."""
         with self._lock:
@@ -2131,9 +2147,9 @@ class WorkbenchStore:
                 "sessionId": row["session_id"],
                 "name": row["name"] or row["question"],
                 "question": row["question"],
-                "dataSourceId": (
-                    json.loads(row["provenance_json"]) or {}
-                ).get("dataSourceId"),
+                "dataSourceId": (json.loads(row["provenance_json"]) or {}).get(
+                    "dataSourceId"
+                ),
                 "turnCount": row["turn_count"],
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
@@ -2243,13 +2259,20 @@ class WorkbenchStore:
         else:
             session = self.get_session(session_id)
             assert session is not None
-            turns = [self._synthesize_legacy_turn(session)]
+            # A legacy turn is reconstructed from the question a session was
+            # opened with. A session opened without one has no initial turn to
+            # reconstruct: it is empty, not legacy.
+            turns = (
+                [self._synthesize_legacy_turn(session)]
+                if str(session.get("question") or "").strip()
+                else []
+            )
         current = self.get_session(session_id)
         assert current is not None
         return {
             "contractVersion": "catalyst.workbench.turn.timeline.v1",
             "sessionId": session_id,
-            "currentTurnId": turns[-1]["turnId"],
+            "currentTurnId": turns[-1]["turnId"] if turns else None,
             "currentVersion": (
                 self._version_ref(current["currentVersion"])
                 if current["currentVersion"] is not None
@@ -2274,7 +2297,7 @@ class WorkbenchStore:
         if row is not None:
             return json.loads(row["evidence_json"])
         session = self.get_session(session_id)
-        if session is None:
+        if session is None or not str(session.get("question") or "").strip():
             return None
         legacy = self._synthesize_legacy_turn(session)
         if legacy["turnId"] != turn_id:
