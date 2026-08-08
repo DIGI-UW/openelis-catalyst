@@ -2,14 +2,17 @@ import { Button, Tag } from "@carbon/react";
 import { useMemo, useState, type FormEvent } from "react";
 import type {
   QueryProfile,
+  WorkbenchExecution,
   WorkbenchGenerationEvidence,
   WorkbenchQueryVersion,
+  WorkbenchSession,
 } from "../types";
+import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
 
 type NotebookVersion = Pick<
   WorkbenchQueryVersion,
-  "versionId" | "ordinal" | "authorType" | "queryDigest" | "provenance"
+  "versionId" | "ordinal" | "authorType" | "queryDigest" | "provenance" | "sql"
 >;
 
 export interface NotebookOutputVersion {
@@ -35,6 +38,12 @@ export interface NotebookTurn {
     reviewer: { modelId: string } | null;
   };
   failure: { message: string } | null;
+  /** Run recorded against this turn's selected version, if it has been run. */
+  execution?: WorkbenchExecution | null;
+  /** Advisory validation status for this turn's selected version. */
+  validationStatus?: "invalid" | "warning" | "valid" | null;
+  /** True for the turn whose selected version is the session's current one. */
+  current?: boolean;
 }
 
 export interface NotebookGrounding {
@@ -44,6 +53,7 @@ export interface NotebookGrounding {
 
 interface TurnNotebookProps {
   turns: NotebookTurn[];
+  session: WorkbenchSession;
   baseVersion: NotebookVersion | null;
   instruction: string;
   profiles: QueryProfile[];
@@ -91,6 +101,48 @@ const versionAuthor = (version: NotebookVersion | null) => {
 
 const versionModel = (version: NotebookVersion | null) =>
   version ? textAt(version.provenance, "model") : null;
+
+const selectedVersionOf = (turn: NotebookTurn): NotebookVersion | null =>
+  turn.outputVersions.find((output) => output.selected)?.version ??
+  turn.outputVersions.find(
+    (output) => output.versionId === turn.selectedVersionId,
+  )?.version ??
+  null;
+
+/**
+ * Status is what the analyst reads from the gutter at a glance: whether this
+ * turn produced a query that ran, and whether that run came back clean. A turn
+ * whose generation failed never reaches a run, so it reports the same red as a
+ * failed run rather than an absent one.
+ */
+type CellStatus = "succeeded" | "failed" | "not-run";
+
+const cellStatus = (turn: NotebookTurn): CellStatus => {
+  if (turn.status === "failed") return "failed";
+  if (turn.execution?.status === "failed") return "failed";
+  if (turn.execution?.status === "succeeded") return "succeeded";
+  return "not-run";
+};
+
+const rowLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
+
+/** The right-hand summary in a collapsed header: `v3 · 12 rows`. */
+const cellOutcome = (turn: NotebookTurn) => {
+  if (turn.status === "failed") return "generation failed";
+  if (turn.status === "requested") return "generating…";
+  const execution = turn.execution;
+  if (!execution) return "not run";
+  if (execution.status === "failed") return "run failed";
+  const returned = execution.result?.rowCount.returned;
+  return returned === undefined ? "ran" : rowLabel(returned);
+};
+
+const validationWord = (status: NotebookTurn["validationStatus"]) => {
+  if (status === "valid") return "✓ valid";
+  if (status === "warning") return "checked with warnings";
+  if (status === "invalid") return "findings raised";
+  return null;
+};
 
 const EvidenceDetail = ({
   evidence,
@@ -230,6 +282,7 @@ const EvidenceDetail = ({
 
 export const TurnNotebook = ({
   turns,
+  session,
   baseVersion,
   instruction,
   profiles,
@@ -261,11 +314,12 @@ export const TurnNotebook = ({
   const composerTitle = baseVersion
     ? `Refine Query v${baseVersion.ordinal}`
     : "Refine unresolved editor";
+  const latestTurnId = turns.at(-1)?.turnId ?? null;
 
-  const toggleTurn = (turnId: string) => {
+  const toggleTurn = (turnId: string, expanded: boolean) => {
     setTurnVisibilityOverrides((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? false),
+      [turnId]: !expanded,
     }));
   };
 
@@ -275,117 +329,166 @@ export const TurnNotebook = ({
     onGenerate();
   };
 
-  const renderTurn = (turn: NotebookTurn) => {
-    const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
+  const renderCell = (turn: NotebookTurn) => {
+    // Only the newest turn is open on arrival; everything earlier collapses to
+    // its header so the thread stays scannable. An explicit toggle always wins.
+    const expanded =
+      turnVisibilityOverrides[turn.turnId] ?? turn.turnId === latestTurnId;
     const regionId = `query-turn-${turn.turnId}`;
+    const status = cellStatus(turn);
+    const version = selectedVersionOf(turn);
+    const execution = turn.execution ?? null;
+    const validation = validationWord(turn.validationStatus);
+    const evidenceLoading = evidenceLoadingTurnId === turn.turnId;
+    const outcome = cellOutcome(turn);
+    // The visible header truncates the instruction to one line, so the
+    // accessible name carries it in full alongside the run counter it is cited
+    // by and the outcome the status dot encodes visually.
+    const headerLabel =
+      `Query turn ${turn.ordinal}: ${turn.instruction} — ` +
+      `${version ? `Query v${version.ordinal}, ` : ""}${outcome}`;
+
     return (
-      <article className="query-turn" key={turn.turnId}>
-        <button
-          type="button"
-          className="query-turn__disclosure"
-          aria-expanded={expanded}
-          aria-controls={regionId}
-          onClick={() => toggleTurn(turn.turnId)}
-        >
-          <span className="query-turn__summary">
-            <strong>Query turn {turn.ordinal}</strong>
-            <span>{turn.instruction}</span>
-          </span>
-          {turn.dataSourceLabel && (
-            <span className="query-turn__source">{turn.dataSourceLabel}</span>
-          )}
-          <span>{turn.status}</span>
-        </button>
-        {expanded && (
-          <section
-            id={regionId}
-            className="query-turn__detail"
-            aria-label={`Query turn ${turn.ordinal}`}
+      <article
+        className="query-turn"
+        id={`turn-${turn.ordinal}`}
+        key={turn.turnId}
+        data-status={status}
+        data-current={turn.current ? "true" : undefined}
+      >
+        <div className="query-turn__gutter" aria-hidden="true">
+          [{turn.ordinal}]
+        </div>
+        <div className="query-turn__body">
+          <button
+            type="button"
+            className="query-turn__disclosure"
+            aria-expanded={expanded}
+            aria-controls={regionId}
+            aria-label={headerLabel}
+            onClick={() => toggleTurn(turn.turnId, expanded)}
           >
-            <p className="query-turn__instruction">{turn.instruction}</p>
-            <p className="query-turn__profile">
-              {turn.profileSnapshot.profileName ?? "Profile unavailable"}
-            </p>
-            {turn.outputVersions.map((output, index) => {
-              const version = output.version;
-              if (!version) return null;
-              let summary: string;
-              if (turn.status === "failed" && output.role === "writer") {
-                summary = `Structured writer output — Query v${version.ordinal} — not selected`;
-              } else if (output.selected) {
-                summary = `Query v${version.ordinal} — selected ${output.role} output`;
-              } else {
-                summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
-              }
-              return <p key={`${version.versionId}-${index}`}>{summary}</p>;
-            })}
-            {turn.status === "failed" && (
-              <div className="query-turn__failure" role="status">
-                <strong>Generation failed</strong>
-                <p>{turn.failure?.message ?? "The generation did not complete."}</p>
-              </div>
+            <span className="query-turn__dot" aria-hidden="true" />
+            <span className="query-turn__summary">{turn.instruction}</span>
+            {turn.dataSourceLabel && (
+              <span className="query-turn__source">{turn.dataSourceLabel}</span>
             )}
-            <Button
-              type="button"
-              kind="ghost"
-              size="sm"
-              disabled={evidenceLoadingTurnId === turn.turnId}
-              onClick={() => onShowEvidence(turn.turnId)}
+            <span className="query-turn__outcome">
+              {version ? `v${version.ordinal} · ` : ""}
+              {outcome}
+            </span>
+            <span className="query-turn__caret" aria-hidden="true">
+              {expanded ? "▾" : "▸"}
+            </span>
+          </button>
+
+          {expanded && (
+            <section
+              id={regionId}
+              className="query-turn__detail"
+              aria-label={`Query turn ${turn.ordinal}`}
             >
-              {evidenceLoadingTurnId === turn.turnId
-                ? "Loading generation evidence…"
-                : "View generation evidence"}
-            </Button>
-          </section>
-        )}
+              {version && (
+                <div className="query-turn__sql">
+                  <p className="query-turn__sql-label">
+                    Query v{version.ordinal} · {versionAuthor(version)}
+                    {versionModel(version) ? ` · ${versionModel(version)}` : ""}
+                  </p>
+                  <pre>{version.sql}</pre>
+                </div>
+              )}
+
+              {turn.profileSnapshot.profileName && (
+                <p className="query-turn__profile">
+                  Generated by {turn.profileSnapshot.profileName}
+                  {turn.profileSnapshot.writer
+                    ? ` · ${turn.profileSnapshot.writer.modelId} writer`
+                    : ""}
+                  {turn.profileSnapshot.reviewer
+                    ? ` · ${turn.profileSnapshot.reviewer.modelId} reviewer`
+                    : ""}
+                </p>
+              )}
+
+              {turn.outputVersions
+                .filter((output) => !output.selected && output.version)
+                .map((output, index) => (
+                  <p
+                    className="query-turn__superseded"
+                    key={`${output.version!.versionId}-${index}`}
+                  >
+                    {turn.status === "failed" && output.role === "writer"
+                      ? `Structured writer output — Query v${output.version!.ordinal} — not selected`
+                      : `Query v${output.version!.ordinal} — ${output.role} output — superseded`}
+                  </p>
+                ))}
+
+              {turn.status === "failed" && (
+                <div className="query-turn__failure" role="status">
+                  <strong>Generation failed</strong>
+                  <p>
+                    {turn.failure?.message ?? "The generation did not complete."}
+                  </p>
+                </div>
+              )}
+
+              {execution && (
+                <ExecutionResult
+                  session={session}
+                  sql={version?.sql ?? execution.query.sql}
+                  parameters={execution.query.parameters}
+                  executionOverride={execution}
+                  immutableSnapshot
+                  compact
+                  pageSize={10}
+                />
+              )}
+
+              <div className="query-turn__footer">
+                {validation && (
+                  <span className="query-turn__footer-item">{validation}</span>
+                )}
+                {execution?.status === "succeeded" &&
+                  execution.result !== undefined && (
+                    <span className="query-turn__footer-item">
+                      {rowLabel(execution.result.rowCount.returned)}
+                    </span>
+                  )}
+                {execution && (
+                  <span className="query-turn__footer-item">
+                    {execution.durationMs} ms
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  kind="ghost"
+                  size="sm"
+                  disabled={evidenceLoading}
+                  onClick={() => onShowEvidence(turn.turnId)}
+                >
+                  {evidenceLoading
+                    ? "Loading generation evidence…"
+                    : "View generation evidence"}
+                </Button>
+              </div>
+            </section>
+          )}
+        </div>
       </article>
     );
   };
 
-  const earlierTurns = turns.slice(0, -1);
-  const latestTurn = turns.at(-1);
-
   return (
     <section className="turn-notebook" aria-label="Iterative query notebook">
-      <div className="turn-notebook__timeline">
-        {earlierTurns.length > 0 && (
-          <details className="turn-notebook__history">
-            <summary>Earlier turns ({earlierTurns.length}) · read-only summaries</summary>
-            <div>{earlierTurns.map(renderTurn)}</div>
-          </details>
-        )}
-        {latestTurn && (
-          <div className="query-turn__message">{latestTurn.instruction}</div>
-        )}
-        {latestTurn?.status === "completed" && (
-          <div className="query-turn__latest-meta">
-            <p>
-              {baseVersion ? `Query v${baseVersion.ordinal}` : "Latest query"}
-              {latestTurn.profileSnapshot.profileName
-                ? ` · Generated by ${latestTurn.profileSnapshot.profileName}`
-                : ""}
-              {latestTurn.profileSnapshot.writer?.modelId
-                ? ` · ${latestTurn.profileSnapshot.writer.modelId} writer`
-                : ""}
-              {latestTurn.profileSnapshot.reviewer?.modelId
-                ? ` · ${latestTurn.profileSnapshot.reviewer.modelId} reviewer`
-                : ""}
-            </p>
-            <Button
-              type="button"
-              kind="ghost"
-              size="sm"
-              disabled={evidenceLoadingTurnId === latestTurn.turnId}
-              onClick={() => onShowEvidence(latestTurn.turnId)}
-            >
-              {evidenceLoadingTurnId === latestTurn.turnId
-                ? "Loading generation evidence…"
-                : "View latest generation evidence"}
-            </Button>
-          </div>
-        )}
-        {latestTurn?.status === "failed" && renderTurn(latestTurn)}
-      </div>
+      <ol className="turn-notebook__timeline">
+        {turns.map((turn) => (
+          <li key={turn.turnId}>{renderCell(turn)}</li>
+        ))}
+        <li className="turn-notebook__composing" aria-hidden="true">
+          <span className="query-turn__gutter">[{turns.length + 1}]</span>
+          <span>composing…</span>
+        </li>
+      </ol>
 
       <section
         id="refine-openelis"

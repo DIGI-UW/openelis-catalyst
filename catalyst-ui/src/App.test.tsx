@@ -1133,9 +1133,12 @@ describe("Catalyst query workflow", () => {
     expect(
       (await screen.findAllByText(notebookSession.question)).length,
     ).toBeGreaterThan(0);
+    // The restored thread is addressable: turn 1 is its own cell, expanded
+    // because it is the newest, and anchored so it can be deep-linked.
     expect(
-      screen.queryByRole("button", { name: /query turn 1/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /query turn 1/i }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById("turn-1")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Refine Query v1" }),
     ).toBeVisible();

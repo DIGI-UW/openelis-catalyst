@@ -174,6 +174,29 @@ const currentQueryProfileId = (session: WorkbenchSession) => {
   return session.profileId;
 };
 
+// The run recorded against a turn's own query version. A version can be run
+// more than once (re-run after a timeout), so the newest execution wins.
+const executionForVersion = (
+  session: WorkbenchSession | null,
+  versionId: string | null,
+) =>
+  versionId === null
+    ? null
+    : ([...(session?.executions ?? [])]
+        .sort((left, right) => right.ordinal - left.ordinal)
+        .find((execution) => execution.versionId === versionId) ?? null);
+
+const validationStatusForVersion = (
+  session: WorkbenchSession | null,
+  versionId: string | null,
+) =>
+  versionId === null
+    ? null
+    : ([...(session?.validations ?? [])]
+        .sort((left, right) => right.ordinal - left.ordinal)
+        .find((validation) => validation.versionId === versionId)?.status ??
+      null);
+
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
@@ -209,6 +232,11 @@ const notebookTurns = (
       ),
     })),
     failure: turn.failure ? { message: turn.failure.message } : null,
+    execution: executionForVersion(session, turn.selectedVersionId),
+    validationStatus: validationStatusForVersion(session, turn.selectedVersionId),
+    current:
+      turn.selectedVersionId !== null &&
+      turn.selectedVersionId === session?.currentVersionId,
   }));
 
 const notebookGrounding = (
@@ -1113,6 +1141,7 @@ export const QueryWorkspace = ({
       {usesNotebook && workbenchSession && workbenchTimeline && (
         <TurnNotebook
           turns={activeNotebookTurns}
+          session={workbenchSession}
           baseVersion={workbenchSession.currentVersion}
           instruction={followupInstruction}
           profiles={queryOptions?.profiles ?? []}
@@ -1150,13 +1179,22 @@ export const QueryWorkspace = ({
           error={workbenchError}
           announcement={workbenchAnnouncement}
           sqlEditorFocusRequestId={sqlEditorFocusRequestId}
-          showExecutionResult={workbenchSession.executions.some(
-            (execution) =>
-              execution.status === "failed" &&
-              execution.ordinal === Math.max(
-                ...workbenchSession.executions.map((candidate) => candidate.ordinal),
-              ),
-          )}
+          // Each notebook cell renders the run recorded against its own query
+          // version, so repeating the latest one here would show the same
+          // result twice. Without the notebook this panel is the only surface
+          // a failed run can appear on.
+          showExecutionResult={
+            !usesNotebook &&
+            workbenchSession.executions.some(
+              (execution) =>
+                execution.status === "failed" &&
+                execution.ordinal === Math.max(
+                  ...workbenchSession.executions.map(
+                    (candidate) => candidate.ordinal,
+                  ),
+                ),
+            )
+          }
           showInitialGenerationEvidence={!usesNotebook}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryWorkspace } from "./QueryWorkspace";
 import type { CatalystApi } from "./api";
 import type {
+  WorkbenchExecution,
   WorkbenchQueryVersion,
   WorkbenchSession,
   WorkbenchTurnTimeline,
@@ -197,5 +198,50 @@ describe("Dashboard Builder Ask shell", () => {
     const composer = screen.getByRole("region", { name: /refine query v1/i });
     expect(composer).toHaveClass("turn-composer");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible());
+  });
+
+  it("renders a recorded run once, in the cell that owns its query version", async () => {
+    const client = api();
+    const failed: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      validationStatus: "valid",
+      query: { sql: version.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "failed",
+      databaseDiagnostic: {
+        sqlstate: "42703",
+        severity: "ERROR",
+        message: 'column "test_type" does not exist',
+        detail: null,
+        hint: null,
+        position: 214,
+      },
+      durationMs: 18,
+      executionId: "88888888-8888-4888-8888-888888888888",
+      sessionId: session.sessionId,
+      versionId: version.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [failed] });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    // The notebook cell owns the run. The workbench panel below must not
+    // repeat it, or the same failure is reported twice on one page.
+    const diagnostic = await screen.findAllByText(
+      'column "test_type" does not exist',
+    );
+    expect(diagnostic).toHaveLength(1);
+    expect(diagnostic[0]!.closest(".query-turn")).not.toBeNull();
   });
 });

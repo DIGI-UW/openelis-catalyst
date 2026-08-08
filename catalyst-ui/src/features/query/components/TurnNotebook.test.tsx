@@ -1,7 +1,12 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { QueryProfile, WorkbenchGenerationEvidence } from "../types";
+import type {
+  QueryProfile,
+  WorkbenchExecution,
+  WorkbenchGenerationEvidence,
+  WorkbenchSession,
+} from "../types";
 import { TurnNotebook } from "./TurnNotebook";
 
 type RevisionProfile = QueryProfile & { revisionCapable: boolean };
@@ -67,6 +72,7 @@ const modelVersion = {
   authorType: "model" as const,
   queryDigest: "a".repeat(64),
   provenance: { model: "gemma-4-12b" },
+  sql: "SELECT patient_id FROM analytics.lab_result_fact_v1",
 };
 
 const writerVersion = {
@@ -75,6 +81,7 @@ const writerVersion = {
   authorType: "model" as const,
   queryDigest: "b".repeat(64),
   provenance: { model: "gemma-4-12b", collaborationRole: "writer" },
+  sql: "SELECT patient_id, released FROM analytics.lab_result_fact_v1",
 };
 
 const reviewerVersion = {
@@ -83,6 +90,56 @@ const reviewerVersion = {
   authorType: "model_repair" as const,
   queryDigest: "c".repeat(64),
   provenance: { model: "qwen2.5-14b", collaborationRole: "reviewer" },
+  sql: "SELECT patient_id FROM analytics.lab_result_fact_v1 WHERE released",
+};
+
+// The notebook renders each cell's own recorded run, so it needs the session
+// that owns the immutable versions, validations and executions.
+const session = {
+  contractVersion: "catalyst.workbench.session.v1",
+  sessionId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  question: "Show recent viral load results",
+  profileId: profiles[0]!.id,
+  datasetId: "openelis-analytics",
+  datasetVersion: "lab_result_fact_v1",
+  catalogVersion: "analytics-catalog-v1",
+  currentVersionId: reviewerVersion.versionId,
+  browserState: {},
+  provenance: {},
+  status: "active",
+  createdAt: "2026-07-18T00:00:00Z",
+  updatedAt: "2026-07-18T00:00:01Z",
+  versions: [],
+  currentVersion: null,
+  validations: [],
+  latestValidation: null,
+  executions: [],
+} as unknown as WorkbenchSession;
+
+const failedExecution: WorkbenchExecution = {
+  contractVersion: "catalyst.workbench.execution.v1",
+  queryDigest: reviewerVersion.queryDigest,
+  idempotencyKey: "idem-2",
+  validationStatus: "valid",
+  query: { sql: reviewerVersion.sql, parameters: [] },
+  statementTimeoutMs: 30000,
+  maxRows: 1000,
+  replayed: false,
+  status: "failed",
+  databaseDiagnostic: {
+    sqlstate: "42703",
+    severity: "ERROR",
+    message: 'column "test_type" does not exist',
+    detail: null,
+    hint: null,
+    position: 214,
+  },
+  durationMs: 18,
+  executionId: "77777777-7777-4777-8777-777777777777",
+  sessionId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  versionId: reviewerVersion.versionId,
+  ordinal: 2,
+  completedAt: "2026-07-18T00:00:05Z",
 };
 
 const initialTurn = {
@@ -135,6 +192,7 @@ const followupTurn = {
 
 const defaultProps = {
   turns: [initialTurn, followupTurn],
+  session,
   baseVersion: reviewerVersion,
   instruction: "",
   profiles,
@@ -192,8 +250,7 @@ afterEach(() => {
 });
 
 describe("TurnNotebook", () => {
-  it("shows data-source badges only inside earlier read-only turn summaries", async () => {
-    const user = userEvent.setup();
+  it("labels each turn header with the data source that turn was grounded in", () => {
     render(
       <TurnNotebook
         {...defaultProps}
@@ -204,49 +261,87 @@ describe("TurnNotebook", () => {
       />,
     );
 
-    await user.click(screen.getByText(/Earlier turns \(1\)/i));
-
     const withSource = screen.getByRole("button", { name: /query turn 1/i });
     expect(
       within(withSource).getByText("OpenMRS HIV/ART program"),
     ).toBeVisible();
 
+    const withoutSource = screen.getByRole("button", { name: /query turn 2/i });
     expect(
-      screen.queryByRole("button", { name: /query turn 2/i }),
+      within(withoutSource).queryByText("OpenMRS HIV/ART program"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(followupTurn.instruction)).toBeVisible();
   });
 
-  it("keeps every prior turn compact and read-only while one composer owns refinement", async () => {
+  it("gives every turn a stable run counter and an addressable anchor", () => {
+    render(<TurnNotebook {...defaultProps} />);
+
+    const cells = document.querySelectorAll(".query-turn");
+    expect(cells).toHaveLength(2);
+    expect(document.getElementById("turn-1")).toBeInTheDocument();
+    expect(document.getElementById("turn-2")).toBeInTheDocument();
+    expect(screen.getByText("[1]")).toBeVisible();
+    expect(screen.getByText("[2]")).toBeVisible();
+    // The thread reads as ongoing, not finished.
+    expect(screen.getByText("[3]")).toBeVisible();
+    expect(screen.getByText("composing…")).toBeVisible();
+  });
+
+  it("opens only the newest turn and collapses earlier ones to their header", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
 
-    const history = screen.getByText(/Earlier turns \(1\)/i);
-    expect(history.closest("details")).not.toHaveAttribute("open");
-    await user.click(history);
+    const first = screen.getByRole("button", { name: /query turn 1/i });
+    const latest = screen.getByRole("button", { name: /query turn 2/i });
+    expect(first).toHaveAttribute("aria-expanded", "false");
+    expect(latest).toHaveAttribute("aria-expanded", "true");
 
-    const priorDisclosure = screen.getByRole("button", {
-      name: /query turn 1/i,
-    });
-    expect(priorDisclosure).toHaveAttribute("aria-expanded", "false");
+    // The instruction stays readable in the collapsed header, so the thread is
+    // scannable without expanding anything.
+    expect(within(first).getByText(initialTurn.instruction)).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: /query turn 2/i }),
+      screen.queryByRole("region", { name: /query turn 1/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getAllByText(initialTurn.instruction).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(followupTurn.instruction).length).toBeGreaterThan(0);
+
+    await user.click(first);
+    const opened = screen.getByRole("region", { name: /query turn 1/i });
+    expect(within(opened).getByText(modelVersion.sql)).toBeVisible();
+    // Refinement stays with the one composer; a cell is never an editor.
+    expect(within(opened).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      within(opened).queryByRole("button", { name: /generate/i }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getAllByRole("textbox", { name: "Follow-up instruction" }),
     ).toHaveLength(1);
 
-    await user.click(priorDisclosure);
-    const priorTurn = screen.getByRole("region", { name: /query turn 1/i });
-    expect(within(priorTurn).getByText(initialTurn.instruction)).toBeVisible();
-    expect(within(priorTurn).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(priorTurn).queryByRole("button", { name: /generate/i }))
-      .not.toBeInTheDocument();
+    await user.click(first);
+    expect(first).toHaveAttribute("aria-expanded", "false");
+  });
 
-    expect(screen.getByText(followupTurn.instruction)).toHaveClass(
-      "query-turn__message",
+  it("carries the run outcome in the collapsed header and the status border", () => {
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        turns={[
+          { ...initialTurn, validationStatus: "valid" as const },
+          { ...followupTurn, current: true, execution: failedExecution },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /query turn 1.*Query v1, not run/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /query turn 2.*Query v3, run failed/i }),
+    ).toBeVisible();
+    expect(document.getElementById("turn-2")).toHaveAttribute(
+      "data-status",
+      "failed",
+    );
+    expect(document.getElementById("turn-2")).toHaveAttribute(
+      "data-current",
+      "true",
     );
   });
 
@@ -257,7 +352,9 @@ describe("TurnNotebook", () => {
       screen.getByRole("heading", { name: "Refine Query v3" }),
     ).toBeVisible();
     expect(screen.getByText(/Based on Query v3/i)).toBeVisible();
-    expect(screen.getByText(/reviewer correction/i)).toBeVisible();
+    // "reviewer correction" now also labels the SQL block of the cell that
+    // produced v3, so the composer's copy is one of several.
+    expect(screen.getAllByText(/reviewer correction/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/qwen2\.5-14b/i).length).toBeGreaterThan(0);
 
     const selector = screen.getByRole("combobox", { name: "Model profile" });
@@ -289,31 +386,30 @@ describe("TurnNotebook", () => {
     expect(document.getElementById("catalyst-followup")).toBeInTheDocument();
   });
 
-  it("leaves latest-version details to the single active workbench", () => {
+  it("shows the selected version's immutable SQL and names its author in the cell", () => {
     render(<TurnNotebook {...defaultProps} />);
 
-    expect(screen.getByText(followupTurn.instruction)).toBeVisible();
-    expect(screen.queryByText(/Query v3.*selected.*reviewer/i))
-      .not.toBeInTheDocument();
-    expect(screen.queryByText(/Query v2.*writer.*superseded/i))
-      .not.toBeInTheDocument();
+    const latest = screen.getByRole("region", { name: /query turn 2/i });
+    expect(within(latest).getByText(reviewerVersion.sql)).toBeVisible();
+    expect(
+      within(latest).getByText(/Query v3 · reviewer correction · qwen2\.5-14b/i),
+    ).toBeVisible();
+    // The writer candidate this turn superseded stays recorded, not hidden.
+    expect(
+      within(latest).getByText(/Query v2 — writer output — superseded/i),
+    ).toBeVisible();
   });
 
-  it("loads evidence for the latest turn without reopening a duplicate turn card", async () => {
+  it("loads generation evidence from the cell it belongs to", async () => {
     const user = userEvent.setup();
     const onShowEvidence = vi.fn();
     render(
-      <TurnNotebook
-        {...defaultProps}
-        onShowEvidence={onShowEvidence}
-      />,
+      <TurnNotebook {...defaultProps} onShowEvidence={onShowEvidence} />,
     );
 
-    expect(
-      screen.queryByRole("button", { name: /query turn 2/i }),
-    ).not.toBeInTheDocument();
+    const latest = screen.getByRole("region", { name: /query turn 2/i });
     await user.click(
-      screen.getByRole("button", { name: "View latest generation evidence" }),
+      within(latest).getByRole("button", { name: "View generation evidence" }),
     );
     expect(onShowEvidence).toHaveBeenCalledWith(followupTurn.turnId);
   });
@@ -417,7 +513,6 @@ describe("TurnNotebook", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /query turn 2/i }));
     expect(screen.getByText("Generation failed")).toBeVisible();
     expect(screen.getByText(/Reviewer did not return a response/)).toBeVisible();
     expect(screen.getByText(/Structured writer output.*Query v2.*not selected/i))
@@ -561,8 +656,6 @@ describe("TurnNotebook", () => {
         onInstructionChange={onInstructionChange}
       />,
     );
-
-    await user.click(screen.getByText(/Earlier turns \(1\)/i));
 
     const priorDisclosure = screen.getByRole("button", {
       name: /query turn 1/i,

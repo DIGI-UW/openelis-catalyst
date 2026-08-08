@@ -700,6 +700,7 @@ export const ExecutionResult = ({
   parameters,
   executionOverride,
   immutableSnapshot = false,
+  compact = false,
   pageSize,
 }: {
   session: WorkbenchSession;
@@ -707,6 +708,12 @@ export const ExecutionResult = ({
   parameters: BoundParameter[];
   executionOverride?: WorkbenchExecution;
   immutableSnapshot?: boolean;
+  /**
+   * Drop the section heading and status tags. A notebook cell already names
+   * its query version and reports the run outcome in its own header, so
+   * repeating them inside the result is noise.
+   */
+  compact?: boolean;
   pageSize?: number;
 }) => {
   const execution = executionOverride ?? latestExecution(session.executions);
@@ -739,13 +746,15 @@ export const ExecutionResult = ({
     const diagnostic = execution.databaseDiagnostic;
     return (
       <section className="workbench-execution" aria-label="Latest execution">
-        <div className="workbench-subheading workbench-subheading--row">
-          <div>
-            <h3>Execution failed for {queryLabel}</h3>
-            <p>Execution {execution.ordinal}</p>
+        {!compact && (
+          <div className="workbench-subheading workbench-subheading--row">
+            <div>
+              <h3>Execution failed for {queryLabel}</h3>
+              <p>Execution {execution.ordinal}</p>
+            </div>
+            <Tag type="red">Failed</Tag>
           </div>
-          <Tag type="red">Failed</Tag>
-        </div>
+        )}
         <div className="workbench-database-error" role="alert">
           <h4>{diagnostic?.message ?? "Database execution failed"}</h4>
           <dl>
@@ -806,18 +815,20 @@ export const ExecutionResult = ({
 
   return (
     <section className="workbench-execution" aria-label="Latest execution">
-      <div className="workbench-subheading workbench-subheading--row">
-        <div>
-          <h3>Results from {queryLabel}</h3>
-          <p>
-            {result.rowCount.returned} {result.rowCount.returned === 1 ? "row" : "rows"} returned in {execution.durationMs} ms.
-          </p>
+      {!compact && (
+        <div className="workbench-subheading workbench-subheading--row">
+          <div>
+            <h3>Results from {queryLabel}</h3>
+            <p>
+              {result.rowCount.returned} {result.rowCount.returned === 1 ? "row" : "rows"} returned in {execution.durationMs} ms.
+            </p>
+          </div>
+          <div className="workbench-execution__status">
+            {resultIsStale && <Tag type="warm-gray">Stale — editor has changes</Tag>}
+            <Tag type="green">Succeeded</Tag>
+          </div>
         </div>
-        <div className="workbench-execution__status">
-          {resultIsStale && <Tag type="warm-gray">Stale — editor has changes</Tag>}
-          <Tag type="green">Succeeded</Tag>
-        </div>
-      </div>
+      )}
       {result.rowCount.truncated && (
         <p className="workbench-execution__notice">
           Results were truncated
