@@ -1697,7 +1697,7 @@ export const QueryWorkspace = ({
 
         <DashboardPublishPanel
           api={api}
-          hostedInThread={notebookShowing}
+          hostedInThread={notebookShowing || !sessionHasWork}
           registerDatasetOpener={registerDatasetOpener}
           session={workbenchSession}
           sql={workbenchSql}

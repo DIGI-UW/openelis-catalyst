@@ -23,8 +23,9 @@ interface DashboardPublishPanelProps {
   disabled?: boolean;
   /**
    * The thread hosts each turn's dataset now, so the standalone tile would
-   * repeat a table already on screen. The panel registers its opener here so
-   * the cell that owns the result can raise the review dialog.
+   * repeat a table already on screen, and a session with nothing asked of it
+   * has no result to offer. The panel registers its opener here so the cell
+   * that owns the result can raise the review dialog.
    */
   hostedInThread?: boolean;
   registerDatasetOpener?: (open: (() => void) | null) => void;
@@ -654,6 +655,9 @@ export const DashboardPublishPanel = ({
 
   const renderAskArtifacts = () => {
     if (!session) return null;
+    // The thread owns each turn's dataset, and a session with nothing asked of
+    // it has no result to promote.
+    if (hostedInThread) return null;
     if (!supported) {
       return (
         <InlineNotification
