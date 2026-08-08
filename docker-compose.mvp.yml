@@ -231,7 +231,7 @@ services:
     ports:
       - "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080"
     environment:
-      LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:1234}"
+      LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"
       LLM_PROVIDER: "${HUB_LLM_PROVIDER:-openai-compatible}"
       LLM_API_KEY: "${HUB_LLM_API_KEY:-}"
       LLM_TEMPERATURE: "0"

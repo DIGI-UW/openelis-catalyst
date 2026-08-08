@@ -224,14 +224,14 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_external_gemma_router_is_the_recommended_manual_backend(self):
         self.assertIn("MVP_MODEL_BACKEND=external", self.env)
         self.assertIn(
-            "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234", self.env
+            "MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077", self.env
         )
         self.assertIn(
             f"MVP_EXTERNAL_PROFILE_ID={EXTERNAL_REVIEWED_PROFILE_ID}",
             self.env,
         )
         self.assertIn(
-            'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:1234}"',
+            'LLM_BASE_URL: "${MVP_SELECTED_ROUTER_URL:-http://host.docker.internal:8077}"',
             self.compose,
         )
         self.assertIn("HUB_LLM_PROVIDER=openai-compatible", self.env)
@@ -253,7 +253,7 @@ class MvpComposeContractTests(unittest.TestCase):
             self.assertNotIn("model-router-fake", text)
         self.assertNotRegex(self.demo_compose, r"(?m)^  model-router:")
         self.assertIn(
-            "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}",
+            "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}",
             self.demo_compose,
         )
         self.assertNotIn("CATALYST_ROUTER_URL", self.compose)
@@ -263,7 +263,7 @@ class MvpComposeContractTests(unittest.TestCase):
 
     def test_router_urls_are_mode_specific_and_stale_generic_url_is_ignored(self):
         self.assertIn(
-            'MVP_RESOLVED_ROUTER_URL="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}"',
+            'MVP_RESOLVED_ROUTER_URL="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"',
             self.model_config_script,
         )
         for script in (self.up_script, self.health_script, self.model_config_script):
@@ -303,8 +303,11 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_health_validates_and_records_the_exact_profile_role_model_map(self):
         self.assertNotIn("MVP_EXPECTED_ROLE_MODELS_JSON", self.health_script)
         self.assertIn("/v1/hub/query-profiles", self.health_script)
+        # A writer is required and a reviewer is optional: Hub advertises
+        # writer-only profiles too, so health must not pin an exact role set.
+        self.assertIn('if "query_generate" not in role_models:', self.health_script)
         self.assertIn(
-            'if set(role_models) != {"query_generate", "query_review"}:',
+            'if not set(role_models) <= {"query_generate", "query_review"}:',
             self.health_script,
         )
         self.assertIn(
@@ -533,7 +536,7 @@ class MvpScriptContractTests(unittest.TestCase):
         expected = {
             "backend": "external",
             "profileId": EXTERNAL_REVIEWED_PROFILE_ID,
-            "routerUrl": "http://host.docker.internal:1234",
+            "routerUrl": "http://host.docker.internal:8077",
         }
         for script_name in ("mvp-up.sh", "mvp-seed.sh", "mvp-health.sh"):
             with self.subTest(script=script_name):

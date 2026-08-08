@@ -9,6 +9,6 @@ mvp_resolve_model_config() {
   fi
 
   export MVP_RESOLVED_MODEL_BACKEND="external"
-  export MVP_RESOLVED_ROUTER_URL="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}"
+  export MVP_RESOLVED_ROUTER_URL="${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
   export MVP_RESOLVED_PROFILE_ID="${MVP_PROFILE_ID:-${MVP_EXTERNAL_PROFILE_ID:-catalyst-query-e4b-qwen14b}}"
 }
