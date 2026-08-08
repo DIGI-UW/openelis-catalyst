@@ -1469,9 +1469,12 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     expect(await screen.findByText("Unresolved model draft")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
-      unresolvedRawSql,
-    );
+    // The editor is CodeMirror and mounts in an effect, so it can lag the
+    // notification by a tick -- fast enough to look synchronous on a laptop
+    // and not on a CI runner. Await the mount rather than assume it.
+    expect(
+      await screen.findByRole("textbox", { name: "SQL query" }),
+    ).toHaveTextContent(unresolvedRawSql);
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
   });
 
