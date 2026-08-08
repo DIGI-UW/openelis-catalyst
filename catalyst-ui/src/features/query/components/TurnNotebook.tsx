@@ -273,10 +273,11 @@ export const TurnNotebook = ({
     [profiles],
   );
   const noRevisionProfiles = revisionProfiles.length === 0;
-  const composerTitle = lastRunFailed && baseVersion
-    ? `Query v${baseVersion.ordinal} failed`
+  const latestOrdinal = turns.at(-1)?.ordinal;
+  const composerTitle = lastRunFailed
+    ? "Last run failed"
     : baseVersion
-      ? `Refine Query v${baseVersion.ordinal}`
+      ? `Refine ${latestOrdinal ? `[${latestOrdinal}]` : "the current query"}`
       : "Refine unresolved editor";
   const latestTurnId = turns.at(-1)?.turnId ?? null;
 
@@ -321,8 +322,7 @@ export const TurnNotebook = ({
     // accessible name carries it in full alongside the run counter it is cited
     // by and the outcome the status dot encodes visually.
     const headerLabel =
-      `Query turn ${turn.ordinal}: ${turn.instruction} — ` +
-      `${version ? `Query v${version.ordinal}, ` : ""}${outcome}`;
+      `Query turn ${turn.ordinal}: ${turn.instruction} — ${outcome}`;
 
     return (
       <article
@@ -346,10 +346,7 @@ export const TurnNotebook = ({
           >
             <span className="query-turn__dot" aria-hidden="true" />
             <span className="query-turn__summary">{turn.instruction}</span>
-            <span className="query-turn__outcome">
-              {version ? `v${version.ordinal} · ` : ""}
-              {outcome}
-            </span>
+            <span className="query-turn__outcome">{outcome}</span>
             <span className="query-turn__caret" aria-hidden="true">
               {expanded ? "▾" : "▸"}
             </span>
@@ -369,7 +366,7 @@ export const TurnNotebook = ({
                   }
                 >
                   <p className="query-turn__sql-label">
-                    Query v{version.ordinal} · {versionAuthor(version)}
+                    {versionAuthor(version)}
                     {versionModel(version) ? ` · ${versionModel(version)}` : ""}
                   </p>
                   <pre>{version.sql}</pre>
@@ -396,8 +393,8 @@ export const TurnNotebook = ({
                     key={`${output.version!.versionId}-${index}`}
                   >
                     {turn.status === "failed" && output.role === "writer"
-                      ? `Structured writer output — Query v${output.version!.ordinal} — not selected`
-                      : `Query v${output.version!.ordinal} — ${output.role} output — superseded`}
+                      ? "Structured writer output — not selected"
+                      : `${output.role} output — superseded`}
                   </p>
                 ))}
 
@@ -419,7 +416,7 @@ export const TurnNotebook = ({
                 <div className="query-turn__dataset">
                   <div className="query-turn__dataset-heading">
                     <DataBase size={16} aria-hidden="true" />
-                    <strong>Dataset from Query v{version.ordinal}</strong>
+                    <strong>Dataset from [{turn.ordinal}]</strong>
                     <Tag type="blue" size="sm">Draft</Tag>
                     <button
                       type="button"
@@ -498,7 +495,7 @@ export const TurnNotebook = ({
                     className="query-turn__footer-link"
                     onClick={() => onOpenDetails(turn.turnId, "versions")}
                   >
-                    diff v{previousVersionOrdinal}→v{version.ordinal}
+                    what changed
                   </button>
                 )}
               </div>
@@ -568,7 +565,7 @@ export const TurnNotebook = ({
             <h2 id="refine-query-title">{composerTitle}</h2>
             {baseVersion ? (
               <p>
-                Based on Query v{baseVersion.ordinal} — {versionAuthor(baseVersion)}
+                {versionAuthor(baseVersion)}
                 {versionModel(baseVersion) ? ` — ${versionModel(baseVersion)}` : ""}
               </p>
             ) : (

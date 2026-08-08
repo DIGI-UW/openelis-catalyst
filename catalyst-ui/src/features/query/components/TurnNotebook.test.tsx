@@ -313,10 +313,10 @@ describe("TurnNotebook", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /query turn 1.*Query v1, not run/i }),
+      screen.getByRole("button", { name: /query turn 1.*not run/i }),
     ).toBeVisible();
     expect(
-      screen.getByRole("button", { name: /query turn 2.*Query v3, run failed/i }),
+      screen.getByRole("button", { name: /query turn 2.*run failed/i }),
     ).toBeVisible();
     expect(document.getElementById("turn-2")).toHaveAttribute(
       "data-status",
@@ -332,9 +332,9 @@ describe("TurnNotebook", () => {
     render(<TurnNotebook {...defaultProps} />);
 
     expect(
-      screen.getByRole("heading", { name: "Refine Query v3" }),
+      screen.getByRole("heading", { name: "Refine [2]" }),
     ).toBeVisible();
-    expect(screen.getByText(/Based on Query v3/i)).toBeVisible();
+    expect(screen.getAllByText(/reviewer correction/i)[0]).toBeVisible();
     // "reviewer correction" now also labels the SQL block of the cell that
     // produced v3, so the composer's copy is one of several.
     expect(screen.getAllByText(/reviewer correction/i).length).toBeGreaterThan(0);
@@ -375,11 +375,11 @@ describe("TurnNotebook", () => {
     const latest = screen.getByRole("region", { name: /query turn 2/i });
     expect(within(latest).getByText(reviewerVersion.sql)).toBeVisible();
     expect(
-      within(latest).getByText(/Query v3 · reviewer correction · qwen2\.5-14b/i),
+      within(latest).getByText(/reviewer correction · qwen2\.5-14b/i),
     ).toBeVisible();
     // The writer candidate this turn superseded stays recorded, not hidden.
     expect(
-      within(latest).getByText(/Query v2 — writer output — superseded/i),
+      within(latest).getByText(/writer output — superseded/i),
     ).toBeVisible();
   });
 
@@ -394,7 +394,7 @@ describe("TurnNotebook", () => {
 
     // The diff link names the versions it compares and lands on Versions.
     await user.click(
-      within(latest).getByRole("button", { name: "diff v2→v3" }),
+      within(latest).getByRole("button", { name: "what changed" }),
     );
     expect(onOpenDetails).toHaveBeenLastCalledWith(
       followupTurn.turnId,
@@ -455,7 +455,7 @@ describe("TurnNotebook", () => {
     // is the manual way back.
     await scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
     expect(composerMode()).toBe("line");
-    await user.click(screen.getByRole("button", { name: /Refine Query v3/ }));
+    await user.click(screen.getByRole("button", { name: /Refine \[2\]/ }));
     expect(composerMode()).toBe("full");
   });
 
@@ -510,10 +510,10 @@ describe("TurnNotebook", () => {
 
     expect(screen.getByText("Generation failed")).toBeVisible();
     expect(screen.getByText(/Reviewer did not return a response/)).toBeVisible();
-    expect(screen.getByText(/Structured writer output.*Query v2.*not selected/i))
+    expect(screen.getByText(/Structured writer output.*not selected/i))
       .toBeVisible();
-    expect(screen.getByText(/Based on Query v1/i)).toBeVisible();
-    expect(screen.queryByText(/selected output.*Query v2/i)).not.toBeInTheDocument();
+    
+    expect(screen.queryByText(/selected output/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "details" }));
     expect(onOpenDetails).toHaveBeenCalledWith(failed.turnId);
   });
@@ -628,7 +628,7 @@ describe("TurnNotebook", () => {
 
     render(<TurnNotebook {...defaultProps} />);
 
-    const composer = screen.getByRole("region", { name: "Refine Query v3" });
+    const composer = screen.getByRole("region", { name: "Refine [2]" });
     expect(composer).toBeVisible();
     expect(within(composer).getByRole("textbox", {
       name: "Follow-up instruction",

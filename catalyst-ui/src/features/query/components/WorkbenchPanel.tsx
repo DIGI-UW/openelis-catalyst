@@ -577,11 +577,7 @@ export const WorkbenchPanel = ({
           Editing does not change the current version — saving appends a new
           one — so this names what the draft is based on, not what it is.
         */}
-        <h2 id="workbench-title">
-          {session.currentVersion
-            ? `New draft from Query v${session.currentVersion.ordinal}`
-            : "New draft"}
-        </h2>
+        <h2 id="workbench-title">New draft</h2>
       </div>
 
       {error && (
@@ -648,7 +644,7 @@ export const WorkbenchPanel = ({
             disabled={busy !== null}
             onClick={onRestoreCurrentVersion}
           >
-            Restore Query v{session.currentVersion.ordinal}
+            Restore the current query
           </Button>
         )}
         {/*

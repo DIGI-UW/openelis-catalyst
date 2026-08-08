@@ -281,7 +281,7 @@ describe("Dashboard Builder Ask shell", () => {
     expect(
       screen.getAllByRole("menuitem", { name: /New session/ }),
     ).toHaveLength(1);
-    const composer = screen.getByRole("region", { name: /refine query v1/i });
+    const composer = screen.getByRole("region", { name: /refine \[\d+\]/i });
     expect(composer).toHaveClass("turn-composer");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible());
   });

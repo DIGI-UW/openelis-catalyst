@@ -278,7 +278,7 @@ describe("WorkbenchPanel", () => {
       />,
     );
 
-    const restore = screen.getByRole("button", { name: "Restore Query v1" });
+    const restore = screen.getByRole("button", { name: "Restore the current query" });
     expect(restore).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
