@@ -509,3 +509,22 @@
   color: #525252;
   font-size: 0.75rem;
 }
+
+.query-turn__footer-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #0f62fe;
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.query-turn__footer-link:hover {
+  text-decoration: underline;
+}
+
+.query-turn__footer-link:focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: 2px;
+}

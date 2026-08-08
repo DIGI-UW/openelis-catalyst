@@ -24,26 +24,6 @@ const PARAMETER_TYPES: readonly ParameterType[] = [
   "integer-list",
 ];
 
-const stableCompare = (left: string, right: string) =>
-  left < right ? -1 : left > right ? 1 : 0;
-
-const versionLineage = (session: WorkbenchSession) => {
-  const lineage: NonNullable<WorkbenchSession["currentVersion"]>[] = [];
-  const visited = new Set<string>();
-  let current = session.currentVersion;
-  while (current && !visited.has(current.versionId)) {
-    lineage.push(current);
-    visited.add(current.versionId);
-    const parentVersionId = current.parentVersionId;
-    current = parentVersionId
-      ? session.versions.find(
-          (version) => version.versionId === parentVersionId,
-        ) ?? null
-      : null;
-  }
-  return lineage;
-};
-
 interface WorkbenchPanelProps {
   session: WorkbenchSession;
   sql: string;
@@ -56,7 +36,6 @@ interface WorkbenchPanelProps {
   announcement?: string;
   sqlEditorFocusRequestId?: number;
   showExecutionResult?: boolean;
-  showInitialGenerationEvidence?: boolean;
   onSqlChange: (sql: string) => void;
   onParametersChange: (parameters: BoundParameter[]) => void;
   onWrapLinesChange: (wrapLines: boolean) => void;
@@ -65,33 +44,6 @@ interface WorkbenchPanelProps {
   onValidate: () => void;
   onRun: () => void;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const recordAt = (
-  source: Record<string, unknown> | undefined,
-  key: string,
-) => {
-  const value = source?.[key];
-  return isRecord(value) ? value : undefined;
-};
-
-const textAt = (
-  source: Record<string, unknown> | undefined,
-  key: string,
-) => {
-  const value = source?.[key];
-  return typeof value === "string" && value ? value : undefined;
-};
-
-const arrayAt = (
-  source: Record<string, unknown> | undefined,
-  key: string,
-) => {
-  const value = source?.[key];
-  return Array.isArray(value) ? value : [];
-};
 
 const displayParameterValue = (value: unknown) => {
   if (value === null || value === undefined) return "";
@@ -193,214 +145,6 @@ const executionResultWarnings = (
     `${names} ${verb} blank or NULL in all ${result.rows.length} ${scope} ${rowLabel}. ` +
       `Select a populated column or revise the SQL expression.${truncatedNote}`,
   ];
-};
-
-const validationLabel = (status: string) =>
-  `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
-
-const GenerationEvidence = ({ session }: { session: WorkbenchSession }) => {
-  const provenance = session.provenance;
-  const outcome = recordAt(provenance, "generationOutcome");
-  const diagnostic = recordAt(outcome, "diagnosticCandidate");
-  const candidate = recordAt(diagnostic, "candidate");
-  const candidateSql = textAt(candidate, "sql");
-  const rawOutput =
-    textAt(provenance, "generationRawOutput") ??
-    textAt(diagnostic, "rawOutput") ??
-    textAt(outcome, "rawOutput");
-  const attempts = arrayAt(diagnostic, "attempts").filter(isRecord);
-  const collaboration = recordAt(outcome, "modelCollaboration");
-  const writer = recordAt(collaboration, "writer");
-  const reviewer = recordAt(collaboration, "reviewer");
-
-  if (!candidate && !rawOutput && attempts.length === 0 && !collaboration) return null;
-
-  return (
-    <section className="workbench-evidence" aria-labelledby="model-evidence-title">
-      <div className="workbench-subheading">
-        <h3 id="model-evidence-title">Generation evidence</h3>
-        <p>Retained model artifacts and structured diagnostics; no hidden reasoning trace.</p>
-      </div>
-      <div className="workbench-evidence__grid">
-        {writer && (
-          <section
-            className="workbench-evidence__artifact"
-            aria-label="Writer candidate"
-          >
-            <h4>Writer candidate</h4>
-            <p>Model: <strong>{textAt(writer, "model") ?? "Not recorded"}</strong></p>
-            <pre>{textAt(recordAt(writer, "candidate"), "sql") ?? "No SQL returned"}</pre>
-            {arrayAt(recordAt(writer, "candidate"), "parameters").length > 0 && (
-              <details>
-                <summary>Writer parameters</summary>
-                <pre>{JSON.stringify(arrayAt(recordAt(writer, "candidate"), "parameters"), null, 2)}</pre>
-              </details>
-            )}
-            {arrayAt(writer, "lintFindings").length > 0 && (
-              <ul>
-                {arrayAt(writer, "lintFindings").filter(isRecord).map((finding, index) => (
-                  <li key={`${textAt(finding, "code") ?? "writer-finding"}-${index}`}>
-                    {textAt(finding, "message") ?? "Writer lint finding"}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
-        {reviewer && (
-          <section
-            className="workbench-evidence__artifact"
-            aria-label="Reviewer correction"
-          >
-            <h4>Reviewer correction</h4>
-            <p>Model: <strong>{textAt(reviewer, "model") ?? "Not recorded"}</strong></p>
-            <p>Decision: {textAt(reviewer, "decision") ?? "Not recorded"}</p>
-            {recordAt(reviewer, "candidate") && (
-              <>
-                <pre>{textAt(recordAt(reviewer, "candidate"), "sql") ?? "No SQL returned"}</pre>
-                {arrayAt(recordAt(reviewer, "candidate"), "parameters").length > 0 && (
-                  <details>
-                    <summary>Reviewer parameters</summary>
-                    <pre>{JSON.stringify(arrayAt(recordAt(reviewer, "candidate"), "parameters"), null, 2)}</pre>
-                  </details>
-                )}
-              </>
-            )}
-            {arrayAt(reviewer, "checks").length > 0 && (
-              <ul>
-                {arrayAt(reviewer, "checks").filter(isRecord).map((check, index) => (
-                  <li key={`${textAt(check, "name") ?? "review-check"}-${index}`}>
-                    {textAt(check, "message") ?? textAt(check, "name") ?? "Reviewer check"}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
-        {candidate && (
-          <section
-            className="workbench-evidence__artifact"
-            aria-label="Model candidate"
-          >
-            <h4>Model candidate</h4>
-            {candidateSql ? (
-              <pre>{candidateSql}</pre>
-            ) : (
-              <p>The candidate did not contain SQL.</p>
-            )}
-            {arrayAt(candidate, "parameters").length > 0 && (
-              <details>
-                <summary>Candidate parameters</summary>
-                <pre>{JSON.stringify(arrayAt(candidate, "parameters"), null, 2)}</pre>
-              </details>
-            )}
-          </section>
-        )}
-        {rawOutput && (
-          <section
-            className="workbench-evidence__artifact"
-            aria-label="Raw model output"
-          >
-            <h4>Raw model output</h4>
-            <pre>{rawOutput}</pre>
-          </section>
-        )}
-      </div>
-      {attempts.length > 0 && (
-        <div className="workbench-attempts">
-          <h4>Generation attempts</h4>
-          <ol>
-            {attempts.map((attempt, attemptIndex) => {
-              const attemptNumber = attempt.attempt ?? attemptIndex + 1;
-              const attemptStatus = textAt(attempt, "status") ?? "unknown";
-              const findings = arrayAt(attempt, "findings").filter(isRecord);
-              return (
-                <li key={`${String(attemptNumber)}-${attemptIndex}`}>
-                  <strong>{`Attempt ${String(attemptNumber)} — ${attemptStatus}`}</strong>
-                  {findings.length > 0 && (
-                    <ul>
-                      {findings.map((finding, findingIndex) => (
-                        <li key={`${textAt(finding, "path") ?? "finding"}-${findingIndex}`}>
-                          {textAt(finding, "path") && (
-                            <code>{textAt(finding, "path")}</code>
-                          )}
-                          <span>
-                            {textAt(finding, "message") ?? "Generation finding"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      )}
-    </section>
-  );
-};
-
-const ValidationSummary = ({ session }: { session: WorkbenchSession }) => {
-  const validation = session.latestValidation;
-  return (
-    <section className="workbench-validation" aria-labelledby="validation-title">
-      <div className="workbench-subheading workbench-subheading--row">
-        <div>
-          <h3 id="validation-title">Validation</h3>
-          <p>
-            Validation is advisory. Findings guide manual edits and never prevent a run.
-          </p>
-        </div>
-        <span
-          className={`workbench-validation__status workbench-validation__status--${validation?.status ?? "not-run"}`}
-        >
-          {validation ? validationLabel(validation.status) : "Not validated"}
-        </span>
-      </div>
-      {validation && (
-        <>
-          <dl className="workbench-inline-metadata">
-            <div>
-              <dt>Validator</dt>
-              <dd>{validation.validatorRevision}</dd>
-            </div>
-            <div>
-              <dt>Validated digest</dt>
-              <dd>{validation.queryDigest}</dd>
-            </div>
-            <div>
-              <dt>Duration</dt>
-              <dd>{validation.durationMs} ms</dd>
-            </div>
-          </dl>
-          {validation.findings.length > 0 ? (
-            <ul className="workbench-findings">
-              {validation.findings.map((finding) => (
-                <li key={finding.findingId} data-severity={finding.severity}>
-                  <div>
-                    <strong>{finding.ruleCode}</strong>
-                    <Tag size="sm" type={finding.severity === "error" ? "red" : "purple"}>
-                      {finding.severity}
-                    </Tag>
-                  </div>
-                  <p>{finding.message}</p>
-                  <code>{finding.path}</code>
-                  {finding.suggestedAction && (
-                    <p className="workbench-findings__suggestion">
-                      Suggested action: {finding.suggestedAction}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="workbench-empty-note">No validation findings.</p>
-          )}
-        </>
-      )}
-    </section>
-  );
 };
 
 interface ParameterEditorProps {
@@ -534,159 +278,6 @@ const ParameterEditor = ({
   );
 };
 
-const ProvenanceSummary = ({ session }: { session: WorkbenchSession }) => {
-  const currentVersion = session.currentVersion;
-  const lineageProvenance = versionLineage(session).map(
-    (version) => version.provenance,
-  );
-  const currentProfileId =
-    lineageProvenance
-      .map((provenance) =>
-        textAt(recordAt(provenance, "profileSnapshot"), "profileId") ??
-        textAt(provenance, "profileId"),
-      )
-      .find(Boolean) ?? session.profileId;
-  const sessionProfileSnapshot = recordAt(session.provenance, "profileSnapshot");
-  const profileSnapshot =
-    lineageProvenance
-      .map((provenance) => recordAt(provenance, "profileSnapshot") ?? provenance)
-      .find(
-        (candidate) =>
-          textAt(candidate, "profileId") === currentProfileId &&
-          (textAt(candidate, "profileLabel") !== undefined ||
-            recordAt(candidate, "roleModels") !== undefined),
-      ) ??
-    (textAt(sessionProfileSnapshot, "profileId") === undefined ||
-    textAt(sessionProfileSnapshot, "profileId") === currentProfileId
-      ? sessionProfileSnapshot
-      : undefined);
-  const profileLabel =
-    textAt(profileSnapshot, "profileLabel") ??
-    textAt(profileSnapshot, "profileName") ??
-    currentProfileId;
-  const roleModels = recordAt(profileSnapshot, "roleModels");
-
-  return (
-    <section className="workbench-provenance" aria-labelledby="workbench-provenance-title">
-      <div className="workbench-subheading">
-        <h3 id="workbench-provenance-title">Run provenance</h3>
-        <p>Profile, model, dataset, and immutable query identifiers.</p>
-      </div>
-      <dl className="workbench-provenance__grid">
-        <div>
-          <dt>Profile</dt>
-          <dd>{profileLabel}</dd>
-        </div>
-        <div>
-          <dt>Profile ID</dt>
-          <dd>{currentProfileId}</dd>
-        </div>
-        <div>
-          <dt>Session</dt>
-          <dd>{session.sessionId}</dd>
-        </div>
-        <div>
-          <dt>Version</dt>
-          <dd>{currentVersion?.versionId ?? "No version"}</dd>
-        </div>
-        <div>
-          <dt>Query digest</dt>
-          <dd>{currentVersion?.queryDigest ?? "Not available"}</dd>
-        </div>
-        <div>
-          <dt>Catalog</dt>
-          <dd>{session.catalogVersion}</dd>
-        </div>
-        <div>
-          <dt>Dataset</dt>
-          <dd>{session.datasetId}</dd>
-        </div>
-        <div>
-          <dt>Dataset version</dt>
-          <dd>{session.datasetVersion}</dd>
-        </div>
-        {roleModels &&
-          Object.entries(roleModels)
-            .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-            .sort(([left], [right]) => stableCompare(left, right))
-            .map(([role, model]) => (
-              <div key={role}>
-                <dt>{role.replaceAll("_", " ")}</dt>
-                <dd>{model}</dd>
-              </div>
-            ))}
-      </dl>
-    </section>
-  );
-};
-
-const VersionHistory = ({ session }: { session: WorkbenchSession }) => (
-  <section className="workbench-history" aria-labelledby="version-history-title">
-    <div className="workbench-subheading">
-      <h3 id="version-history-title">Version history</h3>
-      <p>Every validation and run references an immutable query version.</p>
-    </div>
-    {session.versions.length === 0 ? (
-      <p className="workbench-empty-note">No query version has been recovered yet.</p>
-    ) : (
-      <ol reversed>
-        {[...session.versions]
-          .sort((left, right) => right.ordinal - left.ordinal)
-          .map((version) => {
-            const model = textAt(version.provenance, "model");
-            const collaborationRole = textAt(version.provenance, "collaborationRole");
-            return (
-            <li
-              key={version.versionId}
-              aria-current={version.versionId === session.currentVersionId ? "true" : undefined}
-            >
-              <div>
-                <strong>Version {version.ordinal}</strong>
-                {version.versionId === session.currentVersionId && (
-                  <Tag size="sm" type="blue">Current</Tag>
-                )}
-              </div>
-              <dl>
-                <div>
-                  <dt>Author</dt>
-                  <dd>{version.authorType.replaceAll("_", " ")}</dd>
-                </div>
-                <div>
-                  <dt>Version ID</dt>
-                  <dd>{version.versionId}</dd>
-                </div>
-                <div>
-                  <dt>Digest</dt>
-                  <dd>{version.queryDigest}</dd>
-                </div>
-                {collaborationRole && (
-                  <div>
-                    <dt>Model role</dt>
-                    <dd>{collaborationRole}</dd>
-                  </div>
-                )}
-                {model && (
-                  <div>
-                    <dt>Model</dt>
-                    <dd>{model}</dd>
-                  </div>
-                )}
-              </dl>
-              <details>
-                <summary>View query version</summary>
-                <pre>{version.sql}</pre>
-                {version.parameters.length > 0 && (
-                  <pre>{JSON.stringify(version.parameters, null, 2)}</pre>
-                )}
-              </details>
-            </li>
-            );
-          })}
-      </ol>
-    )}
-  </section>
-);
-
 const latestExecution = (executions: WorkbenchExecution[]) =>
   executions.reduce<WorkbenchExecution | null>(
     (latest, execution) =>
@@ -727,20 +318,24 @@ export const ExecutionResult = ({
   const queryLabel = executionVersion
     ? `Query v${executionVersion.ordinal}`
     : "query version unavailable";
-  const editorMatchesExecution = executionVersion
-    ? editorContentMatchesVersion(
-        {
-          sql,
-          parameters,
-          expectedColumns: executionVersion.expectedColumns,
-        },
-        executionVersion,
-      )
-    : sql === execution.query.sql &&
-      JSON.stringify(parameters) === JSON.stringify(execution.query.parameters);
+  // An immutable snapshot is a recorded run shown beside the version that
+  // produced it, so it is never stale and the comparison is not just unused
+  // but meaningless — the editor may hold something entirely different.
   const resultIsStale =
     !immutableSnapshot &&
-    (session.currentVersionId !== execution.versionId || !editorMatchesExecution);
+    (session.currentVersionId !== execution.versionId ||
+      !(executionVersion
+        ? editorContentMatchesVersion(
+            {
+              sql,
+              parameters,
+              expectedColumns: executionVersion.expectedColumns,
+            },
+            executionVersion,
+          )
+        : sql === execution.query.sql &&
+          JSON.stringify(parameters) ===
+            JSON.stringify(execution.query.parameters)));
 
   if (execution.status === "failed") {
     const diagnostic = execution.databaseDiagnostic;
@@ -935,7 +530,6 @@ export const WorkbenchPanel = ({
   announcement = "",
   sqlEditorFocusRequestId = 0,
   showExecutionResult = true,
-  showInitialGenerationEvidence = true,
   onSqlChange,
   onParametersChange,
   onWrapLinesChange,
@@ -1055,16 +649,9 @@ export const WorkbenchPanel = ({
         disabled={busy !== null}
         onChange={onParametersChange}
       />
-      <ValidationSummary session={session} />
-
       {showExecutionResult && (
         <ExecutionResult session={session} sql={sql} parameters={parameters} />
       )}
-      {showInitialGenerationEvidence && <GenerationEvidence session={session} />}
-      <div className="workbench-records">
-        <ProvenanceSummary session={session} />
-        <VersionHistory session={session} />
-      </div>
     </section>
   );
 };

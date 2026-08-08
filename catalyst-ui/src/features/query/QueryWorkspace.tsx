@@ -6,6 +6,7 @@ import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
 import { DatasetBrowser } from "./components/DatasetBrowser";
 import { DashboardPublishPanel } from "./components/DashboardPublishPanel";
+import { DetailsPanel, type DetailsTab } from "./components/DetailsPanel";
 import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
@@ -460,6 +461,13 @@ export const QueryWorkspace = ({
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
   const [railSection, setRailSection] = useState<RailSection>("turns");
   const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
+  const [detailsTurnId, setDetailsTurnId] = useState<string | null>(null);
+  // Details can be scoped to the session rather than a turn: a gateway that
+  // serves no per-turn evidence still records validation, provenance and
+  // versions, and they must stay reachable.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
+  const [developerMode, setDeveloperMode] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
   );
@@ -1061,6 +1069,32 @@ export const QueryWorkspace = ({
     persistBrowserState({ railWidth: width });
   };
 
+  const openDetails = (turnId: string | null, tab: DetailsTab = "validation") => {
+    setDetailsTurnId(turnId);
+    setDetailsOpen(true);
+    setDetailsTab(tab);
+    if (turnId === null) return;
+    const turn = activeNotebookTurns.find((item) => item.turnId === turnId);
+    if (turn) setActiveTurnOrdinal(turn.ordinal);
+    if (generationEvidence?.turnId !== turnId) {
+      void showWorkbenchGenerationEvidence(turnId);
+    }
+  };
+
+  const detailsTurn =
+    activeNotebookTurns.find((turn) => turn.turnId === detailsTurnId) ?? null;
+  const detailsVersion =
+    (detailsTurn
+      ? workbenchSession?.versions.find(
+          (version) => version.versionId === detailsTurn.selectedVersionId,
+        )
+      : workbenchSession?.currentVersion) ?? null;
+  const detailsValidation =
+    [...(workbenchSession?.validations ?? [])]
+      .sort((left, right) => right.ordinal - left.ordinal)
+      .find((validation) => validation.versionId === detailsVersion?.versionId) ??
+    null;
+
   const selectTurn = (ordinal: number) => {
     setActiveTurnOrdinal(ordinal);
     document
@@ -1100,6 +1134,17 @@ export const QueryWorkspace = ({
         turns={railTurns}
         activeTurnOrdinal={activeTurnOrdinal}
         onSelectTurn={selectTurn}
+        onOpenDetails={
+          workbenchSession
+            ? () =>
+                openDetails(
+                  (activeNotebookTurns.find(
+                    (turn) => turn.ordinal === activeTurnOrdinal,
+                  ) ?? activeNotebookTurns.at(-1))?.turnId ?? null,
+                )
+            : undefined
+        }
+        detailsOpen={detailsOpen}
         activeSection={activeSection}
         onSectionChange={setActiveSection}
       >
@@ -1188,13 +1233,10 @@ export const QueryWorkspace = ({
           }
           busy={followupBusy || workbenchBusy !== null}
           generating={followupBusy}
-          evidence={generationEvidence}
-          evidenceLoadingTurnId={generationEvidenceLoadingTurnId}
-          evidenceError={generationEvidenceError}
           onInstructionChange={setFollowupInstruction}
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}
-          onShowEvidence={showWorkbenchGenerationEvidence}
+          onOpenDetails={openDetails}
         />
       )}
 
@@ -1226,7 +1268,6 @@ export const QueryWorkspace = ({
                 ),
             )
           }
-          showInitialGenerationEvidence={!usesNotebook}
           onSqlChange={setWorkbenchSql}
           onParametersChange={setWorkbenchParameters}
           onWrapLinesChange={updateWorkbenchWrapLines}
@@ -1309,6 +1350,35 @@ export const QueryWorkspace = ({
         />
       )}
         </section>
+
+        {workbenchSession && detailsOpen && (
+          <DetailsPanel
+            session={workbenchSession}
+            turnOrdinal={detailsTurn?.ordinal ?? null}
+            version={detailsVersion}
+            validation={detailsValidation}
+            evidence={
+              detailsTurn && generationEvidence?.turnId === detailsTurn.turnId
+                ? generationEvidence
+                : null
+            }
+            evidenceLoading={
+              detailsTurn !== null &&
+              generationEvidenceLoadingTurnId === detailsTurn.turnId
+            }
+            evidenceError={generationEvidenceError}
+            tab={detailsTab}
+            developerMode={developerMode}
+            stacked={railStacked}
+            railWidth={railWidth}
+            onTabChange={setDetailsTab}
+            onDeveloperModeChange={setDeveloperMode}
+            onClose={() => {
+              setDetailsOpen(false);
+              setDetailsTurnId(null);
+            }}
+          />
+        )}
 
         <DashboardPublishPanel
           api={api}

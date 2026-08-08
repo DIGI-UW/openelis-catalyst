@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   QueryProfile,
   WorkbenchExecution,
-  WorkbenchGenerationEvidence,
   WorkbenchSession,
 } from "../types";
 import { TurnNotebook } from "./TurnNotebook";
@@ -67,6 +66,8 @@ const profiles: RevisionProfile[] = [
 ];
 
 const modelVersion = {
+  expectedColumns: [],
+  parameters: [],
   versionId: "11111111-1111-4111-8111-111111111111",
   ordinal: 1,
   authorType: "model" as const,
@@ -76,6 +77,8 @@ const modelVersion = {
 };
 
 const writerVersion = {
+  expectedColumns: [],
+  parameters: [],
   versionId: "22222222-2222-4222-8222-222222222222",
   ordinal: 2,
   authorType: "model" as const,
@@ -85,6 +88,8 @@ const writerVersion = {
 };
 
 const reviewerVersion = {
+  expectedColumns: [],
+  parameters: [],
   versionId: "33333333-3333-4333-8333-333333333333",
   ordinal: 3,
   authorType: "model_repair" as const,
@@ -104,12 +109,16 @@ const session = {
   datasetVersion: "lab_result_fact_v1",
   catalogVersion: "analytics-catalog-v1",
   currentVersionId: reviewerVersion.versionId,
+  versions: [
+    { ...modelVersion, parentVersionId: null },
+    { ...writerVersion, parentVersionId: modelVersion.versionId },
+    { ...reviewerVersion, parentVersionId: writerVersion.versionId },
+  ],
   browserState: {},
   provenance: {},
   status: "active",
   createdAt: "2026-07-18T00:00:00Z",
   updatedAt: "2026-07-18T00:00:01Z",
-  versions: [],
   currentVersion: null,
   validations: [],
   latestValidation: null,
@@ -206,39 +215,7 @@ const defaultProps = {
   onInstructionChange: vi.fn(),
   onProfileChange: vi.fn(),
   onGenerate: vi.fn(),
-  onShowEvidence: vi.fn(),
-};
-
-const diagnosticEvidence: WorkbenchGenerationEvidence = {
-  contractVersion: "catalyst.workbench.generation-evidence.v1",
-  evidenceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-  sessionId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-  turnId: followupTurn.turnId,
-  status: "failed",
-  invocations: [],
-  candidates: [
-    {
-      candidateId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-      attemptOrdinal: 2,
-      role: "reviewer",
-      candidateDigest: null,
-      disposition: "diagnostic_only",
-      versionRef: null,
-      validationRef: null,
-      rawEvidence: {
-        available: true,
-        inspectable: true,
-        evidenceRef: "evidence://reviewer/attempt-2",
-        payloadDigest: "d".repeat(64),
-        contentType: "application/json",
-        exactPayload: {
-          error: "reviewer returned a contract-invalid correction",
-          candidate: { sql: "SELECT FROM" },
-        },
-        omissionReason: null,
-      },
-    },
-  ],
+  onOpenDetails: vi.fn(),
 };
 
 afterEach(() => {
@@ -378,18 +355,23 @@ describe("TurnNotebook", () => {
     ).toBeVisible();
   });
 
-  it("loads generation evidence from the cell it belongs to", async () => {
+  it("opens the details panel from the cell the detail belongs to", async () => {
     const user = userEvent.setup();
-    const onShowEvidence = vi.fn();
-    render(
-      <TurnNotebook {...defaultProps} onShowEvidence={onShowEvidence} />,
-    );
+    const onOpenDetails = vi.fn();
+    render(<TurnNotebook {...defaultProps} onOpenDetails={onOpenDetails} />);
 
     const latest = screen.getByRole("region", { name: /query turn 2/i });
+    await user.click(within(latest).getByRole("button", { name: "details" }));
+    expect(onOpenDetails).toHaveBeenCalledWith(followupTurn.turnId);
+
+    // The diff link names the versions it compares and lands on Versions.
     await user.click(
-      within(latest).getByRole("button", { name: "View generation evidence" }),
+      within(latest).getByRole("button", { name: "diff v2→v3" }),
     );
-    expect(onShowEvidence).toHaveBeenCalledWith(followupTurn.turnId);
+    expect(onOpenDetails).toHaveBeenLastCalledWith(
+      followupTurn.turnId,
+      "versions",
+    );
   });
 
   it("generates one complete successor from a focused follow-up instruction", async () => {
@@ -463,7 +445,7 @@ describe("TurnNotebook", () => {
 
   it("retains a valid unselected writer on a failed turn without replacing the base", async () => {
     const user = userEvent.setup();
-    const onShowEvidence = vi.fn();
+    const onOpenDetails = vi.fn();
     const failed = {
       ...followupTurn,
       status: "failed" as const,
@@ -487,7 +469,7 @@ describe("TurnNotebook", () => {
         {...defaultProps}
         turns={[initialTurn, failed]}
         baseVersion={modelVersion}
-        onShowEvidence={onShowEvidence}
+        onOpenDetails={onOpenDetails}
       />,
     );
 
@@ -497,8 +479,8 @@ describe("TurnNotebook", () => {
       .toBeVisible();
     expect(screen.getByText(/Based on Query v1/i)).toBeVisible();
     expect(screen.queryByText(/selected output.*Query v2/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "View generation evidence" }));
-    expect(onShowEvidence).toHaveBeenCalledWith(failed.turnId);
+    await user.click(screen.getByRole("button", { name: "details" }));
+    expect(onOpenDetails).toHaveBeenCalledWith(failed.turnId);
   });
 
   it("offers only available different-family profiles and records per-turn switching", async () => {
@@ -543,64 +525,6 @@ describe("TurnNotebook", () => {
     await user.click(generate);
     expect(onGenerate).not.toHaveBeenCalled();
   });
-
-  it("renders inspectable raw candidate evidence for a diagnostic-only failure", async () => {
-    const user = userEvent.setup();
-    render(
-      <TurnNotebook
-        {...defaultProps}
-        evidence={diagnosticEvidence}
-      />,
-    );
-
-    const rawEvidence = screen.getByText(
-      /Reviewer attempt 2 raw evidence.*diagnostic only/i,
-    );
-    await user.click(rawEvidence);
-    expect(
-      screen.getByText(/reviewer returned a contract-invalid correction/i),
-    ).toBeVisible();
-    expect(screen.getByText(/SELECT FROM/i)).toBeVisible();
-  });
-
-  it.each(["timed_out", "cancelled"] as const)(
-    "renders a %s model invocation outcome from recorded evidence",
-    (outcome) => {
-      render(
-        <TurnNotebook
-          {...defaultProps}
-          evidence={{
-            ...diagnosticEvidence,
-            totalInvocationDurationMs: 250,
-            invocations: [
-              {
-                invocationId: "99999999-9999-4999-8999-999999999999",
-                role: "writer",
-                stage: "followup_generation",
-                attempt: 1,
-                providerId: "llama.cpp",
-                modelId: "gemma-4-12b",
-                startedAt: "2026-07-18T12:00:00Z",
-                endedAt: "2026-07-18T12:00:00Z",
-                durationMs: 250,
-                requestDigest: "9".repeat(64),
-                responseDigest: null,
-                failureDigest: "8".repeat(64),
-                outcome,
-              },
-            ],
-          }}
-        />,
-      );
-
-      expect(screen.getByText("writer — gemma-4-12b")).toBeVisible();
-      expect(
-        screen.getByText(
-          `followup_generation; attempt 1; ${outcome}; 250 ms`,
-        ),
-      ).toBeVisible();
-    },
-  );
 
   it("disables refinement only for an empty editor, not unresolved nonempty input", () => {
     const { rerender } = render(

@@ -700,7 +700,7 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     expect(await screen.findByLabelText("Model profile")).toBeEnabled();
-    await askQuestion();
+    const user = await askQuestion();
 
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       QUESTION,
@@ -713,12 +713,15 @@ describe("Catalyst query workflow", () => {
       await screen.findByRole("heading", { name: "Query workbench" }),
     ).toBeVisible();
     expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
-    expect(screen.getByText("policy.unit_not_grounded")).toBeVisible();
-    expect(screen.getByText(/validation is advisory/i)).toBeVisible();
-    expect(screen.getByText("'name' is a required property")).toBeVisible();
-    expect(screen.getByText("{latest malformed model output}")).toBeVisible();
+    // Findings never block a run: the workbench stays usable while the
+    // Details panel carries why the model output was rejected.
     expect(screen.getByRole("button", { name: "Validate query" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /^Details/ }));
+    const details = screen.getByRole("complementary", { name: "Details" });
+    expect(within(details).getByText("policy.unit_not_grounded")).toBeVisible();
+    expect(within(details).getByText(/validation is advisory/i)).toBeVisible();
   });
 
   it("clears only the editable draft while preserving the active session evidence", async () => {
@@ -739,8 +742,19 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(/^$/);
     expect(screen.queryByLabelText("Parameter 1 name")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
-    expect(screen.getByText(workbenchSession.sessionId)).toBeVisible();
-    expect(screen.getByText("Version 1")).toBeVisible();
+    // Clearing the editor does not clear the session: its identity is still
+    // on the banner and its immutable versions are still in Details.
+    expect(
+      screen.getByText(`Session ${workbenchSession.sessionId.slice(0, 8)}`),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /^Details/ }));
+    await user.click(screen.getByRole("tab", { name: "Versions" }));
+    expect(
+      within(screen.getByRole("complementary", { name: "Details" })).getByText(
+        "Version 1",
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
     expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
@@ -1305,8 +1319,6 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Parameter 1 value")).toHaveValue("Viral Load");
     expect(screen.getByLabelText("Parameter 2 name")).toHaveValue("");
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
-    expect(screen.getByText(unresolvedRawOutput)).toBeVisible();
-
     await user.type(screen.getByLabelText("Parameter 1 name"), "test_name");
     await user.type(screen.getByLabelText("Parameter 2 name"), "threshold");
     await user.click(screen.getByRole("button", { name: "Validate query" }));

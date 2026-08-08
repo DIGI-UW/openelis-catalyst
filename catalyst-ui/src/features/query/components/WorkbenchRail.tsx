@@ -3,6 +3,7 @@ import {
   ChartLine,
   Dashboard,
   DataBase,
+  Settings,
 } from "@carbon/icons-react";
 import {
   useEffect,
@@ -45,6 +46,8 @@ interface WorkbenchRailProps {
   turns: RailTurn[];
   activeTurnOrdinal: number | null;
   onSelectTurn: (ordinal: number) => void;
+  onOpenDetails?: () => void;
+  detailsOpen: boolean;
   activeSection: DashboardBuilderSection;
   onSectionChange: (section: DashboardBuilderSection) => void;
   children: ReactNode;
@@ -65,6 +68,8 @@ export const WorkbenchRail = ({
   turns,
   activeTurnOrdinal,
   onSelectTurn,
+  onOpenDetails,
+  detailsOpen,
   activeSection,
   onSectionChange,
   children,
@@ -246,6 +251,18 @@ export const WorkbenchRail = ({
           </div>
         )}
       </section>
+
+      <div className="workbench-rail__details">
+        <button
+          type="button"
+          aria-expanded={detailsOpen}
+          disabled={!onOpenDetails}
+          onClick={onOpenDetails}
+        >
+          <Settings size={16} aria-hidden="true" />
+          Details
+        </button>
+      </div>
 
       <nav className="workbench-rail__nav" aria-label="Sections">
         {sections.map(({ id, label, icon: Icon }) => (

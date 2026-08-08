@@ -3,10 +3,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type {
   QueryProfile,
   WorkbenchExecution,
-  WorkbenchGenerationEvidence,
   WorkbenchQueryVersion,
   WorkbenchSession,
 } from "../types";
+import type { DetailsTab } from "./DetailsPanel";
 import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
 
@@ -62,13 +62,11 @@ interface TurnNotebookProps {
   editorState?: "ready" | "empty" | "unresolved";
   busy: boolean;
   generating?: boolean;
-  evidence?: WorkbenchGenerationEvidence | null;
-  evidenceLoadingTurnId?: string | null;
-  evidenceError?: string | null;
   onInstructionChange: (instruction: string) => void;
   onProfileChange: (profileId: string) => void;
   onGenerate: () => void;
-  onShowEvidence: (turnId: string) => void;
+  /** Open the Details panel scoped to this turn, on a chosen tab. */
+  onOpenDetails: (turnId: string, tab?: DetailsTab) => void;
 }
 
 const textAt = (source: Record<string, unknown>, key: string) => {
@@ -143,142 +141,6 @@ const validationWord = (status: NotebookTurn["validationStatus"]) => {
   return null;
 };
 
-const EvidenceDetail = ({
-  evidence,
-}: {
-  evidence: WorkbenchGenerationEvidence;
-}) => {
-  const profile = evidence.profile?.detail;
-  const includedHistory = evidence.history?.included?.length ?? 0;
-  const omittedHistory = evidence.history?.omitted?.length ?? 0;
-
-  return (
-    <section
-      className="turn-evidence"
-      aria-labelledby="turn-evidence-title"
-    >
-      <div className="turn-evidence__heading">
-        <div>
-          <h3 id="turn-evidence-title">
-            Generation evidence for Query turn {evidence.turnId}
-          </h3>
-          <p>
-            Recorded model calls and artifacts. This does not expose hidden
-            reasoning.
-          </p>
-        </div>
-        {evidence.status && <Tag type="purple">{evidence.status}</Tag>}
-      </div>
-
-      <dl className="turn-evidence__summary">
-        <div>
-          <dt>Profile</dt>
-          <dd>{profile?.profileName ?? evidence.profile?.profileId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Writer</dt>
-          <dd>{profile?.writer?.modelId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Reviewer</dt>
-          <dd>{profile?.reviewer?.modelId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Model time</dt>
-          <dd>
-            {evidence.totalInvocationDurationMs === null ||
-            evidence.totalInvocationDurationMs === undefined
-              ? "Unavailable"
-              : `${evidence.totalInvocationDurationMs} ms`}
-          </dd>
-        </div>
-        <div>
-          <dt>Included history</dt>
-          <dd>{includedHistory}</dd>
-        </div>
-        <div>
-          <dt>Omitted history</dt>
-          <dd>{omittedHistory}</dd>
-        </div>
-      </dl>
-
-      <div className="turn-evidence__columns">
-        <section>
-          <h4>Model invocations</h4>
-          {evidence.invocations.length === 0 ? (
-            <p>No model invocation was recorded.</p>
-          ) : (
-            <ol>
-              {evidence.invocations.map((invocation) => (
-                <li key={invocation.invocationId}>
-                  <strong>
-                    {invocation.role} — {invocation.modelId}
-                  </strong>
-                  <span>
-                    {invocation.stage}; attempt {invocation.attempt}; {invocation.outcome}
-                    {invocation.durationMs === null
-                      ? ""
-                      : `; ${invocation.durationMs} ms`}
-                  </span>
-                  <code>{invocation.requestDigest}</code>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-        <section>
-          <h4>Candidate disposition</h4>
-          {!evidence.candidates || evidence.candidates.length === 0 ? (
-            <p>No candidate artifact was recorded.</p>
-          ) : (
-            <ol>
-              {evidence.candidates.map((candidate) => (
-                <li key={candidate.candidateId}>
-                  <strong>{candidate.role}</strong>
-                  <span>{candidate.disposition.replaceAll("_", " ")}</span>
-                  <span>
-                    {candidate.versionRef
-                      ? `Query ${candidate.versionRef.versionId}`
-                      : "No immutable query version"}
-                  </span>
-                  {candidate.rawEvidence.inspectable &&
-                    candidate.rawEvidence.exactPayload !== null && (
-                      <details className="turn-evidence__payload">
-                        <summary>
-                          {candidate.role === "writer" ? "Writer" : "Reviewer"}{" "}
-                          attempt {candidate.attemptOrdinal} raw evidence —{" "}
-                          {candidate.disposition.replaceAll("_", " ")}
-                        </summary>
-                        <pre>
-                          {JSON.stringify(
-                            candidate.rawEvidence.exactPayload,
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </details>
-                    )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
-
-      {[evidence.hubRequest, evidence.hubResponse].map((artifact, index) => {
-        if (!artifact?.inspectable || artifact.exactPayload === null) return null;
-        const label = index === 0 ? "Recorded Hub request" : "Recorded Hub response";
-        return (
-          <details key={label} className="turn-evidence__payload">
-            <summary>{label}</summary>
-            <pre>{JSON.stringify(artifact.exactPayload, null, 2)}</pre>
-          </details>
-        );
-      })}
-    </section>
-  );
-};
-
 export const TurnNotebook = ({
   turns,
   session,
@@ -291,13 +153,10 @@ export const TurnNotebook = ({
   editorState = editorEmpty ? "empty" : "ready",
   busy,
   generating = false,
-  evidence = null,
-  evidenceLoadingTurnId = null,
-  evidenceError = null,
   onInstructionChange,
   onProfileChange,
   onGenerate,
-  onShowEvidence,
+  onOpenDetails,
 }: TurnNotebookProps) => {
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
     Record<string, boolean>
@@ -338,8 +197,20 @@ export const TurnNotebook = ({
     const version = selectedVersionOf(turn);
     const execution = turn.execution ?? null;
     const validation = validationWord(turn.validationStatus);
-    const evidenceLoading = evidenceLoadingTurnId === turn.turnId;
     const outcome = cellOutcome(turn);
+    // The version this one succeeded, so the footer can offer the comparison
+    // the analyst actually wants: what this turn changed.
+    const previousVersionOrdinal = (() => {
+      const parentId = version
+        ? session.versions.find((item) => item.versionId === version.versionId)
+            ?.parentVersionId
+        : null;
+      if (!parentId) return null;
+      return (
+        session.versions.find((item) => item.versionId === parentId)?.ordinal ??
+        null
+      );
+    })();
     // The visible header truncates the instruction to one line, so the
     // accessible name carries it in full alongside the run counter it is cited
     // by and the outcome the status dot encodes visually.
@@ -455,17 +326,22 @@ export const TurnNotebook = ({
                     {execution.durationMs} ms
                   </span>
                 )}
-                <Button
+                <button
                   type="button"
-                  kind="ghost"
-                  size="sm"
-                  disabled={evidenceLoading}
-                  onClick={() => onShowEvidence(turn.turnId)}
+                  className="query-turn__footer-link"
+                  onClick={() => onOpenDetails(turn.turnId)}
                 >
-                  {evidenceLoading
-                    ? "Loading generation evidence…"
-                    : "View generation evidence"}
-                </Button>
+                  details
+                </button>
+                {previousVersionOrdinal !== null && version && (
+                  <button
+                    type="button"
+                    className="query-turn__footer-link"
+                    onClick={() => onOpenDetails(turn.turnId, "versions")}
+                  >
+                    diff v{previousVersionOrdinal}→v{version.ordinal}
+                  </button>
+                )}
               </div>
             </section>
           )}
@@ -588,10 +464,6 @@ export const TurnNotebook = ({
         </form>
       </section>
 
-      {evidenceError && (
-        <p className="turn-evidence__error" role="alert">{evidenceError}</p>
-      )}
-      {evidence && <EvidenceDetail evidence={evidence} />}
     </section>
   );
 };
