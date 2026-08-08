@@ -1,0 +1,140 @@
+/**
+ * The visual baseline — Checkpoint 1 of the styling roadmap.
+ *
+ * Every later checkpoint is measured with this. It exists so a token
+ * substitution or a theme change can be reviewed as a diff of named surfaces
+ * rather than trusted, and so that when a surface moves you can say which
+ * change moved it.
+ *
+ * Run it with `npm run baseline`. Accept intended changes with
+ * `npm run baseline -- --update-snapshots`, and say in the pull request which
+ * surfaces moved and why.
+ *
+ * It runs only against the deterministic mock: no models, no database, no
+ * clock. Snapshots are platform-suffixed by Playwright, so a set generated on
+ * one operating system never silently grades another.
+ */
+import { expect, test } from "@playwright/test";
+import { installBaselineApi } from "./support/baseline-fixture";
+
+/*
+  No pixel tolerance. A tolerance of 1% sounded reasonable and was measured to
+  be blind: recolouring a 3px cell border changed 0.26% of a full-page shot and
+  passed. Regeneration is byte-identical on one machine, so zero is achievable,
+  and an instrument that cannot see the change it exists to review is worse
+  than none.
+*/
+const shot = { animations: "disabled" as const };
+
+test.describe("visual baseline", () => {
+  test("empty session", async ({ page }) => {
+    await installBaselineApi(page, { empty: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    await expect(page.getByLabel("Question")).toBeVisible();
+    await expect(page).toHaveScreenshot("empty-session.png", {
+      ...shot,
+      fullPage: true,
+    });
+  });
+
+  test("thread with a run, a failure and a repair", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    // The newest cell is open on arrival and carries its dataset.
+    await expect(page.locator(".query-turn__dataset").first()).toBeVisible();
+    await expect(page).toHaveScreenshot("thread.png", { ...shot, fullPage: true });
+  });
+
+  test("a failed run's cell", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    // Cell [2] is the run the database rejected; open it.
+    await page.getByRole("button", { name: /Query turn 2/ }).click();
+    await expect(page.getByText('column "test_type" does not exist')).toBeVisible();
+    await expect(page.locator("#turn-2")).toHaveScreenshot("failed-run.png", shot);
+  });
+
+  test("expanded dataset tile", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    const tile = page.locator(".query-turn__dataset").first();
+    await expect(tile).toBeVisible();
+    await expect(tile).toHaveScreenshot("dataset-tile.png", shot);
+  });
+
+  test("dataset review dialog", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    await page
+      .locator(".query-turn__dataset")
+      .first()
+      .getByRole("button", { name: "Save to datasets" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Review panel" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveScreenshot("review-dialog.png", shot);
+  });
+
+  for (const section of ["Datasets", "Widgets", "Dashboards"] as const) {
+    test(`${section.toLowerCase()} library`, async ({ page }) => {
+      await installBaselineApi(page);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto("/");
+      const navButton = page
+        .getByRole("complementary", { name: "Catalyst" })
+        .getByRole("navigation", { name: "Sections" })
+        .getByRole("button", { name: section });
+      await navButton.click();
+      // Prove the section actually took before shooting it.
+      await expect(navButton).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("heading", { level: 1, name: section })).toBeVisible();
+      // The heading renders before the library has loaded, and the loading
+      // line takes up space while it does. Wait for the settled state, or the
+      // shot lands mid-race and the baseline differs from run to run.
+      await expect(page.getByText(`No ${section} saved yet.`, { exact: true }))
+        .toBeVisible();
+      await expect(page.getByText("Loading library…")).toHaveCount(0);
+      // Scoped to the library itself, not the whole page: the refine composer
+      // is still mounted on these screens and its scroll-adaptive height
+      // changes the document height between runs, which a full-page shot
+      // records as a difference. (That the composer appears here at all is a
+      // separate finding, recorded in the follow-through goals.)
+      await expect(page.locator(".builder-library")).toHaveScreenshot(
+        `library-${section.toLowerCase()}.png`,
+        shot,
+      );
+    });
+  }
+
+  // The rail is resizable, and its catalog and nav both adapt to the width —
+  // the labels hide near the minimum, the catalog gains columns near the top.
+  for (const [name, width] of [
+    ["min", 200],
+    ["default", 240],
+    ["wide", 520],
+  ] as const) {
+    test(`rail at ${name} width`, async ({ page }) => {
+      await installBaselineApi(page);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto("/");
+      const rail = page.getByRole("complementary", { name: "Catalyst" });
+      await expect(rail).toBeVisible();
+      await rail.getByRole("button", { name: /^DATA/ }).click();
+      // Set the width the way the resize handle does — through the custom
+      // property the shell and the rail both read — rather than reaching into
+      // the DOM, which would need browser typings this project does not give
+      // its end-to-end sources.
+      await page.addStyleTag({
+        content:
+          `.dashboard-builder-shell{--dashboard-nav-width:${width}px}` +
+          `.workbench-rail{width:${width}px}`,
+      });
+      await expect(rail).toHaveScreenshot(`rail-${name}.png`, shot);
+    });
+  }
+});

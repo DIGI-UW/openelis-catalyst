@@ -26,13 +26,32 @@ export default defineConfig({
   projects: [
     {
       name: "deterministic",
+      // The visual baseline is a review instrument, not a gate: font
+      // rasterization differs between operating systems, so grading CI
+      // against snapshots taken on a laptop reports differences that are
+      // not changes. It runs on request instead.
+      testIgnore: /visual-baseline\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         video: "off",
       },
     },
     {
+      name: "baseline",
+      testMatch: /visual-baseline\.spec\.ts/,
+      // One at a time. These share a dev server, and a screenshot taken while
+      // a neighbour is mid-navigation records the neighbour's screen.
+      fullyParallel: false,
+      use: {
+        ...devices["Desktop Chrome"],
+        video: "off",
+        // A baseline that moves because a caret blinked is worthless.
+        launchOptions: { args: ["--force-prefers-reduced-motion"] },
+      },
+    },
+    {
       name: "demo-video",
+      testIgnore: /visual-baseline\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         video: "on",
