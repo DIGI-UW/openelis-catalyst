@@ -41,7 +41,7 @@ services:
       args:
         HUB_BUILD_REVISION: ${MED_AGENT_HUB_REVISION:?set to the 40-character commit SHA of the med-agent-hub checkout, e.g. $(git -C ../med-agent-hub rev-parse HEAD)}
     environment:
-      LLM_BASE_URL: "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:1234}"
+      LLM_BASE_URL: "${MVP_EXTERNAL_ROUTER_URL:-http://host.docker.internal:8077}"
       LLM_PROVIDER: "openai-compatible"
       LLM_TEMPERATURE: "0"
       LLM_REQUEST_TIMEOUT_SECONDS: "1800"

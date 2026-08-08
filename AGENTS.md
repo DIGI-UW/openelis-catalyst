@@ -70,7 +70,7 @@ cp env.recommended .env
 ```
 
 The live run uses the configured external router at
-`http://host.docker.internal:1234`. It must advertise the exact role models in
+`http://host.docker.internal:8077`. It must advertise the exact role models in
 the selected Hub profile. The React sidecar is at `http://localhost:3000`.
 
 #### Full stack

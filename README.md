@@ -119,17 +119,17 @@ cp env.recommended .env
 ```
 
 The configuration connects the containerized Hub to the existing host
-OpenAI-compatible router at `http://host.docker.internal:1234`. The Hub-owned
-`catalyst-query-e4b-qwen14b` profile uses `google/gemma-4-e4b` for writing and
-`qwen2.5-14b-instruct-mlx` for review. Startup fails unless the router
-advertises both exact IDs. Open the sidecar at `http://localhost:3000`.
+OpenAI-compatible llama.cpp router at `http://host.docker.internal:8077`. The
+Hub-owned `catalyst-query-e4b-qwen14b` profile uses `gemma-e4b` for writing and
+`qwen2.5-14b` for review. Startup fails unless the router advertises both exact
+IDs. Open the sidecar at `http://localhost:3000`.
 
 To use the real router at another location, set its root without a trailing
 `/v1` and keep the Hub-owned profile ID explicit:
 
 ```bash
 export MVP_MODEL_BACKEND=external
-export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:1234
+export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077
 export MVP_EXTERNAL_PROFILE_ID=catalyst-query-e4b-qwen14b
 ./scripts/mvp-up.sh
 ./scripts/mvp-seed.sh

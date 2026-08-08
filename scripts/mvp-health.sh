@@ -289,8 +289,13 @@ if profile.get("available") is not True:
         f"{profile_id} is unavailable: {profile.get('unavailableReasons', [])}"
     )
 role_models = profile.get("role_models", {})
-if set(role_models) != {"query_generate", "query_review"}:
-    raise SystemExit(f"{profile_id} must define writer and reviewer roles: {role_models!r}")
+# A writer is required; a reviewer is optional. Hub advertises writer-only and
+# reviewed profiles alike, so pinning an exact role set here would reject valid
+# configured profiles rather than check the stack.
+if "query_generate" not in role_models:
+    raise SystemExit(f"{profile_id} must define a writer role: {role_models!r}")
+if not set(role_models) <= {"query_generate", "query_review"}:
+    raise SystemExit(f"{profile_id} defines unknown roles: {role_models!r}")
 evidence = profile.get("profileEvidence")
 if not isinstance(evidence, dict) or evidence.get("profileId") != profile_id:
     raise SystemExit(f"{profile_id} does not expose matching Hub profile evidence")

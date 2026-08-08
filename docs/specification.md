@@ -376,7 +376,7 @@ Hub defines the implemented governed-query profile in the shared
 
 | Profile | Roles | Purpose |
 | --- | --- | --- |
-| `catalyst-query-e4b-qwen14b` | `google/gemma-4-e4b` writer and `qwen2.5-14b-instruct-mlx` reviewer | External cross-family manual-testing lane |
+| `catalyst-query-e4b-qwen14b` | `gemma-e4b` writer and `qwen2.5-14b` reviewer | External cross-family manual-testing lane |
 
 `GET /v1/hub/query-profiles` exposes Hub configuration plus live router
 availability. `GET /v1/catalyst/query-options` relays only available entries to the UI,
