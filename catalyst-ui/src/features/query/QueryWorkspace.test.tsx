@@ -180,6 +180,11 @@ const api = (): CatalystApi => ({
       ),
     ),
   askWorkbenchSessionQuestion: vi.fn().mockResolvedValue(session),
+  renameWorkbenchSession: vi
+    .fn()
+    .mockImplementation((_id: string, name: string) =>
+      Promise.resolve({ ...session, name }),
+    ),
   getWorkbenchSession: vi.fn().mockResolvedValue(session),
   createWorkbenchVersion: vi.fn(),
   executeWorkbenchVersion: vi.fn(),
@@ -421,6 +426,40 @@ describe("Dashboard Builder Ask shell", () => {
         "How many CD4 results?",
         "catalyst-query",
       ),
+    );
+  });
+
+  it("renames a session in place without touching the question it asked", async () => {
+    const client = api();
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    const rail = await screen.findByRole("complementary", { name: "Catalyst" });
+    await user.click(within(rail).getByRole("button", { name: /^Session:/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename session" }));
+
+    // Editing happens in the rail itself, not in another window.
+    const field = screen.getByLabelText("Session name");
+    expect(field).toHaveValue(session.name);
+    await user.clear(field);
+    await user.type(field, "Monthly viral load, 2026{Enter}");
+
+    await waitFor(() =>
+      expect(client.renameWorkbenchSession).toHaveBeenCalledWith(
+        session.sessionId,
+        "Monthly viral load, 2026",
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        within(rail).getByRole("button", {
+          name: "Session: Monthly viral load, 2026",
+        }),
+      ).toBeVisible(),
     );
   });
 

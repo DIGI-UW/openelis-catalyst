@@ -42,8 +42,9 @@ interface WorkbenchRailProps {
   onWidthCommit: (width: number) => void;
   sessionName: string | null;
   sessionSourceLabel: string | null;
-  sessionMenu: "closed" | "list" | "new";
-  onSessionMenuChange: (menu: "closed" | "list" | "new") => void;
+  sessionMenu: "closed" | "list" | "new" | "rename";
+  onSessionMenuChange: (menu: "closed" | "list" | "new" | "rename") => void;
+  onRenameSession: (name: string) => void;
   recentSessions: WorkbenchSessionSummary[];
   onOpenSession: (sessionId: string) => void;
   activeSessionId: string | null;
@@ -76,6 +77,7 @@ export const WorkbenchRail = ({
   sessionSourceLabel,
   sessionMenu,
   onSessionMenuChange,
+  onRenameSession,
   recentSessions,
   onOpenSession,
   activeSessionId,
@@ -189,6 +191,32 @@ export const WorkbenchRail = ({
           beside the model profile in the composer — a per-turn choice with a
           different lifetime. The source is always visible, never guessed at.
         */}
+        {sessionMenu === "rename" && sessionName !== null ? (
+          <form
+            className="workbench-rail__session-rename"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onRenameSession(draftSessionName);
+            }}
+          >
+            <label className="visually-hidden" htmlFor="catalyst-session-name">
+              Session name
+            </label>
+            <input
+              id="catalyst-session-name"
+              autoFocus
+              value={draftSessionName}
+              placeholder="New session"
+              onChange={(event) =>
+                onDraftSessionNameChange(event.currentTarget.value)
+              }
+              onBlur={() => onRenameSession(draftSessionName)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") onSessionMenuChange("closed");
+              }}
+            />
+          </form>
+        ) : (
         <button
           type="button"
           className="workbench-rail__session-button"
@@ -205,6 +233,7 @@ export const WorkbenchRail = ({
           </span>
           <span aria-hidden="true">▾</span>
         </button>
+        )}
 
         {sessionMenu === "list" && (
           <div className="workbench-rail__session-menu" role="menu">
@@ -217,6 +246,16 @@ export const WorkbenchRail = ({
             >
               <span aria-hidden="true">＋ </span>New session…
             </button>
+            {sessionName !== null && (
+              <button
+                type="button"
+                role="menuitem"
+                className="workbench-rail__session-rename-action"
+                onClick={() => onSessionMenuChange("rename")}
+              >
+                Rename session
+              </button>
+            )}
             <p className="workbench-rail__session-menu-title">
               RECENT SESSIONS
             </p>
@@ -266,7 +305,7 @@ export const WorkbenchRail = ({
               <span>Name</span>
               <input
                 value={draftSessionName}
-                placeholder="e.g. Turnaround time, Q3"
+                placeholder="Optional — defaults to your first question"
                 onChange={(event) =>
                   onDraftSessionNameChange(event.currentTarget.value)
                 }

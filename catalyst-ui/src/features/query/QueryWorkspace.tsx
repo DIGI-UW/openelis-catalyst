@@ -468,9 +468,9 @@ export const QueryWorkspace = ({
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
   const [railSection, setRailSection] = useState<RailSection>("turns");
   const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
-  const [sessionMenu, setSessionMenu] = useState<"closed" | "list" | "new">(
-    "closed",
-  );
+  const [sessionMenu, setSessionMenu] = useState<
+    "closed" | "list" | "new" | "rename"
+  >("closed");
   const [recentSessions, setRecentSessions] = useState<WorkbenchSessionSummary[]>(
     [],
   );
@@ -1177,10 +1177,34 @@ export const QueryWorkspace = ({
       .catch(() => undefined);
   };
 
-  const openSessionMenu = (menu: "closed" | "list" | "new") => {
+  const openSessionMenu = (menu: "closed" | "list" | "new" | "rename") => {
     setSessionMenu(menu);
     if (menu === "list") refreshRecentSessions();
     if (menu === "new") setDraftSessionName("");
+    // Renaming starts from the name it already has.
+    if (menu === "rename") setDraftSessionName(workbenchSession?.name ?? "");
+  };
+
+  const renameSession = (name: string) => {
+    setSessionMenu("closed");
+    const trimmed = name.trim();
+    if (
+      !workbenchSession ||
+      !api.renameWorkbenchSession ||
+      !trimmed ||
+      trimmed === workbenchSession.name
+    ) {
+      return;
+    }
+    void api.renameWorkbenchSession(workbenchSession.sessionId, trimmed)
+      .then((renamed) =>
+        setWorkbenchSession((current) =>
+          current?.sessionId === renamed.sessionId
+            ? { ...current, name: renamed.name }
+            : current,
+        ),
+      )
+      .catch((error: unknown) => setWorkbenchError(messageFromError(error)));
   };
 
   const openRecentSession = (sessionId: string) => {
@@ -1225,10 +1249,13 @@ export const QueryWorkspace = ({
         stacked={railStacked}
         onWidthChange={setRailWidth}
         onWidthCommit={persistRailWidth}
-        sessionName={workbenchSession ? workbenchSession.name : null}
+        sessionName={
+          workbenchSession ? workbenchSession.name.trim() || "New session" : null
+        }
         sessionSourceLabel={activeDataSourceLabel}
         sessionMenu={sessionMenu}
         onSessionMenuChange={openSessionMenu}
+        onRenameSession={renameSession}
         recentSessions={recentSessions}
         onOpenSession={openRecentSession}
         activeSessionId={workbenchSession?.sessionId ?? null}

@@ -481,6 +481,10 @@
 }
 
 .workbench-rail__session-new {
+  /* Not a session row, so it does not take the row's leading tick column. */
+  justify-content: flex-start;
+  gap: 0;
+
   /* Sticky so a long history never buries the primary action. */
   position: sticky;
   top: 0;
@@ -555,4 +559,33 @@
 .workbench-rail__session-start:disabled {
   background: #c6c6c6 !important;
   cursor: not-allowed;
+}
+
+.workbench-rail__session-rename input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid #0f62fe;
+  background: #fff;
+  color: #161616;
+  font-family: inherit;
+  font-size: 0.8125rem;
+}
+
+.workbench-rail__session-rename-action {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid #e0e0e0;
+  background: none;
+  color: #0f62fe;
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-rename-action:hover {
+  background: #f4f4f4;
 }

@@ -548,3 +548,63 @@ def test_creating_a_session_with_a_question_is_unchanged(tmp_path: Path) -> None
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
     ).json()["turns"]
     assert [turn["kind"] for turn in turns] == ["initial"]
+
+
+def test_an_unnamed_session_is_named_by_what_it_asked(tmp_path: Path) -> None:
+    """Naming is never a gate: a session opened without one takes the name of
+    its first question, exactly as a session created from a question does."""
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _open_empty_session(client)
+    assert session["name"] == ""
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/question",
+        json={"question": QUESTION},
+    )
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert reloaded["name"] == QUESTION
+
+
+def test_a_named_session_keeps_its_name_when_asked(tmp_path: Path) -> None:
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _open_empty_session(client, name="CD4 cohort review")
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/question",
+        json={"question": QUESTION},
+    )
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert reloaded["name"] == "CD4 cohort review"
+    assert reloaded["question"] == QUESTION
+
+
+def test_a_session_can_be_renamed_without_rewriting_its_question(
+    tmp_path: Path,
+) -> None:
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _create_session(client, name="First guess")
+
+    response = client.patch(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/name",
+        json={"name": "Monthly viral load, 2026"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "Monthly viral load, 2026"
+    # The question is evidence of what was asked and never moves.
+    assert response.json()["question"] == QUESTION
+
+    listed = client.get("/v1/catalyst/workbench/sessions").json()["sessions"]
+    assert listed[0]["name"] == "Monthly viral load, 2026"
+
+    blank = client.patch(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/name",
+        json={"name": "   "},
+    )
+    assert blank.status_code == 400, blank.text

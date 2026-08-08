@@ -2116,13 +2116,29 @@ class WorkbenchStore:
         is immutable evidence of what was asked from then on.
         """
         with self._transaction() as connection:
+            # A session opened without a name is called by what it asked, the
+            # same as one created from a question. Naming is never a gate.
             connection.execute(
                 """
                 UPDATE catalyst_workbench_sessions
-                SET question = ?, updated_at = ?
+                SET question = ?,
+                    name = COALESCE(NULLIF(TRIM(COALESCE(name, '')), ''), ?),
+                    updated_at = ?
                 WHERE session_id = ?
                 """,
-                (question, _timestamp(self._now()), session_id),
+                (question, question, _timestamp(self._now()), session_id),
+            )
+
+    def rename_session(self, session_id: str, name: str) -> None:
+        """Rename a thread. The question it asked is untouched."""
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE catalyst_workbench_sessions
+                SET name = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (name, _timestamp(self._now()), session_id),
             )
 
     def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:

@@ -755,6 +755,30 @@ class CatalystService:
             initial_profile_snapshot=initial_profile_snapshot,
         )
 
+    def rename_workbench_session(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> ServiceResponse:
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual query workbench is not configured.",
+            )
+        if store.get_session(session_id) is None:
+            return self._workbench_error(
+                404, "workbench_session_not_found", "Workbench session was not found."
+            )
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return self._workbench_error(
+                400, "invalid_request", "Session name must contain text."
+            )
+        store.rename_session(session_id, name)
+        renamed = store.get_session(session_id)
+        assert renamed is not None
+        return ServiceResponse(200, self._present_workbench_session(renamed))
+
     async def ask_workbench_session_question(
         self, session_id: str, payload: dict[str, Any]
     ) -> ServiceResponse:

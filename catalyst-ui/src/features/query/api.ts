@@ -63,6 +63,11 @@ export interface CatalystApi {
     name?: string,
   ): Promise<WorkbenchSession>;
   listWorkbenchSessions?(signal?: AbortSignal): Promise<WorkbenchSessionList>;
+  renameWorkbenchSession?(
+    sessionId: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
   /** Ask the first question of a session that was opened empty. */
   askWorkbenchSessionQuestion?(
     sessionId: string,
@@ -385,6 +390,23 @@ export const createCatalystApi = ({
             question,
             ...(profileId ? { profileId } : {}),
           }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async renameWorkbenchSession(sessionId, name, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/name`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
           signal,
         },
       );
