@@ -656,6 +656,12 @@
 
 .query-turn__dataset-heading {
   display: flex;
+  /*
+    Five things share this row — icon, name, state, minimise, save. On a phone
+    they do not fit, and without wrapping the last of them is pushed off the
+    page rather than onto a second line.
+  */
+  flex-wrap: wrap;
   align-items: center;
   padding: 0.625rem 0.875rem;
   border-bottom: 1px solid #e0e0e0;
@@ -664,8 +670,13 @@
 }
 
 .query-turn__dataset-heading strong {
-  flex: 1;
+  /* Takes the slack where there is any, and ellipsizes instead of pushing. */
+  overflow: hidden;
+  flex: 1 1 8rem;
+  min-width: 0;
   font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .query-turn__dataset .workbench-execution {

@@ -40,11 +40,12 @@ test("OpenELIS laboratory: ask, then add specimen turnaround detail", async ({
   );
 
   await page.getByRole("button", { name: "Run query" }).click();
-  const execution = page.getByRole("region", { name: "Latest execution" });
-  await expect(execution).toBeVisible({ timeout: 120_000 });
-  await expect(
-    execution.getByRole("heading", { name: /Results from Query v1/ }),
-  ).toBeVisible({ timeout: 120_000 });
+  // The run's result is that cell's dataset, in the cell.
+  const dataset = page.locator(".query-turn__dataset").first();
+  await expect(dataset).toBeVisible({ timeout: 120_000 });
+  await expect(dataset.getByText(/^Dataset from \[\d+\]$/)).toBeVisible({
+    timeout: 120_000,
+  });
 
   // Turn 2: add operationally useful detail from the exact current query —
   // an iterative refinement, not a fresh question.
@@ -63,7 +64,7 @@ test("OpenELIS laboratory: ask, then add specimen turnaround detail", async ({
   );
 
   await page.getByRole("button", { name: "Run query" }).click();
-  await expect(
-    execution.getByRole("heading", { name: /Results from Query v2/ }),
-  ).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator(".query-turn__dataset").last()).toBeVisible({
+    timeout: 120_000,
+  });
 });
