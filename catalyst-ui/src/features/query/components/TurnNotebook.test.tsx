@@ -208,7 +208,7 @@ const defaultProps = {
   selectedProfileId: profiles[0]!.id,
   grounding: {
     kind: "matching" as const,
-    text: "Execution summary: Query v3 · Run 2 · 49 rows. Result row values are not included in model context.",
+    text: "Execution summary: this query ran · 49 rows. Result row values are not included in model context.",
   },
   editorEmpty: false,
   busy: false,
@@ -432,7 +432,7 @@ describe("TurnNotebook", () => {
       name: "Follow-up instruction",
     });
     expect(composerMode()).toBe("full");
-    expect(screen.getByText(/Execution summary: Query v3.*49 rows/i)).toBeVisible();
+    expect(screen.getByText(/Execution summary: this query ran.*49 rows/i)).toBeVisible();
 
     // Land at the end of the thread, then scroll up into history: the
     // composer tucks to a lip and offers a way back rather than stranding you.

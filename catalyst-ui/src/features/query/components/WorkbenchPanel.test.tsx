@@ -196,7 +196,6 @@ const defaultProps = {
   onWrapLinesChange: vi.fn(),
   onClearDraft: vi.fn(),
   onRestoreCurrentVersion: vi.fn(),
-  onValidate: vi.fn(),
   onRun: vi.fn(),
 };
 
@@ -222,20 +221,27 @@ const ControlledParameterPanel = ({
 describe("WorkbenchPanel", () => {
   it("disables actions only while busy or when SQL is empty", () => {
     const { rerender } = render(
-      <WorkbenchPanel
-        {...defaultProps}
-        session={makeSession()}
-        busy="validating"
-      />,
+      <WorkbenchPanel {...defaultProps} session={makeSession()} busy="running" />,
     );
-    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Running…" })).toBeDisabled();
 
     rerender(
       <WorkbenchPanel {...defaultProps} session={makeSession()} sql="   " />,
     );
-    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+  });
+
+  it("offers running as the only way to commit the draft", () => {
+    render(<WorkbenchPanel {...defaultProps} session={makeSession()} />);
+    const actions = screen.getByLabelText("Workbench actions");
+    // Saving without running only ever produced a version with no result to
+    // show for it, so there is one button and it says what it does.
+    expect(
+      within(actions).getByText(/Running saves this as a version and checks it/),
+    ).toBeVisible();
+    expect(
+      within(actions).queryByRole("button", { name: /Sav(e|ing)/ }),
+    ).toBeNull();
   });
 
   it("freezes the editor and every session mutation while a successor is generating", () => {
@@ -261,7 +267,6 @@ describe("WorkbenchPanel", () => {
       screen.getByRole("button", { name: "Remove parameter 1" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
   });
 
@@ -280,7 +285,6 @@ describe("WorkbenchPanel", () => {
 
     const restore = screen.getByRole("button", { name: "Restore the current query" });
     expect(restore).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
     await user.click(restore);
     expect(onRestoreCurrentVersion).toHaveBeenCalledOnce();

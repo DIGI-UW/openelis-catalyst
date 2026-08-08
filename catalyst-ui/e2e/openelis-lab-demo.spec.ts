@@ -33,16 +33,12 @@ test("OpenELIS laboratory: ask, then add specimen turnaround detail", async ({
   await page.getByRole("button", { name: "Generate query" }).click();
 
   await expect(
-    page.getByRole("heading", { name: /^Refine Query v1$/ }),
+    page.getByRole("heading", { name: /^Refine \[1\]$/ }),
   ).toBeVisible({ timeout: 420_000 });
   await expect(page.getByRole("textbox", { name: "SQL query" })).toContainText(
     "lab_result_fact_v1",
   );
 
-  await page.getByRole("button", { name: /Save version & check/ }).click();
-  await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible({
-    timeout: 60_000,
-  });
   await page.getByRole("button", { name: "Run query" }).click();
   const execution = page.getByRole("region", { name: "Latest execution" });
   await expect(execution).toBeVisible({ timeout: 120_000 });
@@ -60,13 +56,12 @@ test("OpenELIS laboratory: ask, then add specimen turnaround detail", async ({
   await page.getByRole("button", { name: "Generate next query" }).click();
 
   await expect(
-    page.getByRole("heading", { name: /^Refine Query v2$/ }),
+    page.getByRole("heading", { name: /^Refine \[2\]$/ }),
   ).toBeVisible({ timeout: 420_000 });
   await expect(page.getByRole("textbox", { name: "SQL query" })).toContainText(
     "lab_result_fact_v1",
   );
 
-  await page.getByRole("button", { name: /Save version & check/ }).click();
   await page.getByRole("button", { name: "Run query" }).click();
   await expect(
     execution.getByRole("heading", { name: /Results from Query v2/ }),

@@ -31,7 +31,7 @@ interface WorkbenchPanelProps {
   editorCatalog?: WorkbenchEditorCatalog | null;
   catalogLoadingFailed?: boolean;
   wrapLines: boolean;
-  busy?: "generating" | "validating" | "running" | null;
+  busy?: "generating" | "running" | null;
   error?: string | null;
   announcement?: string;
   /** Outcome of the last check, reported where the button that ran it is. */
@@ -47,7 +47,6 @@ interface WorkbenchPanelProps {
   onWrapLinesChange: (wrapLines: boolean) => void;
   onClearDraft: () => void;
   onRestoreCurrentVersion: () => void;
-  onValidate: () => void;
   onRun: () => void;
 }
 
@@ -476,7 +475,14 @@ export const ExecutionResult = ({
       ) : (
         <div className="workbench-execution__table-wrap workbench-execution__table-wrap--bounded">
           <table>
-            <caption>Execution {execution.ordinal} results</caption>
+            {/*
+              A compact result sits inside a cell that already names the
+              dataset it belongs to, so the caption names the table for a
+              screen reader rather than repeating a run counter.
+            */}
+            <caption>
+              {compact ? "Result rows" : `Execution ${execution.ordinal} results`}
+            </caption>
             <thead>
               <tr>
                 {columnOrder.map((sourceIndex) => (
@@ -558,7 +564,6 @@ export const WorkbenchPanel = ({
   onWrapLinesChange,
   onClearDraft,
   onRestoreCurrentVersion,
-  onValidate,
   onRun,
 }: WorkbenchPanelProps) => {
   const hasSql = sql.trim().length > 0;
@@ -605,7 +610,7 @@ export const WorkbenchPanel = ({
           hideCloseButton
           kind="warning"
           title="Unresolved model draft"
-          subtitle="SQL and typed values were recovered from raw model output. Fill any blank parameter names and review the draft before validating or running it."
+          subtitle="SQL and typed values were recovered from raw model output. Fill any blank parameter names and review the draft before running it."
         />
       )}
 
@@ -648,26 +653,18 @@ export const WorkbenchPanel = ({
           </Button>
         )}
         {/*
-          This saves the editor as an immutable version and checks it, which
-          is why it does not say "Validate": the version is the point, and
-          the check is what the save reports back.
+          One button, because there was only ever one intent. Running saves the
+          editor as an immutable version and checks it on the way, so a separate
+          "save and check" only ever produced a version with no result to show
+          for it — and, pressed before Run, produced two.
         */}
-        <Button
-          type="button"
-          kind="secondary"
-          disabled={actionsDisabled}
-          aria-busy={busy === "validating"}
-          onClick={onValidate}
-        >
-          {busy === "validating" ? "Saving version…" : "Save version & check"}
-        </Button>
         <Button
           type="button"
           disabled={actionsDisabled}
           aria-busy={busy === "running"}
           onClick={onRun}
         >
-          Run query
+          {busy === "running" ? "Running…" : "Run query"}
         </Button>
         {checkOutcome ? (
           <p className="workbench-actions__outcome" role="status">
@@ -687,7 +684,8 @@ export const WorkbenchPanel = ({
           </p>
         ) : (
           <p className="workbench-actions__note">
-            Saving keeps every version. Findings never block a run.
+            Running saves this as a version and checks it. Findings never block a
+            run.
           </p>
         )}
       </div>

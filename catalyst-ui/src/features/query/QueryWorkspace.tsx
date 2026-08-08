@@ -214,7 +214,6 @@ const validationStatusForVersion = (
 const manualNotebookTurns = (
   session: WorkbenchSession | null,
   timeline: WorkbenchTurnTimeline | null,
-  fromOrdinal: number,
 ): NotebookTurn[] => {
   if (!session) return [];
   const owned = new Set(
@@ -233,14 +232,16 @@ const manualNotebookTurns = (
       return true;
     })
     .sort((left, right) => left.ordinal - right.ordinal)
-    .flatMap((version, index) => {
+    .flatMap((version) => {
       const execution = executionForVersion(session, version.versionId);
       // Not yet run: it is still the draft in the editor, not a cell.
       if (!execution) return [];
       return [
         {
           turnId: `manual:${version.versionId}`,
-          ordinal: fromOrdinal + index,
+          // Position in the thread is assigned by threadCells, which is the
+          // only place that can see both kinds of cell at once.
+          ordinal: 0,
           kind: "followup" as const,
           instruction: "Edited by hand",
           status: "completed" as const,
@@ -307,6 +308,43 @@ const notebookTurns = (
       turn.selectedVersionId === session?.currentVersionId,
   }));
 
+/**
+ * The thread, in the order the work happened.
+ *
+ * The two kinds of cell are recorded in different places — generations in the
+ * turn timeline, hand-edited runs among the session's versions — so appending
+ * one list to the other filed every hand edit after model turns that came
+ * later. Query versions are numbered in the order they were appended, which is
+ * the one clock both kinds share; the cell number is then simply a position in
+ * the thread.
+ */
+const threadCells = (
+  timeline: WorkbenchTurnTimeline | null,
+  session: WorkbenchSession | null,
+): NotebookTurn[] => {
+  const versionOrdinal = (versionId: string | null) =>
+    versionId === null
+      ? null
+      : (session?.versions.find((version) => version.versionId === versionId)
+          ?.ordinal ?? null);
+
+  // A generation that produced no version — one that failed — still holds its
+  // place, just after whatever preceded it.
+  let previous = 0;
+  const generated = notebookTurns(timeline, session).map((turn) => {
+    previous = versionOrdinal(turn.selectedVersionId) ?? previous + 0.5;
+    return { turn, at: previous };
+  });
+  const manual = manualNotebookTurns(session, timeline).map((turn) => ({
+    turn,
+    at: versionOrdinal(turn.selectedVersionId) ?? 0,
+  }));
+
+  return [...generated, ...manual]
+    .sort((left, right) => left.at - right.at)
+    .map(({ turn }, index) => ({ ...turn, ordinal: index + 1 }));
+};
+
 const notebookGrounding = (
   session: WorkbenchSession,
   sql: string,
@@ -325,16 +363,15 @@ const notebookGrounding = (
     .sort((left, right) => right.ordinal - left.ordinal)
     .find((candidate) => candidate.queryDigest === editorDigest);
 
+  // What this says is what the model will be told. Which version and which run
+  // produced it is bookkeeping the thread already carries, so it is left out:
+  // the only thing that matters here is that the summary matches the editor.
   if (execution) {
-    const version = session.versions.find(
-      (candidate) => candidate.versionId === execution.versionId,
-    );
-    const queryLabel = version ? `Query v${version.ordinal}` : "the current query";
     if (execution.status === "failed") {
       return {
         kind: "matching",
         text:
-          `Execution summary: ${queryLabel} · Run ${execution.ordinal} failed. ` +
+          "Execution summary: this query failed. " +
           "The database diagnostic is available to the model; result row values are not.",
       };
     }
@@ -342,7 +379,7 @@ const notebookGrounding = (
     return {
       kind: "matching",
       text:
-        `Execution summary: ${queryLabel} · Run ${execution.ordinal}` +
+        "Execution summary: this query ran" +
         (returned === undefined
           ? ". "
           : ` · ${returned} ${returned === 1 ? "row" : "rows"}. `) +
@@ -556,6 +593,9 @@ export const QueryWorkspace = ({
   const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
   const [developerMode, setDeveloperMode] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  // A run asks for the cell that will carry its result; the cell is only in
+  // the document a render later, so the request waits here until it exists.
+  const revealVersionId = useRef<string | null>(null);
   // The dashboard panel owns the review dialog; the cell that produced the
   // result asks it to open.
   const openDatasetReview = useRef<(() => void) | null>(null);
@@ -588,9 +628,7 @@ export const QueryWorkspace = ({
     useState<WorkbenchEditorCatalog | null>(null);
   const [workbenchCatalogFailed, setWorkbenchCatalogFailed] = useState(false);
   const [workbenchWrapLines, setWorkbenchWrapLines] = useState(true);
-  const [workbenchBusy, setWorkbenchBusy] = useState<
-    "validating" | "running" | null
-  >(null);
+  const [workbenchBusy, setWorkbenchBusy] = useState<"running" | null>(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
   const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
   const [sqlEditorFocusRequestId, setSqlEditorFocusRequestId] = useState(0);
@@ -992,19 +1030,6 @@ export const QueryWorkspace = ({
     return { session, version: session.currentVersion };
   };
 
-  const validateWorkbenchDraft = async () => {
-    if (workbenchBusy || followupBusy) return;
-    setWorkbenchBusy("validating");
-    setWorkbenchError(null);
-    try {
-      await persistWorkbenchDraft();
-    } catch (error) {
-      setWorkbenchError(messageFromError(error));
-    } finally {
-      setWorkbenchBusy(null);
-    }
-  };
-
   const runWorkbenchDraft = async () => {
     if (workbenchBusy || followupBusy || !api.executeWorkbenchVersion) return;
     setWorkbenchBusy("running");
@@ -1020,9 +1045,14 @@ export const QueryWorkspace = ({
         ...session,
         executions: [...session.executions, execution],
       });
-      // The result is now the thing to look at.
-      if (execution.status === "succeeded") setEditorOpen(false);
+      // Whatever the database said is now the thing to look at — a failure is
+      // a result too, and reading its diagnostic is the next step. Editing
+      // again is a choice made from there, not the state left behind.
+      setEditorOpen(false);
+      revealVersionId.current = version.versionId;
     } catch (error) {
+      // The action itself failed, so there is no result cell to move to and
+      // the editor stays open with the error above it.
       setWorkbenchError(messageFromError(error));
     } finally {
       setWorkbenchBusy(null);
@@ -1190,15 +1220,23 @@ export const QueryWorkspace = ({
   const questionIsLocked =
     state.kind === "preview" || state.kind === "polling" || sessionHasWork;
 
-  const generatedTurns = notebookTurns(workbenchTimeline, workbenchSession);
-  const activeNotebookTurns = [
-    ...generatedTurns,
-    ...manualNotebookTurns(
-      workbenchSession,
-      workbenchTimeline,
-      generatedTurns.length + 1,
-    ),
-  ];
+  const activeNotebookTurns = threadCells(workbenchTimeline, workbenchSession);
+
+  // A run asked to be shown its result. The cell carrying it exists now, so
+  // move to it: the outcome leads, whether the database returned rows or a
+  // diagnostic, and editing again is a choice made from there.
+  useEffect(() => {
+    const versionId = revealVersionId.current;
+    if (versionId === null) return;
+    const cell = activeNotebookTurns.find(
+      (turn) => turn.selectedVersionId === versionId,
+    );
+    if (!cell) return;
+    revealVersionId.current = null;
+    document
+      .getElementById(`turn-${cell.ordinal}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   const railStacked = viewportWidth < RAIL_STACK_BREAKPOINT;
 
@@ -1404,7 +1442,6 @@ export const QueryWorkspace = ({
           onWrapLinesChange={updateWorkbenchWrapLines}
           onClearDraft={clearWorkbenchDraft}
           onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
-          onValidate={validateWorkbenchDraft}
           onRun={runWorkbenchDraft}
         />
   ) : null;
@@ -1606,7 +1643,9 @@ export const QueryWorkspace = ({
             ) : (
               <div className="query-turn__next">
                 <p>
-                  Ask for the next query below, or edit this one by hand.
+                  {latestExecutionFailed(workbenchSession)
+                    ? "That run failed. The diagnostic is above — fix the query by hand, or say what to change below."
+                    : "Ask for the next query below, or edit this one by hand."}
                 </p>
                 <Button
                   type="button"

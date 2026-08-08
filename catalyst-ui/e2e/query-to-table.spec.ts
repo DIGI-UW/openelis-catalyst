@@ -952,9 +952,9 @@ test("question to iterative notebook to imported dashboard", async ({
     await page.getByRole("textbox", { name: "SQL query" }).fill(manualSql);
   }
 
-  await page.getByRole("button", { name: /Save version & check/ }).click();
+  // One button: running saves the draft as a version and checks it on the way.
+  await page.getByRole("button", { name: "Run query" }).click();
   if (useMockApi) {
-    await expect(page.getByText("Valid", { exact: true })).toBeVisible();
     await expect.poll(() => calls?.versionRequests.length).toBe(1);
     expect(calls?.versionRequests[0]).toEqual({
       contractVersion: "catalyst.workbench.version.request.v1",
@@ -966,12 +966,11 @@ test("question to iterative notebook to imported dashboard", async ({
     });
   }
 
-  await page.getByRole("button", { name: "Run query" }).click();
   await expect(page.getByRole("button", { name: "Review dataset draft" }))
     .toBeVisible();
 
   if (useMockApi) {
-    await expect(page.getByText(/Execution summary: Query v2 · Run 1 · 1 row/i))
+    await expect(page.getByText(/Execution summary: this query ran · 1 row/i))
       .toBeVisible();
     await expect(page.getByText(/Result row values are not included in model context/i))
       .toBeVisible();
@@ -1176,7 +1175,6 @@ test("question to iterative notebook to imported dashboard", async ({
         .toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toHaveCount(1);
-      await expect(page.getByRole("button", { name: /Save version & check/ })).toBeVisible();
       await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Datasets", exact: true }))
         .toBeVisible();

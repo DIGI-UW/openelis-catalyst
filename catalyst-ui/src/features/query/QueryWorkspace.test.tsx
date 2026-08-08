@@ -507,4 +507,215 @@ describe("Dashboard Builder Ask shell", () => {
     expect(diagnostic).toHaveLength(1);
     expect(diagnostic[0]!.closest(".query-turn")).not.toBeNull();
   });
+
+  it("lets a failed run lead, and makes editing again a choice", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      provenance: { editedFromVersionId: version.versionId },
+    };
+    const failed: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "failed",
+      databaseDiagnostic: {
+        sqlstate: "42703",
+        severity: "ERROR",
+        message: 'column "med_display" does not exist',
+        detail: null,
+        hint: null,
+        position: 14,
+      },
+      durationMs: 8,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 2,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    // A clean run first, so the editor is closed and opening it is a choice
+    // the test makes — otherwise it would still be open for want of a result.
+    const ran: WorkbenchExecution = {
+      ...failed,
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      status: "succeeded",
+      databaseDiagnostic: undefined,
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      executionId: "88888888-8888-4888-8888-888888888888",
+      versionId: version.versionId,
+      ordinal: 1,
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [ran] });
+    client.createWorkbenchVersion = vi.fn().mockResolvedValue({
+      ...session,
+      currentVersionId: edited.versionId,
+      currentVersion: edited,
+      versions: [version, edited],
+      executions: [ran],
+    });
+    client.executeWorkbenchVersion = vi.fn().mockResolvedValue(failed);
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit query" }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+
+    // A failure is a result. It gets the attention, in the cell that produced
+    // it, rather than leaving the editor in the way of reading it.
+    const diagnostic = await screen.findByText(
+      'column "med_display" does not exist',
+    );
+    expect(diagnostic.closest(".query-turn")).not.toBeNull();
+    expect(
+      screen.queryByRole("textbox", { name: "SQL query" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/That run failed/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Edit query" }));
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+  });
+
+  it("keeps a hand-edited run where it happened in the thread", async () => {
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      provenance: { editedFromVersionId: version.versionId },
+      createdAt: "2026-08-06T00:01:00Z",
+    };
+    const generated: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "66666666-6666-4666-8666-666666666666",
+      parentVersionId: edited.versionId,
+      ordinal: 3,
+      authorType: "model",
+      queryDigest: "9".repeat(64),
+      createdAt: "2026-08-06T00:02:00Z",
+    };
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:01:05Z",
+    };
+    const later = timeline.turns[0]!;
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      currentVersionId: generated.versionId,
+      currentVersion: generated,
+      versions: [version, edited, generated],
+      executions: [ran],
+    });
+    client.getWorkbenchTurns = vi.fn().mockResolvedValue({
+      ...timeline,
+      currentTurnId: "77777777-7777-4777-8777-777777777777",
+      currentVersion: {
+        versionId: generated.versionId,
+        queryDigest: generated.queryDigest,
+      },
+      turns: [
+        later,
+        {
+          ...later,
+          turnId: "77777777-7777-4777-8777-777777777777",
+          ordinal: 2,
+          kind: "followup" as const,
+          instruction: "Split it by test type",
+          selectedVersionId: generated.versionId,
+          outputVersions: [
+            {
+              versionId: generated.versionId,
+              queryDigest: generated.queryDigest,
+              parentVersionId: edited.versionId,
+              role: "writer" as const,
+              authorType: "model" as const,
+              contractValid: true,
+              validationId: null,
+              selected: true,
+            },
+          ],
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    const { container } = render(<QueryWorkspace api={client} />);
+
+    await screen.findAllByText("Split it by test type");
+    // The hand edit happened between the two generations, so that is where it
+    // is filed — appending it after them would report the thread out of order.
+    const cells = [...container.querySelectorAll(".query-turn__summary")].map(
+      (cell) => cell.textContent,
+    );
+    expect(cells).toEqual([
+      session.question,
+      "Edited by hand",
+      "Split it by test type",
+    ]);
+    expect(
+      [...container.querySelectorAll("article.query-turn[id]")].map(
+        (cell) => cell.id,
+      ),
+    ).toEqual(["turn-1", "turn-2", "turn-3"]);
+  });
 });

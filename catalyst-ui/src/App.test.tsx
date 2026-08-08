@@ -786,7 +786,6 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
     // Findings never block a run: the workbench stays usable while the
     // Details panel carries why the model output was rejected.
-    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: /^Details/ }));
@@ -826,8 +825,7 @@ describe("Catalyst query workflow", () => {
       ),
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Run(ning)?( query)?/ })).toBeDisabled();
     expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
       workbenchSession.sessionId,
     );
@@ -1093,11 +1091,10 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("button", { name: "Start session" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Run(ning)?( query)?/ })).toBeDisabled();
   });
 
-  it("disables and guards refinement while validation is saving a version", async () => {
+  it("disables and guards refinement while a run is saving its version", async () => {
     const api = makeNotebookApi();
     api.createWorkbenchVersion = vi.fn().mockImplementation(
       () => new Promise(() => undefined),
@@ -1111,7 +1108,7 @@ describe("Catalyst query workflow", () => {
       name: "Follow-up instruction",
     });
     await user.type(instruction, "Only include released results");
-    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
 
     await waitFor(() => expect(api.createWorkbenchVersion).toHaveBeenCalledOnce());
     expect(instruction).toBeDisabled();
@@ -1434,7 +1431,7 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
     await user.type(screen.getByLabelText("Parameter 1 name"), "test_name");
     await user.type(screen.getByLabelText("Parameter 2 name"), "threshold");
-    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
 
     await waitFor(() =>
       expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
@@ -1498,14 +1495,15 @@ describe("Catalyst query workflow", () => {
     expect(screen.queryByText("Unresolved model draft")).not.toBeInTheDocument();
   });
 
-  it("persists a manually corrected parameter as a new version before validation", async () => {
+  it("persists a manually corrected parameter as its own version when run", async () => {
     const user = userEvent.setup();
     const api = makeApi();
+    const child = childWorkbenchSession("warning");
     api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
-    api.createWorkbenchVersion = vi.fn().mockResolvedValue(
-      childWorkbenchSession("warning"),
+    api.createWorkbenchVersion = vi.fn().mockResolvedValue(child);
+    api.executeWorkbenchVersion = vi.fn().mockResolvedValue(
+      failedWorkbenchExecution,
     );
-    api.executeWorkbenchVersion = vi.fn();
     render(<App api={api} />);
 
     await user.type(screen.getByLabelText("Question"), QUESTION);
@@ -1513,7 +1511,7 @@ describe("Catalyst query workflow", () => {
     const parameterName = await screen.findByLabelText("Parameter 2 name");
     await user.clear(parameterName);
     await user.type(parameterName, "threshold");
-    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
 
     await waitFor(() =>
       expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
@@ -1534,7 +1532,13 @@ describe("Catalyst query workflow", () => {
         },
       ),
     );
-    expect(api.executeWorkbenchVersion).not.toHaveBeenCalled();
+    // One button, one intent: the corrected draft is saved as its own version
+    // and that exact version is what runs.
+    expect(api.executeWorkbenchVersion).toHaveBeenCalledWith(
+      child.currentVersion!.versionId,
+      child.currentVersion!.queryDigest,
+      expect.any(String),
+    );
   });
 
   it("persists and executes the exact draft even when validation is invalid", async () => {
