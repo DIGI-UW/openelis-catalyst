@@ -910,6 +910,23 @@ const tabTo = async (
 
 test.setTimeout(480_000);
 
+/**
+ * The composer collapses as you scroll away from the newest turn, so the
+ * profile select and the follow-up box are not always reachable. Which mode
+ * it is in depends on scroll position and therefore on page height, which
+ * differs between a laptop and CI — so bring it back deliberately rather
+ * than hoping. Scrolling to the end is what a person does, and what the
+ * state machine listens for.
+ */
+const openComposer = async (page: Page): Promise<void> => {
+  const composer = page.locator("#refine-openelis");
+  if ((await composer.getAttribute("data-mode")) === "full") return;
+  await page.evaluate(
+    "window.scrollTo({ top: document.documentElement.scrollHeight })",
+  );
+  await expect(composer).toHaveAttribute("data-mode", "full");
+};
+
 test("question to iterative notebook to imported dashboard", async ({
   page,
 }, testInfo) => {
@@ -1063,6 +1080,7 @@ test("question to iterative notebook to imported dashboard", async ({
     await page.keyboard.press("Escape");
 
     // ----------------------------------------------------- ask for the next
+    await openComposer(page);
     await page.getByRole("combobox", { name: "Model profile" }).selectOption(
       revisionProfileId,
     );
