@@ -671,3 +671,18 @@
 .query-turn__dataset .workbench-execution {
   padding: 0 0.875rem 0.875rem;
 }
+
+/* After a run the result leads; editing is one of two offered next steps. */
+.query-turn__next {
+  display: flex;
+  align-items: center;
+  padding: 0.875rem 1rem;
+  gap: 1rem;
+}
+
+.query-turn__next p {
+  flex: 1;
+  margin: 0;
+  color: #525252;
+  font-size: 0.8125rem;
+}

@@ -555,6 +555,7 @@ export const QueryWorkspace = ({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
   const [developerMode, setDeveloperMode] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   // The dashboard panel owns the review dialog; the cell that produced the
   // result asks it to open.
   const openDatasetReview = useRef<(() => void) | null>(null);
@@ -1019,6 +1020,8 @@ export const QueryWorkspace = ({
         ...session,
         executions: [...session.executions, execution],
       });
+      // The result is now the thing to look at.
+      if (execution.status === "succeeded") setEditorOpen(false);
     } catch (error) {
       setWorkbenchError(messageFromError(error));
     } finally {
@@ -1341,6 +1344,17 @@ export const QueryWorkspace = ({
   );
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
+  const currentVersionRan = Boolean(
+    workbenchSession?.currentVersionId &&
+      executionForVersion(workbenchSession, workbenchSession.currentVersionId),
+  );
+  const editorDirty = workbenchSession?.currentVersion
+    ? workbenchSql !== workbenchSession.currentVersion.sql
+    : workbenchSql.trim().length > 0;
+  // Open while there is something to do in it: a query not yet run, unsaved
+  // edits, or an explicit ask to edit. Otherwise the run's result leads.
+  const showEditor = editorOpen || editorDirty || !currentVersionRan;
+
   // The editable current query. It rides at the foot of the turn stack when
   // there is a thread to sit in, and stands alone when there is not.
   const workbenchPanel = sessionHasWork && workbenchSession ? (
@@ -1586,7 +1600,25 @@ export const QueryWorkspace = ({
           onGenerate={generateNextWorkbenchQuery}
           onOpenDetails={openDetails}
           onSaveDataset={() => openDatasetReview.current?.()}
-          activeCell={workbenchPanel}
+          activeCell={
+            showEditor ? (
+              workbenchPanel
+            ) : (
+              <div className="query-turn__next">
+                <p>
+                  Ask for the next query below, or edit this one by hand.
+                </p>
+                <Button
+                  type="button"
+                  kind="tertiary"
+                  size="sm"
+                  onClick={() => setEditorOpen(true)}
+                >
+                  Edit query
+                </Button>
+              </div>
+            )
+          }
         />
       )}
 
