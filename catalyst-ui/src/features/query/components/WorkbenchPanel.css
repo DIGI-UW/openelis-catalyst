@@ -243,6 +243,14 @@
   border-top: 4px solid #24a148;
 }
 
+/*
+ * Inside a notebook cell the status rule is redundant: the cell already
+ * carries the run's outcome on its own left border and in its header.
+ */
+.workbench-execution[data-compact="true"] {
+  border-top: 0;
+}
+
 .workbench-execution__notice {
   padding: 0.75rem 1rem;
   border-left: 3px solid #f1c21b;

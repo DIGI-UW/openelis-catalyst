@@ -123,16 +123,12 @@ input {
   padding-bottom: calc(18rem + env(safe-area-inset-bottom));
 }
 
-:root:has(.turn-composer[data-minimized="false"]) {
+:root:has(.turn-composer[data-mode="full"]) {
   scroll-padding-block-end: calc(17rem + env(safe-area-inset-bottom));
 }
 
-:root:has(.turn-composer[data-minimized="true"]) {
-  scroll-padding-block-end: calc(8rem + env(safe-area-inset-bottom));
-}
-
-.app-shell--with-query-dock:has(.turn-composer[data-minimized="true"]) {
-  padding-bottom: calc(8rem + env(safe-area-inset-bottom));
+:root:has(.turn-composer:not([data-mode="full"])) {
+  scroll-padding-block-end: calc(6rem + env(safe-area-inset-bottom));
 }
 
 .app-shell__intro {

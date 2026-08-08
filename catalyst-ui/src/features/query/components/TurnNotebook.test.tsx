@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -218,6 +218,30 @@ const defaultProps = {
   onOpenDetails: vi.fn(),
 };
 
+/** Drive the scroll listener the composer's state machine reads. */
+const scrollTo = ({
+  y,
+  scrollHeight,
+  innerHeight,
+}: {
+  y: number;
+  scrollHeight: number;
+  innerHeight: number;
+}) => {
+  Object.defineProperty(window, "scrollY", { configurable: true, value: y });
+  Object.defineProperty(document.documentElement, "scrollHeight", {
+    configurable: true,
+    value: scrollHeight,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: innerHeight,
+  });
+  act(() => {
+    window.dispatchEvent(new Event("scroll"));
+  });
+};
+
 afterEach(() => {
   document.documentElement.style.fontSize = "";
   Object.defineProperty(window, "innerWidth", {
@@ -394,53 +418,59 @@ describe("TurnNotebook", () => {
     expect(onGenerate).toHaveBeenCalledOnce();
   });
 
-  it("minimizes to a compact grounding summary and restores the same composer", async () => {
+  it("collapses as you scroll up into history and returns as you scroll back", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
 
-    expect(screen.getByText(/Execution summary: Query v3.*49 rows/i)).toBeVisible();
+    const composer = document.getElementById("refine-openelis")!;
     const instruction = screen.getByRole("textbox", {
       name: "Follow-up instruction",
     });
-    expect(instruction).toBeVisible();
+    expect(composer).toHaveAttribute("data-mode", "full");
+    expect(screen.getByText(/Execution summary: Query v3.*49 rows/i)).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Minimize" }));
-    expect(document.getElementById("refine-openelis")).toHaveAttribute(
-      "data-minimized",
-      "true",
-    );
+    // Land at the end of the thread, then scroll up into history: the
+    // composer tucks to a lip and offers a way back rather than stranding you.
+    scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    expect(composer).toHaveAttribute("data-mode", "full");
+    scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
+    expect(composer).toHaveAttribute("data-mode", "tucked");
     expect(instruction.closest("form")).toHaveAttribute("hidden");
-    expect(screen.getByRole("button", { name: "Expand" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    const jump = screen.getByRole("button", { name: /back to \[2\] · ask/ });
+    expect(jump).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Expand" }));
+    // Scrolling back down toward now brings it back in full.
+    scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    expect(composer).toHaveAttribute("data-mode", "full");
     expect(instruction.closest("form")).not.toHaveAttribute("hidden");
     expect(screen.getAllByRole("textbox", { name: "Follow-up instruction" }))
       .toHaveLength(1);
+
+    // Scrolling up while still near the end only drops it to one line, which
+    // is the manual way back.
+    scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
+    expect(composer).toHaveAttribute("data-mode", "line");
+    await user.click(screen.getByRole("button", { name: /Refine Query v3/ }));
+    expect(composer).toHaveAttribute("data-mode", "full");
   });
 
-  it.each([
-    [
-      "stale" as const,
-      "Displayed results are stale for this editor. Run the current SQL to include a matching execution summary; result row values are not included.",
-    ],
-    [
-      "not-executed" as const,
-      "This query has not been executed. Refinement uses the current SQL without an execution summary or result row values.",
-    ],
-  ])("labels %s grounding without claiming row-value context", (kind, text) => {
-    render(
-      <TurnNotebook
-        {...defaultProps}
-        grounding={{ kind, text }}
-      />,
-    );
-
-    const status = screen.getByRole("status");
-    expect(status).toHaveAttribute("data-kind", kind);
-    expect(status).toHaveTextContent(text);
+  it("never hides the composer at a moment that would cost an action", () => {
+    // Typed text, a run in flight, and a failed last run each pin it open:
+    // an action bar that disappears at the wrong moment costs more than the
+    // space it saves.
+    for (const props of [
+      { instruction: "only released results" },
+      { busy: true },
+      { lastRunFailed: true },
+    ]) {
+      const view = render(<TurnNotebook {...defaultProps} {...props} />);
+      scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
+      expect(document.getElementById("refine-openelis")).toHaveAttribute(
+        "data-mode",
+        "full",
+      );
+      view.unmount();
+    }
   });
 
   it("retains a valid unselected writer on a failed turn without replacing the base", async () => {

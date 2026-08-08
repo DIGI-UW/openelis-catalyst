@@ -340,7 +340,11 @@ export const ExecutionResult = ({
   if (execution.status === "failed") {
     const diagnostic = execution.databaseDiagnostic;
     return (
-      <section className="workbench-execution" aria-label="Latest execution">
+      <section
+        className="workbench-execution"
+        data-compact={compact ? "true" : undefined}
+        aria-label="Latest execution"
+      >
         {!compact && (
           <div className="workbench-subheading workbench-subheading--row">
             <div>
@@ -392,7 +396,11 @@ export const ExecutionResult = ({
   const result = execution.result;
   if (!result) {
     return (
-      <section className="workbench-execution" aria-label="Latest execution">
+      <section
+        className="workbench-execution"
+        data-compact={compact ? "true" : undefined}
+        aria-label="Latest execution"
+      >
         <h3>Results from {queryLabel}</h3>
         <p>The database reported success without a tabular result.</p>
       </section>
@@ -409,7 +417,11 @@ export const ExecutionResult = ({
   const visibleRows = result.rows.slice(firstVisibleRow, firstVisibleRow + boundedPageSize);
 
   return (
-    <section className="workbench-execution" aria-label="Latest execution">
+    <section
+        className="workbench-execution"
+        data-compact={compact ? "true" : undefined}
+        aria-label="Latest execution"
+      >
       {!compact && (
         <div className="workbench-subheading workbench-subheading--row">
           <div>

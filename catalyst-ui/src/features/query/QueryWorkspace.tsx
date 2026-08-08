@@ -293,6 +293,12 @@ const notebookGrounding = (
   };
 };
 
+// The composer pins open on a failed run, so the error state is never one
+// scroll away from being invisible.
+const latestExecutionFailed = (session: WorkbenchSession) =>
+  [...session.executions].sort((left, right) => right.ordinal - left.ordinal)[0]
+    ?.status === "failed";
+
 const railLayoutFromBrowserState = (
   browserState: Record<string, unknown>,
 ): { width: number | null; section: RailSection | null } => {
@@ -1233,6 +1239,7 @@ export const QueryWorkspace = ({
           }
           busy={followupBusy || workbenchBusy !== null}
           generating={followupBusy}
+          lastRunFailed={latestExecutionFailed(workbenchSession)}
           onInstructionChange={setFollowupInstruction}
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}

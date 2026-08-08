@@ -1,5 +1,5 @@
 import { Button, Tag } from "@carbon/react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
   QueryProfile,
   WorkbenchExecution,
@@ -62,6 +62,8 @@ interface TurnNotebookProps {
   editorState?: "ready" | "empty" | "unresolved";
   busy: boolean;
   generating?: boolean;
+  /** The last run failed, which pins the composer open on its error state. */
+  lastRunFailed?: boolean;
   onInstructionChange: (instruction: string) => void;
   onProfileChange: (profileId: string) => void;
   onGenerate: () => void;
@@ -153,6 +155,7 @@ export const TurnNotebook = ({
   editorState = editorEmpty ? "empty" : "ready",
   busy,
   generating = false,
+  lastRunFailed = false,
   onInstructionChange,
   onProfileChange,
   onGenerate,
@@ -161,7 +164,53 @@ export const TurnNotebook = ({
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
     Record<string, boolean>
   >({});
-  const [composerMinimized, setComposerMinimized] = useState(false);
+  // Borrowed from a browser's URL bar with the direction inverted: the newest
+  // turn is at the bottom, so scrolling up into history hides the composer and
+  // scrolling back down toward now returns it.
+  const [scrollMode, setScrollMode] = useState<"full" | "line" | "tucked">(
+    "full",
+  );
+  const [composerFocused, setComposerFocused] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // An action bar that disappears at the wrong moment costs more than the
+  // space it saves, so these states hold it open regardless of scrolling.
+  const composerPinned =
+    instruction.trim().length > 0 ||
+    composerFocused ||
+    busy ||
+    lastRunFailed;
+
+  useEffect(() => {
+    if (composerPinned) return;
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const delta = y - lastY;
+      lastY = y;
+      if (Math.abs(delta) < 4) return;
+      const gap =
+        document.documentElement.scrollHeight - (y + window.innerHeight);
+      setScrollMode(
+        delta > 0
+          ? gap < 240
+            ? "full"
+            : "line"
+          : gap > 520
+            ? "tucked"
+            : "line",
+      );
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [composerPinned]);
+
+  const composerMode = composerPinned ? "full" : scrollMode;
+
+  const restoreComposer = () => {
+    setScrollMode("full");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  };
   const revisionProfiles = useMemo(
     () => profiles.filter(
       (profile) => profile.available && profile.revisionCapable === true,
@@ -169,9 +218,11 @@ export const TurnNotebook = ({
     [profiles],
   );
   const noRevisionProfiles = revisionProfiles.length === 0;
-  const composerTitle = baseVersion
-    ? `Refine Query v${baseVersion.ordinal}`
-    : "Refine unresolved editor";
+  const composerTitle = lastRunFailed && baseVersion
+    ? `Query v${baseVersion.ordinal} failed`
+    : baseVersion
+      ? `Refine Query v${baseVersion.ordinal}`
+      : "Refine unresolved editor";
   const latestTurnId = turns.at(-1)?.turnId ?? null;
 
   const toggleTurn = (turnId: string, expanded: boolean) => {
@@ -362,11 +413,28 @@ export const TurnNotebook = ({
         </li>
       </ol>
 
+      {composerMode === "tucked" && (
+        <button
+          type="button"
+          className="turn-composer__jump"
+          onClick={() => {
+            setScrollMode("full");
+            window.scrollTo({
+              top: document.documentElement.scrollHeight,
+              behavior: "smooth",
+            });
+          }}
+        >
+          ↓ back to [{turns.length}] · ask
+        </button>
+      )}
+
       <section
         id="refine-openelis"
         className="turn-composer"
         aria-labelledby="refine-query-title"
-        data-minimized={composerMinimized}
+        data-mode={composerMode}
+        data-failed={lastRunFailed ? "true" : undefined}
       >
         <div className="turn-composer__heading">
           <div className="turn-composer__title">
@@ -383,22 +451,23 @@ export const TurnNotebook = ({
           {editorState === "unresolved" && (
             <Tag type="warm-gray">Unresolved editor input</Tag>
           )}
-          <Button
-            id="refine-openelis-toggle"
-            type="button"
-            kind="ghost"
-            size="sm"
-            aria-expanded={!composerMinimized}
-            aria-controls="refine-openelis-body"
-            onClick={() => setComposerMinimized((current) => !current)}
-          >
-            {composerMinimized ? "Expand" : "Minimize"}
-          </Button>
         </div>
+        <button
+          type="button"
+          id="refine-openelis-toggle"
+          className="turn-composer__restore"
+          aria-expanded={composerMode === "full"}
+          aria-controls="refine-openelis-body"
+          onClick={restoreComposer}
+        >
+          <span>{composerTitle}</span>
+          <span aria-hidden="true">⌘↵</span>
+          <span aria-hidden="true">▴</span>
+        </button>
         <form
           id="refine-openelis-body"
           className="turn-composer__form"
-          hidden={composerMinimized}
+          hidden={composerMode !== "full"}
           onSubmit={handleSubmit}
         >
           <label className="visually-hidden" htmlFor="catalyst-followup">
@@ -406,9 +475,12 @@ export const TurnNotebook = ({
           </label>
           <textarea
             id="catalyst-followup"
-            rows={composerMinimized ? 1 : 2}
+            ref={composerRef}
+            rows={2}
             value={instruction}
             disabled={busy}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             onChange={(event) => onInstructionChange(event.currentTarget.value)}
             placeholder="Ask a question, or say how you want the current query changed"
           />
