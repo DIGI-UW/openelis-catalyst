@@ -264,6 +264,9 @@ export const DashboardPublishPanel = ({
   >({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
+  // The result is the artifact; showing it is the default, minimising is
+  // the choice.
+  const [datasetExpanded, setDatasetExpanded] = useState(true);
   const [returnFocusTarget, setReturnFocusTarget] = useState<HTMLElement | null>(null);
 
   const execution = newestSuccessfulExecution(session);
@@ -649,17 +652,84 @@ export const DashboardPublishPanel = ({
         </p>
       );
     }
+    const datasetTitle = currentDataset
+      ? entityTitle(currentDataset, "Saved Dataset")
+      : `Dataset from Query v${executionVersionOrdinal}`;
+    const datasetState = resultIsStale
+      ? "Stale"
+      : currentDataset
+        ? "Saved"
+        : "Draft";
+
     return (
       <section className="builder-artifacts" aria-label="Dashboard artifacts">
+        {/*
+          The result is the thing being saved, so it is shown by default
+          rather than hidden behind a tile that only names it.
+        */}
+        {datasetExpanded ? (
+          <div className="builder-dataset">
+            <div className="builder-dataset__heading">
+              <DataBase size={20} aria-hidden="true" />
+              <div>
+                <strong>{datasetTitle}</strong>
+                <small>
+                  {resultIsStale
+                    ? "Stale · rerun the visible query before saving"
+                    : currentDataset
+                      ? "Saved · review exact execution evidence"
+                      : "Draft · review and save the current result"}
+                </small>
+              </div>
+              <Tag
+                type={
+                  resultIsStale ? "warm-gray" : currentDataset ? "green" : "blue"
+                }
+              >
+                {datasetState}
+              </Tag>
+              <Button
+                type="button"
+                kind="ghost"
+                size="sm"
+                aria-expanded
+                onClick={() => setDatasetExpanded(false)}
+              >
+                Minimize
+              </Button>
+              <Button
+                type="button"
+                kind="tertiary"
+                size="sm"
+                disabled={disabled}
+                aria-label="Review dataset draft"
+                onClick={(event) => {
+                  setReturnFocusTarget(event.currentTarget as HTMLElement);
+                  openPanel("dataset", currentDataset?.versionId);
+                }}
+              >
+                {currentDataset ? "Review" : "Save as dataset"}
+              </Button>
+            </div>
+            <ExecutionResult
+              session={session}
+              sql={sql}
+              parameters={parameters}
+              compact
+              pageSize={10}
+            />
+          </div>
+        ) : (
         <button
           type="button"
           className="builder-artifact-tile"
           disabled={disabled}
           onClick={(event) => {
             setReturnFocusTarget(event.currentTarget);
-            openPanel("dataset", currentDataset?.versionId);
+            setDatasetExpanded(true);
           }}
           aria-label="Review dataset draft"
+          aria-expanded={false}
         >
           <DataBase size={20} aria-hidden="true" />
           <span>
@@ -673,9 +743,10 @@ export const DashboardPublishPanel = ({
             </small>
           </span>
           <Tag type={resultIsStale ? "warm-gray" : currentDataset ? "green" : "blue"}>
-            {resultIsStale ? "Stale" : currentDataset ? "Saved" : "Draft"}
+            {datasetState}
           </Tag>
         </button>
+        )}
         {currentDataset && (
           <button
             type="button"

@@ -565,16 +565,16 @@ export const WorkbenchPanel = ({
 
   return (
     <section className="query-card workbench-panel" aria-labelledby="workbench-title">
-      <div className="section-heading section-heading--row workbench-panel__heading">
-        <div>
-          <p className="eyebrow">Editable SQL research loop</p>
-          <h2 id="workbench-title">Query workbench</h2>
-          <p>
-            Review, edit, validate, and run the exact SQL against the connected
-            OpenELIS data projection.
-          </p>
-        </div>
-        <Tag type="blue">Session active</Tag>
+      {/*
+        The thread above already says which session this is and which query is
+        current, so the panel names itself once and quietly.
+      */}
+      <div className="workbench-panel__heading">
+        <h2 id="workbench-title">
+          {session.currentVersion
+            ? `Editing Query v${session.currentVersion.ordinal}`
+            : "Editing draft"}
+        </h2>
       </div>
 
       {error && (

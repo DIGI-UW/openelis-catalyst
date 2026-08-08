@@ -1,8 +1,13 @@
 .builder-artifacts {
   display: grid;
-  max-width: 36rem;
+  /* The dataset under review is the width of the work it came from. */
+  width: 100%;
   margin: 1rem 0;
   gap: 0.75rem;
+}
+
+.builder-artifact-tile {
+  max-width: 36rem;
 }
 
 .builder-artifact-tile {
@@ -455,4 +460,40 @@
   .builder-toast {
     scroll-behavior: auto;
   }
+}
+
+/* The dataset under review spans the column it belongs to. */
+.builder-dataset {
+  width: 100%;
+  border: 1px solid #c6c6c6;
+  border-left: 3px solid #0f62fe;
+  background: #fff;
+}
+
+.builder-dataset__heading {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e0e0e0;
+  gap: 0.75rem;
+}
+
+.builder-dataset__heading > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.builder-dataset__heading strong {
+  display: block;
+  font-size: 0.875rem;
+}
+
+.builder-dataset__heading small {
+  display: block;
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.builder-dataset .workbench-execution {
+  padding: 0 1rem 1rem;
 }

@@ -339,7 +339,12 @@ export const TurnNotebook = ({
               aria-label={`Query turn ${turn.ordinal}`}
             >
               {version && (
-                <div className="query-turn__sql">
+                <div
+                  className="query-turn__sql"
+                  data-author={
+                    version.authorType === "human" ? "human" : undefined
+                  }
+                >
                   <p className="query-turn__sql-label">
                     Query v{version.ordinal} · {versionAuthor(version)}
                     {versionModel(version) ? ` · ${versionModel(version)}` : ""}

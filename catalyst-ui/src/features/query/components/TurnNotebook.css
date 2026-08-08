@@ -58,6 +58,8 @@
   flex: 1;
   border: 1px solid #c6c6c6;
   background: #fff;
+  /* Lifts the cell off the Gray 10 page rather than relying on a hairline. */
+  box-shadow: 0 0.0625rem 0.125rem rgb(22 22 22 / 6%);
 }
 
 .query-turn[data-current="true"] .query-turn__body {
@@ -158,16 +160,30 @@
  * The immutable SQL for this turn, rendered as a read-only block. Editing
  * happens in the workbench editor against the current version, never here.
  */
+/*
+ * Purple is the model/AI accent in the design's palette, so an author is
+ * readable from the edge of the block rather than only from its label.
+ */
 .query-turn__sql {
   padding: 0.75rem 1rem;
   border: 1px solid #e0e0e0;
+  border-left: 3px solid #8a3ffc;
+  background: #f7f2ff;
+}
+
+.query-turn__sql[data-author="human"] {
+  border-left-color: #8d8d8d;
   background: #f4f4f4;
 }
 
 .query-turn__sql-label {
   margin: 0 0 0.375rem;
-  color: #6f6f6f;
+  color: #6929c4;
   font-size: 0.75rem;
+}
+
+.query-turn__sql[data-author="human"] .query-turn__sql-label {
+  color: #6f6f6f;
 }
 
 .query-turn__sql pre {

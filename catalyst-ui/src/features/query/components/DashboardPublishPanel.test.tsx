@@ -383,10 +383,13 @@ describe("Dashboard Builder supervised promotion", () => {
     await user.click(screen.getByRole("button", { name: "Review dataset draft" }));
     expect(screen.getByText("Showing 1–25 of 26 returned rows")).toBeVisible();
     expect(screen.queryByRole("cell", { name: "26" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next result page" }));
+    const review = screen.getByRole("dialog");
+    await user.click(
+      within(review).getByRole("button", { name: "Next result page" }),
+    );
     expect(screen.getByText("Showing 26–26 of 26 returned rows")).toBeVisible();
     expect(screen.getByRole("cell", { name: "26" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Previous result page" })).toBeEnabled();
+    expect(within(review).getByRole("button", { name: "Previous result page" })).toBeEnabled();
   });
 
   it("does not duplicate a Dataset save while persistence is pending and retains failures", async () => {
