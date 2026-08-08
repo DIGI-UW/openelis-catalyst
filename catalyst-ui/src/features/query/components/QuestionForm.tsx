@@ -1,7 +1,7 @@
 import { ArrowRight } from "@carbon/icons-react";
 import { Button, Form, TextArea } from "@carbon/react";
 import { type FormEvent } from "react";
-import type { QueryProfile } from "../types";
+import type { DataSource, QueryProfile } from "../types";
 
 interface QuestionFormProps {
   question: string;
@@ -12,6 +12,9 @@ interface QuestionFormProps {
   profiles?: QueryProfile[];
   selectedProfileId?: string;
   onProfileChange?: (profileId: string) => void;
+  dataSources?: DataSource[];
+  selectedDataSourceId?: string;
+  onDataSourceChange?: (dataSourceId: string) => void;
 }
 
 const profileOptionLabel = (profile: QueryProfile) => {
@@ -40,9 +43,13 @@ export const QuestionForm = ({
   profiles = [],
   selectedProfileId,
   onProfileChange,
+  dataSources = [],
+  selectedDataSourceId,
+  onDataSourceChange,
 }: QuestionFormProps) => {
   const normalizedQuestion = question.trim();
   const availableProfiles = profiles.filter((profile) => profile.available);
+  const availableSources = dataSources.filter((source) => source.available);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -74,6 +81,30 @@ export const QuestionForm = ({
             />
           </div>
           <div className="query-composer__toolbar">
+            {/*
+              A session is grounded in one catalog: its queries and versions
+              cannot move to another source later, so the source is chosen
+              here, at creation, and displayed read-only in the rail after.
+            */}
+            {availableSources.length > 1 && (
+              <label className="profile-selector" htmlFor="catalyst-data-source">
+                <span>Data source</span>
+                <select
+                  id="catalyst-data-source"
+                  value={selectedDataSourceId}
+                  disabled={busy || disabled}
+                  onChange={(event) =>
+                    onDataSourceChange?.(event.currentTarget.value)
+                  }
+                >
+                  {availableSources.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {availableProfiles.length > 0 && (
               <label className="profile-selector" htmlFor="catalyst-profile">
                 <span>Model profile</span>

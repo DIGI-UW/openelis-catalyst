@@ -128,7 +128,6 @@
   white-space: nowrap;
 }
 
-.query-turn__source,
 .query-turn__outcome,
 .query-turn__caret {
   flex: none;

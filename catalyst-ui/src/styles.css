@@ -96,203 +96,27 @@ input {
 .dashboard-builder-shell {
   min-height: calc(100vh - 2.5rem);
   padding-left: var(--dashboard-nav-width);
-  transition: padding-left 140ms;
 }
 
-.dashboard-builder-shell--nav-collapsed {
-  --dashboard-nav-width: 4rem;
-}
+/*
+ * Below 672px the rail stops being a column: it becomes a full-width block
+ * above the notebook, and the notebook and composer run edge to edge.
+ */
+.dashboard-builder-shell--stacked {
+  /*
+   * Zeroing the width both removes the rail's gutter and pulls the fixed
+   * composer, which tracks the same variable, back to the left edge. The demo
+   * banner is sticky, so it already occupies its own space here.
+   */
+  --dashboard-nav-width: 0px;
 
-.dashboard-navigation {
-  position: fixed;
-  z-index: 95;
-  top: 2.5rem;
-  bottom: 0;
-  left: 0;
   display: flex;
-  width: var(--dashboard-nav-width);
   flex-direction: column;
-  border-right: 1px solid #c6c6c6;
-  background: #fff;
-  transition: width 140ms;
+  padding-left: 0;
 }
 
-.dashboard-navigation__header {
-  display: flex;
-  min-height: 4.5rem;
-  align-items: center;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.dashboard-navigation__brand {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 0 1rem 1rem;
-}
-
-.dashboard-navigation__brand > span {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  color: #fff;
-  background: #0f62fe;
-  font-weight: 600;
-}
-
-.dashboard-navigation__brand div {
-  display: grid;
-  gap: 0.125rem;
-}
-
-.dashboard-navigation__brand small {
-  color: #6f6f6f;
-}
-
-.dashboard-navigation__toggle {
-  display: grid;
-  width: 2.5rem;
-  height: 2.5rem;
-  flex: none;
-  place-items: center;
-  border: 0;
-  margin: 0 0.5rem;
-  background: transparent;
-  cursor: pointer;
-}
-
-.dashboard-navigation__toggle:hover {
-  background: #e8e8e8;
-}
-
-.dashboard-navigation__toggle svg {
-  transition: transform 140ms;
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__toggle svg {
-  transform: rotate(180deg);
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand div,
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__item span,
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__source label > span {
-  position: absolute;
-  overflow: hidden;
-  width: 1px;
-  height: 1px;
-  clip: rect(0 0 0 0);
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand,
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__item {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__brand {
-  display: none;
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__header {
-  justify-content: center;
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__toggle {
-  margin: 0;
-}
-
-.dashboard-builder-shell--nav-collapsed .dashboard-navigation__source {
-  padding: 0.5rem;
-}
-
-.dashboard-navigation__items {
-  display: grid;
-  padding: 1rem 0;
-  gap: 0.125rem;
-}
-
-.dashboard-navigation__item {
-  display: flex;
-  min-height: 3rem;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0 1rem;
-  border: 0;
-  border-left: 3px solid transparent;
-  color: #161616;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.dashboard-navigation__item:hover {
-  background: #e8e8e8;
-}
-
-.dashboard-navigation__item[aria-current="page"] {
-  border-left-color: #0f62fe;
-  background: #e8e8e8;
-  font-weight: 600;
-}
-
-.dashboard-navigation__source {
-  padding: 1rem;
-  border-top: 1px solid #e0e0e0;
-  margin-top: auto;
-}
-
-.dashboard-navigation__source label {
-  display: grid;
-  gap: 0.375rem;
-  color: #525252;
-  font-size: 0.75rem;
-}
-
-.dashboard-navigation__source select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.5rem;
-  border: 0;
-  border-bottom: 1px solid #8d8d8d;
-  background: #f4f4f4;
-}
-
-.dashboard-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding-bottom: 1.5rem;
-}
-
-.dashboard-page-header h1,
-.dashboard-library-placeholder h1 {
-  margin: 0 0 0.5rem;
-  font-size: clamp(1.75rem, 3vw, 2rem);
-  font-weight: 400;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-}
-
-.dashboard-page-header p:not(.eyebrow),
-.dashboard-library-placeholder p:not(.eyebrow) {
-  max-width: 44rem;
-  margin: 0;
-  color: #525252;
-  line-height: 1.5;
-}
-
-.dashboard-session-meta {
-  margin: -0.75rem 0 1rem;
-  color: #6f6f6f;
-  font-size: 0.75rem;
-}
-
-.dashboard-library-placeholder {
-  padding: 0 0 2rem;
+.dashboard-builder-shell--stacked .app-shell {
+  padding: 1rem 0 5rem;
 }
 
 .app-shell--with-query-dock {
@@ -454,48 +278,32 @@ input {
   font-size: 1.25rem;
 }
 
+/*
+ * Session identity belongs to the banner's trailing edge in the design. The
+ * banner is a sibling of the workspace that owns the session, so the meta line
+ * is placed there rather than lifting session state up to reach it.
+ */
+.dashboard-session-meta {
+  position: fixed;
+  z-index: 130;
+  top: 0;
+  right: 1.5rem;
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  color: #c6c6c6;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
 @media (max-width: 48rem) {
-  :root {
-    --dashboard-nav-width: 4rem;
-  }
-
-  .dashboard-navigation__brand div,
-  .dashboard-navigation__item span,
-  .dashboard-navigation__source label > span {
-    position: absolute;
-    overflow: hidden;
-    width: 1px;
-    height: 1px;
-    clip: rect(0 0 0 0);
-  }
-
-  .dashboard-navigation__toggle {
+  .dashboard-session-meta {
     display: none;
-  }
-
-  .dashboard-navigation__brand,
-  .dashboard-navigation__item {
-    justify-content: center;
-    padding-inline: 0;
-  }
-
-  .dashboard-navigation__source {
-    padding: 0.5rem;
-  }
-
-  .dashboard-navigation__source select {
-    font-size: 0;
-  }
-
-  .dashboard-page-header {
-    flex-direction: column;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dashboard-builder-shell,
-  .dashboard-navigation,
-  .dashboard-navigation__toggle svg {
+  .dashboard-builder-shell {
     transition: none;
   }
 }

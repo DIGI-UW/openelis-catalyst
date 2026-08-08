@@ -28,7 +28,6 @@ export interface NotebookTurn {
   ordinal: number;
   kind: "initial" | "followup";
   instruction: string;
-  dataSourceLabel?: string | null;
   status: "requested" | "completed" | "failed";
   selectedVersionId: string | null;
   outputVersions: NotebookOutputVersion[];
@@ -370,9 +369,6 @@ export const TurnNotebook = ({
           >
             <span className="query-turn__dot" aria-hidden="true" />
             <span className="query-turn__summary">{turn.instruction}</span>
-            {turn.dataSourceLabel && (
-              <span className="query-turn__source">{turn.dataSourceLabel}</span>
-            )}
             <span className="query-turn__outcome">
               {version ? `v${version.ordinal} · ` : ""}
               {outcome}

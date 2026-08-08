@@ -623,11 +623,11 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     const user = userEvent.setup();
-    await user.click(await screen.findByText(/^Available data ·/));
+    await user.click(await screen.findByRole("button", { name: /^DATA/ }));
+    await user.click(
+      await screen.findByText("Preview available laboratory records"),
+    );
     expect(await screen.findByText("1,152")).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Available OpenELIS laboratory data" }),
-    ).toBeVisible();
     expect(screen.queryByText("Synthetic laboratory dataset")).not.toBeInTheDocument();
     expect(screen.queryByText("Example questions")).not.toBeInTheDocument();
     expect(
@@ -665,19 +665,19 @@ describe("Catalyst query workflow", () => {
       }),
     ).not.toBeInTheDocument();
 
-    const browserToggle = screen.getByRole("button", {
-      name: "Preview available laboratory records",
-    });
-    expect(browserToggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(browserToggle);
-    expect(browserToggle).toHaveAttribute("aria-expanded", "true");
+    // Record preview is a native disclosure inside the rail's DATA section;
+    // it keeps its filter state across close and reopen.
+    const records = screen
+      .getByText("Preview available laboratory records")
+      .closest("details")!;
+    expect(records).toHaveAttribute("open");
     expect(screen.getByText("9000 copies/ml")).toBeVisible();
     const patientFilter = screen.getByLabelText("Patient FHIR ID");
     await user.type(patientFilter, "patient-123");
-    await user.click(browserToggle);
-    expect(browserToggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(browserToggle);
-    expect(browserToggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByText("Preview available laboratory records"));
+    expect(records).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Preview available laboratory records"));
+    expect(records).toHaveAttribute("open");
     expect(patientFilter).toHaveValue("patient-123");
     await user.type(
       screen.getByLabelText("Question"),
@@ -1762,7 +1762,14 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     expect(await screen.findByLabelText("Model profile")).toBeEnabled();
-    expect(screen.getByLabelText("Data source")).toHaveValue("openelis");
+    // One registered source is nothing to choose between, so it is reported
+    // in the rail rather than offered as a switch.
+    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("complementary", { name: "Catalyst" })).getByText(
+        "OpenELIS Laboratory",
+      ),
+    ).toBeVisible();
   });
 
   it("shows the switcher for multiple sources, defaults to it, and filters unavailable ones", async () => {

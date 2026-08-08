@@ -167,21 +167,51 @@ const api = (): CatalystApi => ({
 });
 
 describe("Dashboard Builder Ask shell", () => {
-  it("makes the four product sections and compact data catalog available without example prompts", async () => {
+  it("puts sections, the session and the catalog in one resizable rail", async () => {
     const user = userEvent.setup();
     render(<QueryWorkspace api={api()} />);
 
-    const navigation = screen.getByRole("navigation", { name: "Catalyst" });
-    for (const name of ["Workbench", "Datasets", "Widgets", "Dashboards"]) {
-      expect(within(navigation).getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    const sections = within(rail).getByRole("navigation", { name: "Sections" });
+    for (const name of ["Ask", "Datasets", "Widgets", "Dashboards"]) {
+      expect(within(sections).getByRole("button", { name })).toBeVisible();
     }
-    expect(screen.getByText(/^Available data ·/i)).toBeVisible();
     expect(screen.queryByText(/example questions/i)).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
-    const toggle = within(navigation).getByRole("button", { name: "Toggle navigation" });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // DATA and TURNS are mutually exclusive: whichever is open owns the
+    // rail's free height, so neither can paint over the section nav.
+    const data = within(rail).getByRole("button", { name: /^DATA/ });
+    const turns = within(rail).getByRole("button", { name: /^TURNS/ });
+    expect(turns).toHaveAttribute("aria-expanded", "true");
+    expect(data).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(data);
+    expect(data).toHaveAttribute("aria-expanded", "true");
+    expect(turns).toHaveAttribute("aria-expanded", "false");
+    expect(await within(rail).findByLabelText("Filter columns")).toBeVisible();
+
+    // Closing the open section falls back to the thread, never to an empty rail.
+    await user.click(data);
+    expect(turns).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("resizes the rail from the keyboard and clamps it to the viewport", async () => {
+    const user = userEvent.setup();
+    render(<QueryWorkspace api={api()} />);
+
+    const handle = screen.getByRole("separator", { name: "Resize sidebar" });
+    expect(handle).toHaveAttribute("aria-valuenow", "240");
+
+    handle.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(handle).toHaveAttribute("aria-valuenow", "272");
+
+    // 200px is the floor however far left it is dragged.
+    for (let index = 0; index < 5; index += 1) {
+      await user.keyboard("{ArrowLeft}");
+    }
+    expect(handle).toHaveAttribute("aria-valuenow", "200");
   });
 
   it("keeps one active SQL editor, one New session action, and a fixed refinement composer", async () => {
@@ -198,6 +228,63 @@ describe("Dashboard Builder Ask shell", () => {
     const composer = screen.getByRole("region", { name: /refine query v1/i });
     expect(composer).toHaveClass("turn-composer");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible());
+  });
+
+  it("grounds a restored session on its own source, not a conflicting URL", async () => {
+    const client = api();
+    // Resolve the source list after the session restore, so the invariant is
+    // pinned under the ordering where the lookup gets the last word.
+    client.getDataSources = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                contractVersion: "catalyst.data-sources.v1",
+                defaultDataSourceId: "openelis-analytics",
+                dataSources: [
+                  {
+                    id: "openelis-analytics",
+                    label: "OpenELIS laboratory",
+                    available: true,
+                  },
+                  { id: "openmrs-hiv", label: "OpenMRS HIV/ART", available: true },
+                ],
+              }),
+            20,
+          );
+        }),
+    );
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, dataSourceId: "openelis-analytics" });
+    client.getWorkbenchCatalog = vi.fn().mockResolvedValue(null);
+    window.history.replaceState({}, "", "/?dataSource=openmrs-hiv");
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+
+    render(<QueryWorkspace api={client} />);
+
+    // A session is grounded in one catalog, so a pasted or stale
+    // `?dataSource=` must not retarget it — the catalog it reads, the URL it
+    // advertises and the source its next turn targets all follow the session.
+    const rail = await screen.findByRole("complementary", { name: "Catalyst" });
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenELIS laboratory")).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(new URL(window.location.href).searchParams.get("dataSource")).toBe(
+        "openelis-analytics",
+      ),
+    );
+    await waitFor(() =>
+      expect(client.getWorkbenchCatalog).toHaveBeenLastCalledWith(
+        "openelis-analytics",
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   it("renders a recorded run once, in the cell that owns its query version", async () => {

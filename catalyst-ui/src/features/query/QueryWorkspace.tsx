@@ -1,6 +1,6 @@
-import { Chat, ChartLine, ChevronLeft, Dashboard, DataBase, Renew } from "@carbon/icons-react";
+import { Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
@@ -16,6 +16,14 @@ import {
   type NotebookTurn,
 } from "./components/TurnNotebook";
 import { WorkbenchPanel } from "./components/WorkbenchPanel";
+import { WorkbenchRail } from "./components/WorkbenchRail";
+import {
+  clampRailWidth,
+  RAIL_DEFAULT_WIDTH,
+  RAIL_STACK_BREAKPOINT,
+  type RailSection,
+  type RailTurn,
+} from "./components/workbenchRailSupport";
 import {
   editorContentMatchesVersion,
   workbenchEditorDigest,
@@ -61,16 +69,6 @@ interface QueryWorkspaceProps {
   pollIntervalMs?: number;
 }
 
-const dashboardSections: Array<{
-  id: DashboardBuilderSection;
-  label: string;
-  icon: typeof Chat;
-}> = [
-  { id: "ask", label: "Workbench", icon: Chat },
-  { id: "datasets", label: "Datasets", icon: DataBase },
-  { id: "widgets", label: "Widgets", icon: ChartLine },
-  { id: "dashboards", label: "Dashboards", icon: Dashboard },
-];
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : "An unexpected request error occurred.";
@@ -200,17 +198,12 @@ const validationStatusForVersion = (
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
-  sources?: DataSourcesResponse | null,
 ): NotebookTurn[] =>
   (timeline?.turns ?? []).map((turn) => ({
     turnId: turn.turnId,
     ordinal: turn.ordinal,
     kind: turn.kind,
     instruction: turn.instruction,
-    dataSourceLabel: turn.dataSourceId
-      ? (sources?.dataSources.find((s) => s.id === turn.dataSourceId)?.label ??
-        turn.dataSourceId)
-      : null,
     status: turn.status,
     selectedVersionId: turn.selectedVersionId,
     profileSnapshot: {
@@ -296,6 +289,17 @@ const notebookGrounding = (
     text:
       "This query has not been executed. Refinement uses the current SQL without " +
       "an execution summary or result row values.",
+  };
+};
+
+const railLayoutFromBrowserState = (
+  browserState: Record<string, unknown>,
+): { width: number | null; section: RailSection | null } => {
+  const width = browserState.railWidth;
+  const section = browserState.railSection;
+  return {
+    width: typeof width === "number" && Number.isFinite(width) ? width : null,
+    section: section === "data" || section === "turns" ? section : null,
   };
 };
 
@@ -453,7 +457,12 @@ export const QueryWorkspace = ({
   pollIntervalMs = 1000,
 }: QueryWorkspaceProps) => {
   const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
-  const [navigationExpanded, setNavigationExpanded] = useState(true);
+  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
+  const [railSection, setRailSection] = useState<RailSection>("turns");
+  const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
@@ -461,6 +470,8 @@ export const QueryWorkspace = ({
   const [dataSources, setDataSources] = useState<DataSourcesResponse | null>(
     null,
   );
+  // What the picker holds before a session exists. Once a session exists its
+  // own source wins — see effectiveDataSourceId.
   const [dataSourceId, setDataSourceId] = useState(readDataSourceIdFromUrl);
   const [workbenchSession, setWorkbenchSession] =
     useState<WorkbenchSession | null>(null);
@@ -563,14 +574,27 @@ export const QueryWorkspace = ({
     return () => controller.abort();
   }, [api]);
 
+  // A session is grounded in one catalog, so once one is open its recorded
+  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
+  // Reading it from the session rather than mirroring it into state keeps that
+  // structural: the Gateway still accepts a turn that targets another source
+  // (see tests/test_multi_source.py), so this UI should never send one.
+  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
+
   useEffect(() => {
-    writeDataSourceIdToUrl(dataSourceId);
-  }, [dataSourceId]);
+    writeDataSourceIdToUrl(effectiveDataSourceId);
+  }, [effectiveDataSourceId]);
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (!api.getWorkbenchCatalog) return;
     const controller = new AbortController();
-    api.getWorkbenchCatalog(dataSourceId || undefined, controller.signal)
+    api.getWorkbenchCatalog(effectiveDataSourceId || undefined, controller.signal)
       .then((catalog) => {
         setWorkbenchCatalog(catalog);
         setWorkbenchCatalogFailed(false);
@@ -582,7 +606,7 @@ export const QueryWorkspace = ({
         }
       });
     return () => controller.abort();
-  }, [api, dataSourceId]);
+  }, [api, effectiveDataSourceId]);
 
   useEffect(() => {
     if (!api.getWorkbenchSession) return;
@@ -607,6 +631,11 @@ export const QueryWorkspace = ({
             ? session.browserState.sqlWrapLines
             : true,
         );
+        const layout = railLayoutFromBrowserState(session.browserState);
+        if (layout.width !== null) {
+          setRailWidth(clampRailWidth(layout.width, window.innerWidth));
+        }
+        if (layout.section !== null) setRailSection(layout.section);
         if (api.getWorkbenchTurns) {
           void api.getWorkbenchTurns(sessionId, controller.signal)
             .then((timeline) => {
@@ -786,7 +815,7 @@ export const QueryWorkspace = ({
       sql: workbenchSql,
       parameters: workbenchParameters,
       expectedColumns: editorExpectedColumns(parent, workbenchSql),
-      ...(dataSourceId ? { dataSourceId } : {}),
+      ...(effectiveDataSourceId ? { dataSourceId: effectiveDataSourceId } : {}),
     });
     if (!session.currentVersion) {
       throw new Error("Catalyst did not return the saved query version.");
@@ -874,7 +903,7 @@ export const QueryWorkspace = ({
       contractVersion: "catalyst.workbench.turn.request.v1",
       instruction: followupInstruction,
       profileId: selectedRevisionProfileId,
-      ...(dataSourceId ? { dataSourceId } : {}),
+      ...(effectiveDataSourceId ? { dataSourceId: effectiveDataSourceId } : {}),
       observedBase: baseVersion
         ? {
             versionId: baseVersion.versionId,
@@ -964,14 +993,13 @@ export const QueryWorkspace = ({
     }
   };
 
-  const updateWorkbenchWrapLines = (wrapLines: boolean) => {
-    setWorkbenchWrapLines(wrapLines);
+  // Layout the analyst chose — rail width, which rail section is open, whether
+  // SQL wraps — is theirs, not the browser's, so it rides on the session
+  // rather than on this tab.
+  const persistBrowserState = (patch: Record<string, unknown>) => {
     if (!workbenchSession || !api.updateWorkbenchBrowserState) return;
     const sessionId = workbenchSession.sessionId;
-    const browserState = {
-      ...workbenchSession.browserState,
-      sqlWrapLines: wrapLines,
-    };
+    const browserState = { ...workbenchSession.browserState, ...patch };
     void api.updateWorkbenchBrowserState(sessionId, browserState)
       .then((restored) => {
         setWorkbenchSession((current) =>
@@ -983,16 +1011,62 @@ export const QueryWorkspace = ({
       .catch(() => undefined);
   };
 
+  const updateWorkbenchWrapLines = (wrapLines: boolean) => {
+    setWorkbenchWrapLines(wrapLines);
+    persistBrowserState({ sqlWrapLines: wrapLines });
+  };
+
   const questionIsLocked =
     state.kind === "preview" ||
     state.kind === "polling" ||
     workbenchSession !== null;
 
-  const activeNotebookTurns = notebookTurns(
-    workbenchTimeline,
-    workbenchSession,
-    dataSources,
+  const activeNotebookTurns = notebookTurns(workbenchTimeline, workbenchSession);
+
+  const railStacked = viewportWidth < RAIL_STACK_BREAKPOINT;
+
+  const activeDataSourceLabel =
+    dataSources?.dataSources.find(
+      (source) => source.id === effectiveDataSourceId,
+    )?.label ??
+    (effectiveDataSourceId || null);
+
+  const catalogRelationCount = (workbenchCatalog?.schemas ?? []).reduce(
+    (total, schema) => total + schema.views.length,
+    0,
   );
+
+  const railTurns: RailTurn[] = activeNotebookTurns.map((turn) => ({
+    ordinal: turn.ordinal,
+    instruction: turn.instruction,
+    status:
+      turn.status === "failed" || turn.execution?.status === "failed"
+        ? "failed"
+        : turn.execution?.status === "succeeded"
+          ? "succeeded"
+          : "not-run",
+    current: Boolean(turn.current),
+  }));
+
+  const changeRailSection = (section: RailSection) => {
+    // The two sections are mutually exclusive, and closing the open one leaves
+    // the rail with nothing but its headers, so a second click on the open
+    // section falls back to the thread rather than to an empty rail.
+    const next: RailSection = section === railSection ? "turns" : section;
+    setRailSection(next);
+    persistBrowserState({ railSection: next });
+  };
+
+  const persistRailWidth = (width: number) => {
+    persistBrowserState({ railWidth: width });
+  };
+
+  const selectTurn = (ordinal: number) => {
+    setActiveTurnOrdinal(ordinal);
+    document
+      .getElementById(`turn-${ordinal}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const activeGrounding = workbenchSession
     ? notebookGrounding(workbenchSession, workbenchSql, workbenchParameters)
@@ -1003,95 +1077,57 @@ export const QueryWorkspace = ({
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
   return (
-    <div className={`dashboard-builder-shell${navigationExpanded ? "" : " dashboard-builder-shell--nav-collapsed"}`}>
-      <nav className="dashboard-navigation" aria-label="Catalyst">
-        <div className="dashboard-navigation__header">
-          <div className="dashboard-navigation__brand">
-            <span aria-hidden="true">C</span>
-            <div>
-              <strong>Catalyst</strong>
-              <small>Dashboard builder</small>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="dashboard-navigation__toggle"
-            aria-label="Toggle navigation"
-            aria-expanded={navigationExpanded}
-            onClick={() => setNavigationExpanded((current) => !current)}
-          >
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
-        </div>
-        <div className="dashboard-navigation__items">
-          {dashboardSections.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className="dashboard-navigation__item"
-              aria-label={label}
-              aria-current={activeSection === id ? "page" : undefined}
-              title={navigationExpanded ? undefined : label}
-              onClick={() => setActiveSection(id)}
-            >
-              <Icon size={20} aria-hidden="true" />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="dashboard-navigation__source">
-          {dataSources && dataSources.dataSources.some((source) => source.available) ? (
-            <label htmlFor="catalyst-data-source">
-              <span>Data source</span>
-              <select
-                id="catalyst-data-source"
-                value={dataSourceId}
-                disabled={followupBusy || state.kind === "submitting"}
-                onChange={(event) => setDataSourceId(event.currentTarget.value)}
-              >
-                {dataSources.dataSources
-                  .filter((source) => source.available)
-                  .map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : (
-            <span>OpenELIS</span>
-          )}
-        </div>
-      </nav>
+    <div
+      className={`dashboard-builder-shell${railStacked ? " dashboard-builder-shell--stacked" : ""}`}
+      style={
+        railStacked
+          ? undefined
+          : ({ "--dashboard-nav-width": `${railWidth}px` } as CSSProperties)
+      }
+    >
+      <WorkbenchRail
+        width={railWidth}
+        stacked={railStacked}
+        onWidthChange={setRailWidth}
+        onWidthCommit={persistRailWidth}
+        sessionName={workbenchSession ? workbenchSession.question : null}
+        sessionSourceLabel={activeDataSourceLabel}
+        onNewSession={workbenchSession ? startNewSession : undefined}
+        newSessionDisabled={followupBusy || workbenchBusy !== null}
+        openSection={railSection}
+        onOpenSectionChange={changeRailSection}
+        relationCount={catalogRelationCount}
+        turns={railTurns}
+        activeTurnOrdinal={activeTurnOrdinal}
+        onSelectTurn={selectTurn}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+      >
+        <DatasetBrowser
+          api={api}
+          catalog={workbenchCatalog}
+          catalogLoadingFailed={workbenchCatalogFailed}
+          dataSourceId={effectiveDataSourceId || undefined}
+        />
+      </WorkbenchRail>
 
       <main
         className={`app-shell${hasQueryDock && activeSection === "ask" ? " app-shell--with-query-dock" : ""}`}
       >
         <section hidden={activeSection !== "ask"} aria-labelledby="question-title">
-          <header className="dashboard-page-header">
-            <div>
-              <p className="eyebrow">Ask OpenELIS</p>
-              <h1 id="question-title" tabIndex={-1}>
-                {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
-              </h1>
-              <p>
-                Nothing is saved until you review it. Drafts stay in this thread.
-              </p>
-            </div>
-            {workbenchSession && (
-              <Button
-                type="button"
-                kind="tertiary"
-                size="sm"
-                disabled={followupBusy || workbenchBusy !== null}
-                onClick={startNewSession}
-              >
-                New session
-              </Button>
-            )}
-          </header>
+          {/*
+            The rail names the session and its source, so the page no longer
+            repeats them in a heading. The heading stays for document
+            structure and as the skip link's target.
+          */}
+          <h1 id="question-title" className="visually-hidden" tabIndex={-1}>
+            {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
+          </h1>
 
           {workbenchSession && (
+            // Rendered into the demo banner's trailing edge. The banner is a
+            // sibling of this workspace, so it is positioned there rather
+            // than lifting session state out of the workspace to reach it.
             <div className="dashboard-session-meta">
               Session {workbenchSession.sessionId.slice(0, 8)}
               {workbenchTimeline
@@ -1101,14 +1137,6 @@ export const QueryWorkspace = ({
                 : ""}
             </div>
           )}
-
-          <DatasetBrowser
-            api={api}
-            catalog={workbenchCatalog}
-            catalogLoadingFailed={workbenchCatalogFailed}
-            dataSourceId={dataSourceId || undefined}
-            compact
-          />
 
       {!workbenchSession && (
         <QuestionForm
@@ -1120,6 +1148,9 @@ export const QueryWorkspace = ({
           profiles={queryOptions?.profiles ?? []}
           selectedProfileId={selectedAvailableProfileId}
           onProfileChange={setProfileId}
+          dataSources={dataSources?.dataSources ?? []}
+          selectedDataSourceId={dataSourceId}
+          onDataSourceChange={setDataSourceId}
         />
       )}
 

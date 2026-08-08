@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CatalystApi } from "../api";
@@ -120,9 +120,7 @@ describe("DatasetBrowser", () => {
 
     render(<DatasetBrowser api={api} />);
     await user.click(
-      await screen.findByRole("button", {
-        name: "Preview available laboratory records",
-      }),
+      await screen.findByText("Preview available laboratory records"),
     );
 
     expect(
@@ -141,9 +139,7 @@ describe("DatasetBrowser", () => {
 
     render(<DatasetBrowser api={api} />);
     await user.click(
-      await screen.findByRole("button", {
-        name: "Preview available laboratory records",
-      }),
+      await screen.findByText("Preview available laboratory records"),
     );
     expect(await screen.findByText("9000 copies/ml")).toBeVisible();
 
@@ -156,44 +152,71 @@ describe("DatasetBrowser", () => {
     );
   });
 
-  it("shows every catalog relation compactly and reveals its columns on demand", async () => {
+  it("browses one relation at a time and keeps full column detail available", async () => {
     const api = makeApi(vi.fn().mockResolvedValue(oneRow));
     const user = userEvent.setup();
 
     render(<DatasetBrowser api={api} catalog={catalog} />);
 
+    // Every relation stays reachable — the rail picks between them rather
+    // than dropping the ones it cannot fit.
+    const relations = await screen.findByRole("combobox", { name: "Relation" });
     expect(
-      await screen.findByRole("heading", { name: "Supported query schema" }),
-    ).toBeVisible();
-    expect(
-      screen.getByText(
-        "2 relations available. Expand a relation to see its columns.",
-      ),
-    ).toBeVisible();
+      within(relations).getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["analytics.lab_result_fact_v1", "fhir.patient_flat_v1"]);
 
-    const relationButtons = screen.getAllByRole("button", {
-      name: /(?:analytics\.lab_result_fact_v1|fhir\.patient_flat_v1)/,
-    });
-    expect(relationButtons).toHaveLength(2);
-    const labRelationButton = relationButtons[0]!;
-    const patientRelationButton = relationButtons[1]!;
-    expect(labRelationButton).toHaveAccessibleName(
-      "analytics.lab_result_fact_v1 2 columns",
-    );
-    expect(patientRelationButton).toHaveAccessibleName(
-      "fhir.patient_flat_v1 1 column",
-    );
-    expect(labRelationButton).toHaveAttribute("aria-expanded", "false");
-
-    await user.click(labRelationButton);
-
-    expect(labRelationButton).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/Exactly one row per FHIR Observation/)).toBeVisible();
+    // The first relation is shown without an extra click.
+    expect(screen.getByText("2 columns · postgresql")).toBeVisible();
     expect(screen.getByText("result_value")).toBeVisible();
-    expect(screen.getByText("Unit from")).toBeVisible();
-    expect(screen.getByText("result_unit")).toBeVisible();
+    expect(screen.getByText(/Exactly one row per FHIR Observation/)).toBeVisible();
+
+    // Nothing the page version showed is lost. Nullability, the unit
+    // relationship and the description are rendered but width-gated: the
+    // container query brings them back as the rail is dragged out, so at rail
+    // width they are in the document rather than visible.
+    expect(screen.getByText("Unit from")).toBeInTheDocument();
+    expect(screen.getByText("result_unit")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Preview available laboratory records" }),
-    ).toHaveAttribute("aria-expanded", "false");
+      screen.getByText("Numeric FHIR Quantity value."),
+    ).toBeInTheDocument();
+
+    await user.selectOptions(relations, "fhir.patient_flat_v1");
+    expect(screen.getByText("1 column · postgresql")).toBeVisible();
+    expect(screen.queryByText("result_value")).not.toBeInTheDocument();
+  });
+
+  it("filters columns within the selected relation and reports the reduced count", async () => {
+    const api = makeApi(vi.fn().mockResolvedValue(oneRow));
+    const user = userEvent.setup();
+
+    render(<DatasetBrowser api={api} catalog={catalog} />);
+
+    await user.type(
+      await screen.findByLabelText("Filter columns"),
+      "result_value",
+    );
+    expect(screen.getByText("1 of 2 columns · postgresql")).toBeVisible();
+    expect(screen.getByText("result_value")).toBeVisible();
+  });
+
+  it("inserts a column into the editor when the workspace offers it", async () => {
+    const api = makeApi(vi.fn().mockResolvedValue(oneRow));
+    const onInsertColumn = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <DatasetBrowser
+        api={api}
+        catalog={catalog}
+        onInsertColumn={onInsertColumn}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Insert result_value into the SQL editor",
+      }),
+    );
+    expect(onInsertColumn).toHaveBeenCalledWith("result_value");
   });
 });

@@ -250,28 +250,6 @@ afterEach(() => {
 });
 
 describe("TurnNotebook", () => {
-  it("labels each turn header with the data source that turn was grounded in", () => {
-    render(
-      <TurnNotebook
-        {...defaultProps}
-        turns={[
-          { ...initialTurn, dataSourceLabel: "OpenMRS HIV/ART program" },
-          { ...followupTurn, dataSourceLabel: null },
-        ]}
-      />,
-    );
-
-    const withSource = screen.getByRole("button", { name: /query turn 1/i });
-    expect(
-      within(withSource).getByText("OpenMRS HIV/ART program"),
-    ).toBeVisible();
-
-    const withoutSource = screen.getByRole("button", { name: /query turn 2/i });
-    expect(
-      within(withoutSource).queryByText("OpenMRS HIV/ART program"),
-    ).not.toBeInTheDocument();
-  });
-
   it("gives every turn a stable run counter and an addressable anchor", () => {
     render(<TurnNotebook {...defaultProps} />);
 
