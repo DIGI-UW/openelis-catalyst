@@ -215,14 +215,18 @@ absent) lists `available: false` and cannot be targeted.
 
 Any workbench request that creates or targets state — session creation, a
 turn, or a `dataSourceId`-taking GET (`/v1/catalyst/dataset`,
-`/v1/catalyst/workbench/catalog`) — accepts an optional `dataSourceId`. A
-session is source-agnostic: the source targeted by its most recent turn
-(falling back to the session's initial source) is the source the next
-untargeted turn inherits, so "adapt this query to the other data source"
-works mid-session without starting over. Catalog staleness
-(`409 stale_catalog_version`) is judged per source, against the baseline that
-source was last seen at in this session — switching sources never trips a
-false conflict on first use.
+`/v1/catalyst/workbench/catalog`) — accepts an optional `dataSourceId`.
+
+**A session is grounded in one data source, chosen at creation.** Its query
+versions chain through `parentVersionId` and each follow-up is written
+relative to the previous query, so a version whose parent was written against
+a different schema would describe a lineage that never existed. A turn or
+version that names a `dataSourceId` other than the session's is rejected with
+`409 data_source_immutable`; naming the session's own source is accepted, and
+omitting it inherits the session's. Querying another source means starting
+another session. Catalog staleness (`409 stale_catalog_version`) is therefore
+judged against a single baseline: the catalog the session was created
+against.
 
 ## Primary workflow: query to table
 

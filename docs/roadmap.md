@@ -49,9 +49,8 @@ The repository currently contains:
 - deterministic native Superset bundle generation, a pinned local Superset
   service, explicit importer, verified local import receipts, and a live table
   plus time-series Dashboard reconciled to PostgreSQL;
-- a second, independently switchable data source (OpenMRS HIV/ART, its own
-  analytics database and catalog) alongside OpenELIS, targetable per turn
-  within one source-agnostic session;
+- a second data source (OpenMRS HIV/ART, its own analytics database and
+  catalog) alongside OpenELIS, each session grounded in one of them;
 - Gateway, analytics/assembly, UI and browser tests.
 
 The original table-only path was a **Superset import spike**. The live M3

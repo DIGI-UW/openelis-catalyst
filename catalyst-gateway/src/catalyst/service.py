@@ -264,13 +264,12 @@ class CatalystService:
         self,
         version: dict[str, Any],
         session: dict[str, Any],
-        prior_turns: list[dict[str, Any]],
     ) -> DataSourceBundle | ServiceResponse:
         """The bundle a stored version targets: its recorded source, else the
-        session's current source."""
+        session's."""
         source_id = str(
             (version.get("provenance") or {}).get("dataSourceId")
-            or self._session_data_source_id(session, prior_turns)
+            or self._session_data_source_id(session)
         )
         return self._require_bundle(source_id)
 
@@ -1133,12 +1132,19 @@ class CatalystService:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
             prior_turns = store.list_turns(session_id)["turns"]
             requested_source = payload.get("dataSourceId")
-            resolved_source_id = (
-                str(requested_source)
-                if requested_source
-                else self._session_data_source_id(session, prior_turns)
-            )
-            bundle = self._require_bundle(resolved_source_id)
+            session_source_id = self._session_data_source_id(session)
+            if requested_source and str(requested_source) != session_source_id:
+                return self._workbench_error(
+                    409,
+                    "data_source_immutable",
+                    "This workbench session is grounded in one data source. "
+                    "Start a new session to query another source.",
+                    details={
+                        "sessionDataSourceId": session_source_id,
+                        "requestedDataSourceId": str(requested_source),
+                    },
+                )
+            bundle = self._require_bundle(session_source_id)
             if isinstance(bundle, ServiceResponse):
                 return bundle
             profiles = await self.hub.list_query_profiles()
@@ -1168,8 +1174,6 @@ class CatalystService:
             catalog_conflict = self._workbench_catalog_conflict(
                 session,
                 runtime_catalog,
-                data_source_id=bundle.source_id,
-                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1513,22 +1517,26 @@ class CatalystService:
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
-            prior_turns = store.list_turns(session_id)["turns"]
             requested_source = payload.get("dataSourceId")
-            source_id = (
-                str(requested_source)
-                if requested_source
-                else self._session_data_source_id(session, prior_turns)
-            )
-            bundle = self._require_bundle(source_id)
+            session_source_id = self._session_data_source_id(session)
+            if requested_source and str(requested_source) != session_source_id:
+                return self._workbench_error(
+                    409,
+                    "data_source_immutable",
+                    "This workbench session is grounded in one data source. "
+                    "Start a new session to query another source.",
+                    details={
+                        "sessionDataSourceId": session_source_id,
+                        "requestedDataSourceId": str(requested_source),
+                    },
+                )
+            bundle = self._require_bundle(session_source_id)
             if isinstance(bundle, ServiceResponse):
                 return bundle
             runtime_catalog = await self._runtime_catalog(bundle)
             catalog_conflict = self._workbench_catalog_conflict(
                 session,
                 runtime_catalog,
-                data_source_id=bundle.source_id,
-                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1636,8 +1644,7 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
-        prior_turns = store.list_turns(version["sessionId"])["turns"]
-        bundle = self._version_bundle(version, session, prior_turns)
+        bundle = self._version_bundle(version, session)
         if isinstance(bundle, ServiceResponse):
             return bundle
         try:
@@ -1647,8 +1654,6 @@ class CatalystService:
         catalog_conflict = self._workbench_catalog_conflict(
             session,
             runtime_catalog,
-            data_source_id=bundle.source_id,
-            prior_turns=prior_turns,
         )
         if catalog_conflict is not None:
             return catalog_conflict
@@ -1696,8 +1701,7 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
-        prior_turns = store.list_turns(version["sessionId"])["turns"]
-        bundle = self._version_bundle(version, session, prior_turns)
+        bundle = self._version_bundle(version, session)
         if isinstance(bundle, ServiceResponse):
             return bundle
         try:
@@ -1707,8 +1711,6 @@ class CatalystService:
         catalog_conflict = self._workbench_catalog_conflict(
             session,
             runtime_catalog,
-            data_source_id=bundle.source_id,
-            prior_turns=prior_turns,
         )
         if catalog_conflict is not None:
             return catalog_conflict
@@ -2154,16 +2156,15 @@ class CatalystService:
         assert session is not None
         return str(session["question"])
 
-    def _session_data_source_id(
-        self,
-        session: dict[str, Any],
-        prior_turns: list[dict[str, Any]],
-    ) -> str:
-        """The session's current source: last targeted, else initial, else default."""
-        for turn in reversed(prior_turns):
-            source_id = turn.get("dataSourceId")
-            if source_id:
-                return str(source_id)
+    def _session_data_source_id(self, session: dict[str, Any]) -> str:
+        """The source this session was created against.
+
+        A session is grounded in one catalog: its query versions chain through
+        parentVersionId and its follow-ups are written relative to the previous
+        query, so a version whose parent was written against a different schema
+        would describe a lineage that never existed. The source is therefore
+        fixed at creation and never moves.
+        """
         source_id = (session.get("provenance") or {}).get("dataSourceId")
         return str(source_id) if source_id else self._default_data_source_id
 
@@ -2171,27 +2172,11 @@ class CatalystService:
         self,
         session: dict[str, Any],
         runtime_catalog: Catalog,
-        *,
-        data_source_id: str,
-        prior_turns: list[dict[str, Any]],
     ) -> ServiceResponse | None:
-        # Staleness is judged per data source: the baseline is the catalog this
-        # session last saw ON THAT SOURCE. First use of a new source in a session
-        # has no baseline, so switching sources never trips a false conflict.
-        baseline: str | None = None
-        for turn in reversed(prior_turns):
-            if turn.get("dataSourceId") == data_source_id and turn.get(
-                "catalogVersion"
-            ):
-                baseline = str(turn["catalogVersion"])
-                break
-        if baseline is None:
-            initial_source = (session.get("provenance") or {}).get(
-                "dataSourceId"
-            ) or self._default_data_source_id
-            if data_source_id == initial_source:
-                baseline = str(session["catalogVersion"])
-        if baseline is None or runtime_catalog.catalog_version == baseline:
+        # One session, one source, one baseline: the catalog this session was
+        # created against.
+        baseline = str(session["catalogVersion"])
+        if runtime_catalog.catalog_version == baseline:
             return None
         return self._workbench_error(
             409,
@@ -2707,11 +2692,7 @@ class CatalystService:
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)
         # Last-turn-wins, matching turn targeting: a reload must land on the
-        # session's CURRENT source, not the one it was created with.
-        turns: list[dict[str, Any]] = []
-        if self.workbench_store is not None:
-            turns = self.workbench_store.list_turns(session["sessionId"])["turns"]
-        presented["dataSourceId"] = self._session_data_source_id(session, turns)
+        presented["dataSourceId"] = self._session_data_source_id(session)
         presented["draftSeed"] = None
         if presented.get("currentVersion") is not None:
             return presented

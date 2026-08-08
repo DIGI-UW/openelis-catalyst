@@ -1,9 +1,9 @@
-"""Two-source routing: turns target a data source; switching mid-session works.
+"""Two-source routing: a session is grounded in one source and stays there.
 
 These tests exercise the registry/routing layer with in-memory fakes: they
 prove requests reach the right bundle, not that either source's SQL or schema
 discovery is correct. SQL semantics are guarded by tests/analytics/ (real
-Postgres); the live two-source flow by catalyst-ui/e2e/two-source-demo.spec.ts.
+Postgres).
 """
 
 from __future__ import annotations
@@ -232,59 +232,18 @@ def _post_turn(
     )
 
 
-def test_followup_switches_source_mid_session(tmp_path: Path) -> None:
-    """The 'adapt this query to the other data source' flow."""
+def test_followup_cannot_switch_source_mid_session(tmp_path: Path) -> None:
+    """A session is grounded in one data source and cannot be retargeted.
+
+    Query versions chain through parentVersionId and each follow-up is written
+    relative to the previous query, so a version whose parent was written
+    against a different schema would describe a lineage that never existed.
+    Querying another source means starting another session.
+    """
     client, hub, _, _ = _two_source_client(tmp_path)
     session = _create_session(client)  # starts on openelis
-    current = session["currentVersion"]
+    hub_requests_before = len(hub.requests)
 
-    response = _post_turn(
-        client,
-        session["sessionId"],
-        current,
-        "Adapt this query to the HIV data source",
-        dataSourceId="openmrs-hiv",
-    )
-    assert response.status_code == 201, response.text
-    turn = response.json()
-    assert turn["dataSourceId"] == "openmrs-hiv"
-
-    # The generation request carries the NEW source's catalog while the
-    # revision context still references the prior (openelis) query text —
-    # exactly what "adapt to this source" needs. No stale-catalog 409.
-    followup_request = json.dumps(hub.requests[-1])
-    assert "openmrs-hiv-demo" in followup_request
-    assert "analytics.hiv_visit_fact" in followup_request
-    assert current["sql"] in followup_request
-
-    timeline = client.get(
-        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
-    ).json()
-    assert timeline["turns"][-1]["dataSourceId"] == "openmrs-hiv"
-
-    # A REAL third turn with no dataSourceId inherits the switched source:
-    # its generation request goes to the HIV catalog, not the session default.
-    switched = client.get(
-        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
-    ).json()
-    response = _post_turn(
-        client,
-        session["sessionId"],
-        switched["currentVersion"],
-        "Now filter to the last 90 days",
-    )
-    assert response.status_code == 201, response.text
-    third_request = json.dumps(hub.requests[-1])
-    assert "openmrs-hiv-demo" in third_request
-    assert "openelis-demo" not in third_request
-
-
-def test_session_reload_reports_current_source_after_switch(tmp_path: Path) -> None:
-    """GET session reflects last-turn-wins, so a UI reload does not snap the
-    switcher back to the session's initial source (and then silently target
-    the wrong source on the next follow-up)."""
-    client, _, _, _ = _two_source_client(tmp_path)
-    session = _create_session(client)  # starts on openelis
     response = _post_turn(
         client,
         session["sessionId"],
@@ -292,12 +251,92 @@ def test_session_reload_reports_current_source_after_switch(tmp_path: Path) -> N
         "Adapt this query to the HIV data source",
         dataSourceId="openmrs-hiv",
     )
-    assert response.status_code == 201, response.text
+
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "data_source_immutable"
+    assert error["details"] == {
+        "sessionDataSourceId": "openelis",
+        "requestedDataSourceId": "openmrs-hiv",
+    }
+    # Rejected before any generation: no model was asked to write the turn.
+    assert len(hub.requests) == hub_requests_before
+
+    # Naming the session's own source is not a switch, so it still works.
+    accepted = _post_turn(
+        client,
+        session["sessionId"],
+        session["currentVersion"],
+        "Now filter to the last 90 days",
+        dataSourceId="openelis",
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["dataSourceId"] == "openelis"
+
+
+def test_version_cannot_switch_source_mid_session(tmp_path: Path) -> None:
+    """The manual-edit path is bound by the same rule as the turn path."""
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _create_session(client)
+    current = session["currentVersion"]
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": current["versionId"],
+            "parentQueryDigest": current["queryDigest"],
+            "sql": current["sql"],
+            "parameters": current["parameters"],
+            "dataSourceId": "openmrs-hiv",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "data_source_immutable"
+
+
+def test_session_reload_reports_its_creation_source(tmp_path: Path) -> None:
+    """A session reports the source it was created against, for the life of
+    the session."""
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _create_session(client, dataSourceId="openmrs-hiv")
+    assert session["dataSourceId"] == "openmrs-hiv"
+
+    _post_turn(
+        client,
+        session["sessionId"],
+        session["currentVersion"],
+        "Now filter to the last 90 days",
+    )
 
     reloaded = client.get(
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
     ).json()
     assert reloaded["dataSourceId"] == "openmrs-hiv"
+
+
+def test_staleness_is_judged_against_the_session_catalog(tmp_path: Path) -> None:
+    """Catalog drift on the session's own source trips the conflict, and the
+    409 reports the baseline the session was created against."""
+    drifting = DriftingHivAnalytics()
+    client, _, _, _ = _two_source_client(tmp_path, analytics_b=drifting)
+    session = _create_session(client, dataSourceId="openmrs-hiv")
+    baseline = session["catalogVersion"]
+
+    drifting.drifted = True
+    conflicted = _post_turn(
+        client,
+        session["sessionId"],
+        session["currentVersion"],
+        "Now filter to the last 90 days",
+    )
+
+    assert conflicted.status_code == 409, conflicted.text
+    error = conflicted.json()["error"]
+    assert error["code"] == "stale_catalog_version"
+    assert error["details"]["sessionCatalogVersion"] == baseline
+    assert error["details"]["runtimeCatalogVersion"] != baseline
 
 
 def test_dataset_and_editor_catalog_http_params_route_to_bundle(
@@ -328,46 +367,6 @@ def test_dataset_and_editor_catalog_http_params_route_to_bundle(
     unknown = client.get("/v1/catalyst/dataset?dataSourceId=does-not-exist")
     assert unknown.status_code == 400
     assert unknown.json()["error"]["code"] == "unknown_data_source"
-
-
-def test_switched_source_staleness_judged_against_its_own_baseline(
-    tmp_path: Path,
-) -> None:
-    """Catalog drift on the SWITCHED source trips the conflict, and the 409
-    reports that source's baseline — not the initial source's."""
-    drifting = DriftingHivAnalytics()
-    client, _, _, _ = _two_source_client(tmp_path, analytics_b=drifting)
-    session = _create_session(client)  # starts on openelis
-
-    response = _post_turn(
-        client,
-        session["sessionId"],
-        session["currentVersion"],
-        "Adapt this query to the HIV data source",
-        dataSourceId="openmrs-hiv",
-    )
-    assert response.status_code == 201, response.text
-    turns = client.get(
-        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
-    ).json()["turns"]
-    hiv_baseline = turns[-1]["catalogVersion"]
-    assert hiv_baseline != session["catalogVersion"]
-
-    drifting.drifted = True
-    switched = client.get(
-        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
-    ).json()
-    conflicted = _post_turn(
-        client,
-        session["sessionId"],
-        switched["currentVersion"],
-        "Now filter to the last 90 days",
-    )
-    assert conflicted.status_code == 409, conflicted.text
-    error = conflicted.json()["error"]
-    assert error["code"] == "stale_catalog_version"
-    assert error["details"]["sessionCatalogVersion"] == hiv_baseline
-    assert error["details"]["runtimeCatalogVersion"] != hiv_baseline
 
 
 def test_execution_routes_to_version_source_adapter(tmp_path: Path) -> None:
