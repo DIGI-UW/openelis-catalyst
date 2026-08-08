@@ -50,7 +50,7 @@ The configured role endpoint accepts a non-system message list and optional
 `dry_multiplier`, and token cap from the selected profile. It returns:
 
 ```json
-{"profile_id": "catalyst-query-e4b-qwen14b", "role": "query_generate", "model": "google/gemma-4-e4b", "content": "{...assistant content...}"}
+{"profile_id": "catalyst-query-e4b-qwen14b", "role": "query_generate", "model": "gemma-e4b", "content": "{...assistant content...}"}
 ```
 
 Hub owns profile compilation and discovery, provider/auth/timeout abstraction,
@@ -73,7 +73,7 @@ dependencies.
 
 | Hub profile | Role mapping | Use |
 | --- | --- | --- |
-| `catalyst-query-e4b-qwen14b` | `google/gemma-4-e4b` writer and `qwen2.5-14b-instruct-mlx` reviewer | External cross-family manual-testing lane |
+| `catalyst-query-e4b-qwen14b` | `gemma-e4b` writer and `qwen2.5-14b` reviewer | External cross-family manual-testing lane |
 
 Gateway relays available choices through `GET /v1/catalyst/query-options`. The
 profile ID is selected per turn and bound into versioned

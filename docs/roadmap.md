@@ -225,8 +225,8 @@ natural-language question → governed query → table.
 ### External dependency
 
 med-agent-hub must expose the configured Catalyst query profile and reach the
-external router at `host.docker.internal:1234`, which must advertise
-`google/gemma-4-e4b` and `qwen2.5-14b-instruct-mlx` exactly. Gateway owns query
+external router at `host.docker.internal:8077`, which must advertise
+`gemma-e4b` and `qwen2.5-14b` exactly. Gateway owns query
 planning, generation orchestration, deterministic lint/correction, review,
 execution, and `catalyst.query.v1` finalization.
 Contextual follow-up through the reviewed path additionally requires a Gateway
@@ -345,8 +345,8 @@ One supporting M3 corrective pass removed the obsolete Gateway A2A
 `/v1/chat/completions` relay and dependency, removed its dead
 `CATALYST_ROUTER_URL` from supported Compose files, and converted the standalone
 demo from a bundled stale-alias model service to the same Hub-owned profile over
-`host.docker.internal:1234`. Exact current aliases are
-`google/gemma-4-e4b` and `qwen2.5-14b-instruct-mlx`. The rebuilt isolated
+`host.docker.internal:8077`. Exact current aliases are
+`gemma-e4b` and `qwen2.5-14b`. The rebuilt isolated
 Gateway passed formatting, lint, mypy, 210 tests, 31 assembly checks, and the
 complete live health/provenance gate without reseeding. Its persisted state
 still contained five Datasets, nine Widgets, and five Dashboards after restart;
