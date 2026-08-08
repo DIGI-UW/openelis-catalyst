@@ -197,6 +197,73 @@ const validationStatusForVersion = (
         .find((validation) => validation.versionId === versionId)?.status ??
       null);
 
+/**
+ * Cells for query versions a person wrote and ran by hand.
+ *
+ * The thread is built from turns, and a turn is a model generation — so a
+ * hand-edited version that has been run produces a result with nowhere to go,
+ * and the thread appears to stop at the last thing a model wrote. These carry
+ * that work into the thread it belongs to.
+ */
+const manualNotebookTurns = (
+  session: WorkbenchSession | null,
+  timeline: WorkbenchTurnTimeline | null,
+  fromOrdinal: number,
+): NotebookTurn[] => {
+  if (!session) return [];
+  const owned = new Set(
+    (timeline?.turns ?? []).flatMap((turn) =>
+      turn.outputVersions.map((output) => output.versionId),
+    ),
+  );
+  const seen = new Set<string>();
+  return session.versions
+    .filter((version) => {
+      if (owned.has(version.versionId) || version.authorType !== "human") {
+        return false;
+      }
+      if (seen.has(version.versionId)) return false;
+      seen.add(version.versionId);
+      return true;
+    })
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .flatMap((version, index) => {
+      const execution = executionForVersion(session, version.versionId);
+      // Not yet run: it is still the draft in the editor, not a cell.
+      if (!execution) return [];
+      return [
+        {
+          turnId: `manual:${version.versionId}`,
+          ordinal: fromOrdinal + index,
+          kind: "followup" as const,
+          instruction: "Edited by hand",
+          status: "completed" as const,
+          selectedVersionId: version.versionId,
+          outputVersions: [
+            {
+              selected: true,
+              role: "writer" as const,
+              contractValid: true,
+              versionId: version.versionId,
+              version,
+            },
+          ],
+          profileSnapshot: { profileName: null, writer: null, reviewer: null },
+          failure: null,
+          execution,
+          validationStatus: validationStatusForVersion(
+            session,
+            version.versionId,
+          ),
+          current: version.versionId === session.currentVersionId,
+        },
+      ];
+    });
+};
+
+/** A cell with no model generation behind it has no evidence to fetch. */
+const isManualCell = (turnId: string) => turnId.startsWith("manual:");
+
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
@@ -1104,7 +1171,15 @@ export const QueryWorkspace = ({
   const questionIsLocked =
     state.kind === "preview" || state.kind === "polling" || sessionHasWork;
 
-  const activeNotebookTurns = notebookTurns(workbenchTimeline, workbenchSession);
+  const generatedTurns = notebookTurns(workbenchTimeline, workbenchSession);
+  const activeNotebookTurns = [
+    ...generatedTurns,
+    ...manualNotebookTurns(
+      workbenchSession,
+      workbenchTimeline,
+      generatedTurns.length + 1,
+    ),
+  ];
 
   const railStacked = viewportWidth < RAIL_STACK_BREAKPOINT;
 
@@ -1151,6 +1226,7 @@ export const QueryWorkspace = ({
     if (turnId === null) return;
     const turn = activeNotebookTurns.find((item) => item.turnId === turnId);
     if (turn) setActiveTurnOrdinal(turn.ordinal);
+    if (isManualCell(turnId)) return;
     if (generationEvidence?.turnId !== turnId) {
       void showWorkbenchGenerationEvidence(turnId);
     }

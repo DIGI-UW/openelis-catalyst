@@ -573,10 +573,14 @@ export const WorkbenchPanel = ({
         current, so the panel names itself once and quietly.
       */}
       <div className="workbench-panel__heading">
+        {/*
+          Editing does not change the current version — saving appends a new
+          one — so this names what the draft is based on, not what it is.
+        */}
         <h2 id="workbench-title">
           {session.currentVersion
-            ? `Editing Query v${session.currentVersion.ordinal}`
-            : "Editing draft"}
+            ? `New draft from Query v${session.currentVersion.ordinal}`
+            : "New draft"}
         </h2>
       </div>
 

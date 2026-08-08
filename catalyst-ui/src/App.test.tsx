@@ -781,7 +781,7 @@ describe("Catalyst query workflow", () => {
     );
     expect(api.submitQuestion).not.toHaveBeenCalled();
     expect(
-      await screen.findByRole("heading", { name: /^Editing (Query v\d+|draft)$/ }),
+      await screen.findByRole("heading", { name: /^New draft( from Query v\d+)?$/ }),
     ).toBeVisible();
     expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
     // Findings never block a run: the workbench stays usable while the
@@ -803,7 +803,7 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     const user = await askQuestion();
-    expect(await screen.findByRole("heading", { name: /^Editing (Query v\d+|draft)$/ })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: /^New draft( from Query v\d+)?$/ })).toBeVisible();
     expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
       workbenchSession.sessionId,
     );
@@ -851,12 +851,12 @@ describe("Catalyst query workflow", () => {
 
     expect(await screen.findByLabelText("Model profile")).toBeEnabled();
     const user = await askQuestion();
-    expect(await screen.findByRole("heading", { name: /^Editing (Query v\d+|draft)$/ })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: /^New draft( from Query v\d+)?$/ })).toBeVisible();
 
     await openNewSessionForm(user);
     await user.click(screen.getByRole("button", { name: "Start session" }));
 
-    expect(screen.queryByRole("heading", { name: /^Editing (Query v\d+|draft)$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^New draft( from Query v\d+)?$/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Question")).toHaveValue("");
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
     expect(screen.getByLabelText("Model profile")).toHaveValue(
@@ -1328,7 +1328,7 @@ describe("Catalyst query workflow", () => {
     render(<App api={api} />);
 
     expect(
-      await screen.findByRole("heading", { name: /^Editing (Query v\d+|draft)$/ }),
+      await screen.findByRole("heading", { name: /^New draft( from Query v\d+)?$/ }),
     ).toBeVisible();
     await openNewSessionForm(user);
     await user.click(screen.getByRole("button", { name: "Start session" }));
@@ -1606,7 +1606,7 @@ describe("Catalyst query workflow", () => {
       expect.any(AbortSignal),
     );
     expect(
-      await screen.findByRole("heading", { name: /^Editing (Query v\d+|draft)$/ }),
+      await screen.findByRole("heading", { name: /^New draft( from Query v\d+)?$/ }),
     ).toBeVisible();
     expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
