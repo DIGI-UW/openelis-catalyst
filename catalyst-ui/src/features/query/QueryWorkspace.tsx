@@ -1,6 +1,12 @@
 import { Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
@@ -549,6 +555,15 @@ export const QueryWorkspace = ({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
   const [developerMode, setDeveloperMode] = useState(false);
+  // The dashboard panel owns the review dialog; the cell that produced the
+  // result asks it to open.
+  const openDatasetReview = useRef<(() => void) | null>(null);
+  const registerDatasetOpener = useCallback(
+    (open: (() => void) | null) => {
+      openDatasetReview.current = open;
+    },
+    [],
+  );
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? 1440 : window.innerWidth,
   );
@@ -1530,6 +1545,7 @@ export const QueryWorkspace = ({
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}
           onOpenDetails={openDetails}
+          onSaveDataset={() => openDatasetReview.current?.()}
           activeCell={workbenchPanel}
         />
       )}
@@ -1641,6 +1657,8 @@ export const QueryWorkspace = ({
 
         <DashboardPublishPanel
           api={api}
+          hostedInThread={notebookShowing}
+          registerDatasetOpener={registerDatasetOpener}
           session={workbenchSession}
           sql={workbenchSql}
           parameters={workbenchParameters}

@@ -21,6 +21,13 @@ interface DashboardPublishPanelProps {
   parameters: BoundParameter[];
   activeSection: DashboardBuilderSection;
   disabled?: boolean;
+  /**
+   * The thread hosts each turn's dataset now, so the standalone tile would
+   * repeat a table already on screen. The panel registers its opener here so
+   * the cell that owns the result can raise the review dialog.
+   */
+  hostedInThread?: boolean;
+  registerDatasetOpener?: (open: (() => void) | null) => void;
   onNavigate: (section: DashboardBuilderSection) => void;
 }
 
@@ -232,6 +239,8 @@ export const DashboardPublishPanel = ({
   sql,
   parameters,
   activeSection,
+  hostedInThread = false,
+  registerDatasetOpener,
   disabled = false,
   onNavigate,
 }: DashboardPublishPanelProps) => {
@@ -633,6 +642,16 @@ export const DashboardPublishPanel = ({
     }
   };
 
+  const currentDatasetVersionId = currentDataset?.versionId;
+
+  useEffect(() => {
+    registerDatasetOpener?.(() => openPanel("dataset", currentDatasetVersionId));
+    return () => registerDatasetOpener?.(null);
+    // openPanel is recreated each render; the dataset it targets is what
+    // actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerDatasetOpener, currentDatasetVersionId]);
+
   const renderAskArtifacts = () => {
     if (!session) return null;
     if (!supported) {
@@ -663,11 +682,7 @@ export const DashboardPublishPanel = ({
 
     return (
       <section className="builder-artifacts" aria-label="Dashboard artifacts">
-        {/*
-          The result is the thing being saved, so it is shown by default
-          rather than hidden behind a tile that only names it.
-        */}
-        {datasetExpanded ? (
+        {hostedInThread ? null : datasetExpanded ? (
           <div className="builder-dataset">
             <div className="builder-dataset__heading">
               <DataBase size={20} aria-hidden="true" />

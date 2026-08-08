@@ -647,3 +647,27 @@
   margin: 0;
   box-shadow: none;
 }
+
+/* A turn's result presented as the dataset it produced. */
+.query-turn__dataset {
+  border: 1px solid #c6c6c6;
+  border-left: 3px solid #0f62fe;
+}
+
+.query-turn__dataset-heading {
+  display: flex;
+  align-items: center;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f4f4f4;
+  gap: 0.625rem;
+}
+
+.query-turn__dataset-heading strong {
+  flex: 1;
+  font-size: 0.8125rem;
+}
+
+.query-turn__dataset .workbench-execution {
+  padding: 0 0.875rem 0.875rem;
+}

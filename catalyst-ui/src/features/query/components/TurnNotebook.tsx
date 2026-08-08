@@ -1,3 +1,4 @@
+import { DataBase } from "@carbon/icons-react";
 import { Button, Tag } from "@carbon/react";
 import {
   useEffect,
@@ -76,6 +77,8 @@ interface TurnNotebookProps {
   onGenerate: () => void;
   /** Open the Details panel scoped to this turn, on a chosen tab. */
   onOpenDetails: (turnId: string, tab?: DetailsTab) => void;
+  /** Promote this turn's result into the Datasets library. */
+  onSaveDataset?: () => void;
   /**
    * The editable current query, rendered as the last cell in the stack: the
    * work in progress sits where the next committed turn will, rather than in
@@ -173,6 +176,7 @@ export const TurnNotebook = ({
   onProfileChange,
   onGenerate,
   onOpenDetails,
+  onSaveDataset,
   activeCell = null,
 }: TurnNotebookProps) => {
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
@@ -185,6 +189,11 @@ export const TurnNotebook = ({
     "full",
   );
   const [composerFocused, setComposerFocused] = useState(false);
+  // Each executed turn shows its own result. Minimising is per cell, because
+  // "I have seen this one" is a judgement about that turn, not the thread.
+  const [minimisedResults, setMinimisedResults] = useState<
+    Record<string, boolean>
+  >({});
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // An action bar that disappears at the wrong moment costs more than the
@@ -401,7 +410,55 @@ export const TurnNotebook = ({
                 </div>
               )}
 
-              {execution && (
+              {/*
+                A run is what the turn produced, so its result is presented as
+                this turn's dataset rather than as a table repeated by a
+                separate card. Saving promotes it to the Datasets library.
+              */}
+              {execution?.status === "succeeded" && version && (
+                <div className="query-turn__dataset">
+                  <div className="query-turn__dataset-heading">
+                    <DataBase size={16} aria-hidden="true" />
+                    <strong>Dataset from Query v{version.ordinal}</strong>
+                    <Tag type="blue" size="sm">Draft</Tag>
+                    <button
+                      type="button"
+                      className="query-turn__footer-link"
+                      aria-expanded={!minimisedResults[turn.turnId]}
+                      onClick={() =>
+                        setMinimisedResults((current) => ({
+                          ...current,
+                          [turn.turnId]: !current[turn.turnId],
+                        }))
+                      }
+                    >
+                      {minimisedResults[turn.turnId] ? "Expand" : "Minimize"}
+                    </button>
+                    {turn.current && onSaveDataset && (
+                      <Button
+                        type="button"
+                        kind="tertiary"
+                        size="sm"
+                        onClick={onSaveDataset}
+                      >
+                        Save to datasets
+                      </Button>
+                    )}
+                  </div>
+                  {!minimisedResults[turn.turnId] && (
+                    <ExecutionResult
+                      session={session}
+                      sql={version.sql}
+                      parameters={execution.query.parameters}
+                      executionOverride={execution}
+                      immutableSnapshot
+                      compact
+                      pageSize={10}
+                    />
+                  )}
+                </div>
+              )}
+              {execution?.status === "failed" && (
                 <ExecutionResult
                   session={session}
                   sql={version?.sql ?? execution.query.sql}
