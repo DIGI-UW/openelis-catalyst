@@ -629,3 +629,21 @@
 .turn-composer__jump-slot {
   display: contents;
 }
+
+/* The active cell is the next turn taking shape, so it reads as current. */
+.query-turn--active .query-turn__gutter {
+  color: #0f62fe;
+}
+
+.query-turn--active .query-turn__body {
+  border-color: #0f62fe;
+  border-left: 3px solid #0f62fe;
+}
+
+.query-turn--active .query-card,
+.query-turn--active .workbench-panel {
+  padding: 1rem;
+  border: 0;
+  margin: 0;
+  box-shadow: none;
+}

@@ -535,3 +535,23 @@
   color: #6f6f6f;
   font-size: 0.75rem;
 }
+
+/* A section with nothing in it should not occupy a card's worth of page. */
+.workbench-parameters:has(.workbench-empty-note) {
+  padding: 0.625rem 1rem;
+}
+
+.workbench-parameters:has(.workbench-empty-note) .workbench-subheading {
+  margin: 0;
+}
+
+.workbench-parameters:has(.workbench-empty-note) h3 {
+  display: inline;
+  font-size: 0.875rem;
+}
+
+.workbench-parameters:has(.workbench-empty-note) .workbench-empty-note {
+  display: inline;
+  margin: 0 0 0 0.375rem;
+  font-style: normal;
+}

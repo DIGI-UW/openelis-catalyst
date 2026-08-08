@@ -1236,6 +1236,64 @@ export const QueryWorkspace = ({
   );
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
+  // The editable current query. It rides at the foot of the turn stack when
+  // there is a thread to sit in, and stands alone when there is not.
+  const workbenchPanel = sessionHasWork && workbenchSession ? (
+<WorkbenchPanel
+          session={workbenchSession}
+          sql={workbenchSql}
+          parameters={workbenchParameters}
+          editorCatalog={workbenchCatalog}
+          catalogLoadingFailed={workbenchCatalogFailed}
+          wrapLines={workbenchWrapLines}
+          busy={followupBusy ? "generating" : workbenchBusy}
+          error={workbenchError}
+          announcement={workbenchAnnouncement}
+          checkOutcome={
+            workbenchSession.latestValidation &&
+            workbenchSession.latestValidation.versionId ===
+              workbenchSession.currentVersionId
+              ? {
+                  status: workbenchSession.latestValidation.status,
+                  findings: workbenchSession.latestValidation.findings.length,
+                }
+              : null
+          }
+          onOpenValidationDetails={() => {
+            const latest = activeNotebookTurns.at(-1);
+            openDetails(latest?.turnId ?? null, "validation");
+          }}
+          sqlEditorFocusRequestId={sqlEditorFocusRequestId}
+          // Each notebook cell renders the run recorded against its own query
+          // version, so repeating the latest one here would show the same
+          // result twice. Without the notebook this panel is the only surface
+          // a failed run can appear on.
+          showExecutionResult={
+            !usesNotebook &&
+            workbenchSession.executions.some(
+              (execution) =>
+                execution.status === "failed" &&
+                execution.ordinal === Math.max(
+                  ...workbenchSession.executions.map(
+                    (candidate) => candidate.ordinal,
+                  ),
+                ),
+            )
+          }
+          onSqlChange={setWorkbenchSql}
+          onParametersChange={setWorkbenchParameters}
+          onWrapLinesChange={updateWorkbenchWrapLines}
+          onClearDraft={clearWorkbenchDraft}
+          onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
+          onValidate={validateWorkbenchDraft}
+          onRun={runWorkbenchDraft}
+        />
+  ) : null;
+
+  const notebookShowing = Boolean(
+    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
+  );
+
   return (
     <div
       className={`dashboard-builder-shell${railStacked ? " dashboard-builder-shell--stacked" : ""}`}
@@ -1372,7 +1430,7 @@ export const QueryWorkspace = ({
         />
       )}
 
-      {usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline && (
+      {notebookShowing && workbenchSession && workbenchTimeline && (
         <TurnNotebook
           turns={activeNotebookTurns}
           session={workbenchSession}
@@ -1396,60 +1454,12 @@ export const QueryWorkspace = ({
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}
           onOpenDetails={openDetails}
+          activeCell={workbenchPanel}
         />
       )}
 
-      {sessionHasWork && workbenchSession && (
-        <WorkbenchPanel
-          session={workbenchSession}
-          sql={workbenchSql}
-          parameters={workbenchParameters}
-          editorCatalog={workbenchCatalog}
-          catalogLoadingFailed={workbenchCatalogFailed}
-          wrapLines={workbenchWrapLines}
-          busy={followupBusy ? "generating" : workbenchBusy}
-          error={workbenchError}
-          announcement={workbenchAnnouncement}
-          checkOutcome={
-            workbenchSession.latestValidation &&
-            workbenchSession.latestValidation.versionId ===
-              workbenchSession.currentVersionId
-              ? {
-                  status: workbenchSession.latestValidation.status,
-                  findings: workbenchSession.latestValidation.findings.length,
-                }
-              : null
-          }
-          onOpenValidationDetails={() => {
-            const latest = activeNotebookTurns.at(-1);
-            openDetails(latest?.turnId ?? null, "validation");
-          }}
-          sqlEditorFocusRequestId={sqlEditorFocusRequestId}
-          // Each notebook cell renders the run recorded against its own query
-          // version, so repeating the latest one here would show the same
-          // result twice. Without the notebook this panel is the only surface
-          // a failed run can appear on.
-          showExecutionResult={
-            !usesNotebook &&
-            workbenchSession.executions.some(
-              (execution) =>
-                execution.status === "failed" &&
-                execution.ordinal === Math.max(
-                  ...workbenchSession.executions.map(
-                    (candidate) => candidate.ordinal,
-                  ),
-                ),
-            )
-          }
-          onSqlChange={setWorkbenchSql}
-          onParametersChange={setWorkbenchParameters}
-          onWrapLinesChange={updateWorkbenchWrapLines}
-          onClearDraft={clearWorkbenchDraft}
-          onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
-          onValidate={validateWorkbenchDraft}
-          onRun={runWorkbenchDraft}
-        />
-      )}
+
+      {!notebookShowing && workbenchPanel}
 
       {state.kind === "preview" && (
         <QueryPreview

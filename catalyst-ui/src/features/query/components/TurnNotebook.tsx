@@ -1,5 +1,12 @@
 import { Button, Tag } from "@carbon/react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import type {
   QueryProfile,
   WorkbenchExecution,
@@ -69,6 +76,12 @@ interface TurnNotebookProps {
   onGenerate: () => void;
   /** Open the Details panel scoped to this turn, on a chosen tab. */
   onOpenDetails: (turnId: string, tab?: DetailsTab) => void;
+  /**
+   * The editable current query, rendered as the last cell in the stack: the
+   * work in progress sits where the next committed turn will, rather than in
+   * a panel detached from the thread it belongs to.
+   */
+  activeCell?: ReactNode;
 }
 
 const textAt = (source: Record<string, unknown>, key: string) => {
@@ -160,6 +173,7 @@ export const TurnNotebook = ({
   onProfileChange,
   onGenerate,
   onOpenDetails,
+  activeCell = null,
 }: TurnNotebookProps) => {
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
     Record<string, boolean>
@@ -444,10 +458,22 @@ export const TurnNotebook = ({
         {turns.map((turn) => (
           <li key={turn.turnId}>{renderCell(turn)}</li>
         ))}
-        <li className="turn-notebook__composing" aria-hidden="true">
-          <span className="query-turn__gutter">[{turns.length + 1}]</span>
-          <span>composing…</span>
-        </li>
+        {activeCell && (
+          <li>
+            <article className="query-turn query-turn--active">
+              <div className="query-turn__gutter" aria-hidden="true">
+                [{turns.length + 1}]
+              </div>
+              <div className="query-turn__body">{activeCell}</div>
+            </article>
+          </li>
+        )}
+        {!activeCell && (
+          <li className="turn-notebook__composing" aria-hidden="true">
+            <span className="query-turn__gutter">[{turns.length + 1}]</span>
+            <span>composing…</span>
+          </li>
+        )}
       </ol>
 
       {/*

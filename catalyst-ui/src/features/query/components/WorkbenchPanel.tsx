@@ -198,7 +198,10 @@ const ParameterEditor = ({
       <div className="workbench-subheading workbench-subheading--row">
         <div>
           <h3 id="parameters-title">Parameters</h3>
-          <p>Names must match the SQL placeholders exactly.</p>
+          {/* The explanation only matters once there is one to name. */}
+          {parameters.length > 0 && (
+            <p>Names must match the SQL placeholders exactly.</p>
+          )}
         </div>
         <Button
           type="button"
@@ -211,7 +214,7 @@ const ParameterEditor = ({
         </Button>
       </div>
       {parameters.length === 0 ? (
-        <p className="workbench-empty-note">This query has no bound parameters.</p>
+        <p className="workbench-empty-note">None.</p>
       ) : (
         <div className="workbench-parameters__list">
           {parameters.map((parameter, index) => {
