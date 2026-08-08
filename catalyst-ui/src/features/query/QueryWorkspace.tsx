@@ -1,6 +1,6 @@
 import { Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
@@ -45,6 +45,7 @@ import {
   type WorkbenchGenerationEvidence,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
+  type WorkbenchSessionSummary,
   type WorkbenchTurnRequest,
   type WorkbenchTurnTimeline,
 } from "./types";
@@ -467,6 +468,13 @@ export const QueryWorkspace = ({
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
   const [railSection, setRailSection] = useState<RailSection>("turns");
   const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<"closed" | "list" | "new">(
+    "closed",
+  );
+  const [recentSessions, setRecentSessions] = useState<WorkbenchSessionSummary[]>(
+    [],
+  );
+  const [draftSessionName, setDraftSessionName] = useState("");
   const [detailsTurnId, setDetailsTurnId] = useState<string | null>(null);
   // Details can be scoped to the session rather than a turn: a gateway that
   // serves no per-turn evidence still records validation, provenance and
@@ -549,6 +557,41 @@ export const QueryWorkspace = ({
     ? profileId
     : fallbackRevisionProfileId;
 
+  // Everything it takes to make a stored session the one on screen. Restore
+  // on load and picking one from the rail menu are the same operation.
+  // Stable across renders: the restore effect depends on it, and useState
+  // setters are already stable, so `api` is its only real dependency.
+  const adoptWorkbenchSession = useCallback((session: WorkbenchSession) => {
+    setWorkbenchSession(session);
+    setQuestion(session.question);
+    setProfileId(currentQueryProfileId(session));
+    if (session.dataSourceId) setDataSourceId(session.dataSourceId);
+    const draft = sessionEditorDraft(session);
+    setWorkbenchSql(draft?.sql ?? "");
+    setWorkbenchParameters(
+      draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
+    );
+    setWorkbenchWrapLines(
+      typeof session.browserState.sqlWrapLines === "boolean"
+        ? session.browserState.sqlWrapLines
+        : true,
+    );
+    const layout = railLayoutFromBrowserState(session.browserState);
+    if (layout.width !== null) {
+      setRailWidth(clampRailWidth(layout.width, window.innerWidth));
+    }
+    if (layout.section !== null) setRailSection(layout.section);
+    setWorkbenchTimeline(null);
+    setDetailsOpen(false);
+    setDetailsTurnId(null);
+    setWorkbenchError(null);
+    if (api.getWorkbenchTurns) {
+      void api.getWorkbenchTurns(session.sessionId)
+        .then(setWorkbenchTimeline)
+        .catch(() => setWorkbenchTimeline(null));
+    }
+  }, [api]);
+
   useEffect(() => {
     if (!api.getQueryOptions) return;
     const controller = new AbortController();
@@ -629,27 +672,7 @@ export const QueryWorkspace = ({
     const controller = new AbortController();
     api.getWorkbenchSession(sessionId, controller.signal)
       .then((session) => {
-        setWorkbenchSession(session);
-        setQuestion(session.question);
-        setProfileId(currentQueryProfileId(session));
-        if (session.dataSourceId) {
-          setDataSourceId(session.dataSourceId);
-        }
-        const draft = sessionEditorDraft(session);
-        setWorkbenchSql(draft?.sql ?? "");
-        setWorkbenchParameters(
-          draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
-        );
-        setWorkbenchWrapLines(
-          typeof session.browserState.sqlWrapLines === "boolean"
-            ? session.browserState.sqlWrapLines
-            : true,
-        );
-        const layout = railLayoutFromBrowserState(session.browserState);
-        if (layout.width !== null) {
-          setRailWidth(clampRailWidth(layout.width, window.innerWidth));
-        }
-        if (layout.section !== null) setRailSection(layout.section);
+        adoptWorkbenchSession(session);
         if (api.getWorkbenchTurns) {
           void api.getWorkbenchTurns(sessionId, controller.signal)
             .then((timeline) => {
@@ -664,7 +687,7 @@ export const QueryWorkspace = ({
         if (!controller.signal.aborted) forgetActiveWorkbenchSession();
       });
     return () => controller.abort();
-  }, [api]);
+  }, [api, adoptWorkbenchSession]);
 
   useEffect(() => {
     if (state.kind !== "polling") return;
@@ -707,6 +730,8 @@ export const QueryWorkspace = ({
           (queryOptions && selectedAvailableProfileId) || undefined,
           undefined,
           dataSourceId || undefined,
+          undefined,
+          draftSessionName.trim() || undefined,
         );
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
@@ -769,6 +794,7 @@ export const QueryWorkspace = ({
 
   const startNewSession = () => {
     if (followupBusy) return;
+    setSessionMenu("closed");
     if (selectedAvailableProfileId) {
       setProfileId(selectedAvailableProfileId);
     }
@@ -1101,6 +1127,32 @@ export const QueryWorkspace = ({
       .find((validation) => validation.versionId === detailsVersion?.versionId) ??
     null;
 
+  const refreshRecentSessions = () => {
+    if (!api.listWorkbenchSessions) return;
+    void api.listWorkbenchSessions()
+      .then((response) => setRecentSessions(response.sessions))
+      .catch(() => undefined);
+  };
+
+  const openSessionMenu = (menu: "closed" | "list" | "new") => {
+    setSessionMenu(menu);
+    if (menu === "list") refreshRecentSessions();
+    if (menu === "new") setDraftSessionName("");
+  };
+
+  const openRecentSession = (sessionId: string) => {
+    setSessionMenu("closed");
+    if (sessionId === workbenchSession?.sessionId || !api.getWorkbenchSession) {
+      return;
+    }
+    void api.getWorkbenchSession(sessionId)
+      .then((session) => {
+        rememberActiveWorkbenchSession(session.sessionId);
+        adoptWorkbenchSession(session);
+      })
+      .catch((error: unknown) => setWorkbenchError(messageFromError(error)));
+  };
+
   const selectTurn = (ordinal: number) => {
     setActiveTurnOrdinal(ordinal);
     document
@@ -1130,9 +1182,19 @@ export const QueryWorkspace = ({
         stacked={railStacked}
         onWidthChange={setRailWidth}
         onWidthCommit={persistRailWidth}
-        sessionName={workbenchSession ? workbenchSession.question : null}
+        sessionName={workbenchSession ? workbenchSession.name : null}
         sessionSourceLabel={activeDataSourceLabel}
-        onNewSession={workbenchSession ? startNewSession : undefined}
+        sessionMenu={sessionMenu}
+        onSessionMenuChange={openSessionMenu}
+        recentSessions={recentSessions}
+        onOpenSession={openRecentSession}
+        activeSessionId={workbenchSession?.sessionId ?? null}
+        dataSources={dataSources?.dataSources ?? []}
+        draftSessionName={draftSessionName}
+        draftDataSourceId={dataSourceId}
+        onDraftSessionNameChange={setDraftSessionName}
+        onDraftDataSourceChange={setDataSourceId}
+        onStartSession={startNewSession}
         newSessionDisabled={followupBusy || workbenchBusy !== null}
         openSection={railSection}
         onOpenSectionChange={changeRailSection}
@@ -1217,9 +1279,6 @@ export const QueryWorkspace = ({
           profiles={queryOptions?.profiles ?? []}
           selectedProfileId={selectedAvailableProfileId}
           onProfileChange={setProfileId}
-          dataSources={dataSources?.dataSources ?? []}
-          selectedDataSourceId={dataSourceId}
-          onDataSourceChange={setDataSourceId}
         />
       )}
 

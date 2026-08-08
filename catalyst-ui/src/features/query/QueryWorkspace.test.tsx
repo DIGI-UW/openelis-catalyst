@@ -31,6 +31,7 @@ const session: WorkbenchSession = {
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: version.sessionId,
   question: "Count results by test",
+  name: "Count results by test",
   profileId: "catalyst-query",
   datasetId: "openelis",
   datasetVersion: "run-1",
@@ -166,6 +167,17 @@ const api = (): CatalystApi => ({
   getWorkbenchTurns: vi.fn().mockResolvedValue(timeline),
 });
 
+/**
+ * The session control owns both the session list and the data source, so
+ * reaching either means opening it the way a user does.
+ */
+const openSessionMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(
+    screen.getByRole("button", { name: /^Session:/ }),
+  );
+};
+
+
 describe("Dashboard Builder Ask shell", () => {
   it("puts sections, the session and the catalog in one resizable rail", async () => {
     const user = userEvent.setup();
@@ -214,7 +226,7 @@ describe("Dashboard Builder Ask shell", () => {
     expect(handle).toHaveAttribute("aria-valuenow", "200");
   });
 
-  it("keeps one active SQL editor, one New session action, and a fixed refinement composer", async () => {
+  it("keeps one active SQL editor and puts session management in the rail", async () => {
     const client = api();
     const user = userEvent.setup();
     render(<QueryWorkspace api={client} />);
@@ -224,7 +236,12 @@ describe("Dashboard Builder Ask shell", () => {
 
     expect(await screen.findByRole("textbox", { name: "SQL query" })).toBeVisible();
     expect(screen.getAllByRole("textbox", { name: "SQL query" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "New session" })).toHaveLength(1);
+    // Session management lives in one place: the rail's session control.
+    expect(screen.queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
+    await openSessionMenu(user);
+    expect(
+      screen.getAllByRole("menuitem", { name: /New session/ }),
+    ).toHaveLength(1);
     const composer = screen.getByRole("region", { name: /refine query v1/i });
     expect(composer).toHaveClass("turn-composer");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible());
@@ -283,6 +300,80 @@ describe("Dashboard Builder Ask shell", () => {
       expect(client.getWorkbenchCatalog).toHaveBeenLastCalledWith(
         "openelis-analytics",
         expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it("keeps the data source with the session, not with the model profile", async () => {
+    const client = api();
+    client.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis-analytics",
+      dataSources: [
+        { id: "openelis-analytics", label: "OpenELIS laboratory", available: true },
+        { id: "openmrs-hiv", label: "OpenMRS HIV/ART", available: true },
+      ],
+    });
+    client.listWorkbenchSessions = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.workbench.session-list.v1",
+      sessions: [
+        {
+          sessionId: "older-session",
+          name: "Turnaround time, Q2",
+          question: "How long do results take?",
+          dataSourceId: "openmrs-hiv",
+          turnCount: 5,
+          createdAt: "2026-08-01T00:00:00Z",
+          updatedAt: "2026-08-01T00:00:00Z",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<QueryWorkspace api={client} />);
+
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    // The source a question will target is readable without opening anything.
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenELIS laboratory")).toBeVisible(),
+    );
+    // It is a session property, so it is not offered beside the model
+    // profile, which is a per-turn choice with a different lifetime.
+    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Model profile")).toBeVisible();
+
+    await user.click(within(rail).getByRole("button", { name: /^Session:/ }));
+    expect(
+      screen.getByRole("menuitem", { name: /Turnaround time, Q2/ }),
+    ).toHaveTextContent("OpenMRS HIV/ART · 5 turns");
+
+    await user.click(screen.getByRole("menuitem", { name: /New session/ }));
+    expect(
+      screen.getByText(/A session is grounded in one catalog/),
+    ).toBeVisible();
+    await user.selectOptions(
+      screen.getByLabelText("Data source"),
+      "openmrs-hiv",
+    );
+    await user.type(screen.getByLabelText("Name"), "CD4 cohort review");
+    await user.click(screen.getByRole("button", { name: "Start session" }));
+
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenMRS HIV/ART")).toBeVisible(),
+    );
+
+    await user.type(screen.getByLabelText("Question"), "How many CD4 results?");
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    // The name and source chosen in the rail are what the session is created
+    // with — the composer only ever carried the question and the profile.
+    await waitFor(() =>
+      expect(client.createWorkbenchSession).toHaveBeenCalledWith(
+        "How many CD4 results?",
+        "catalyst-query",
+        undefined,
+        "openmrs-hiv",
+        undefined,
+        "CD4 cohort review",
       ),
     );
   });

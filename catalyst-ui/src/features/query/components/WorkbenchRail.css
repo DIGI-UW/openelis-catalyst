@@ -347,3 +347,207 @@
   outline: 2px solid #0f62fe;
   outline-offset: -2px;
 }
+
+.workbench-rail__session {
+  position: relative;
+}
+
+.workbench-rail__session-button {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid #c6c6c6;
+  background: #fff;
+  color: #161616;
+  font-family: inherit;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-button:hover {
+  border-color: #0f62fe;
+  background: #f4f4f4;
+}
+
+.workbench-rail__session-button:focus-visible,
+.workbench-rail__session-menu button:focus-visible,
+.workbench-rail__session-form :is(input, select):focus-visible {
+  outline: 2px solid #0f62fe;
+  outline-offset: -2px;
+}
+
+.workbench-rail__session-button > span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.workbench-rail__session-button strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-button small {
+  display: block;
+  overflow: hidden;
+  color: #6f6f6f;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-menu {
+  position: absolute;
+  z-index: 110;
+  top: calc(100% - 0.25rem);
+  right: 0.75rem;
+  left: 0.75rem;
+  /* A long history must scroll inside the menu rather than paint over the
+     page behind it. */
+  overflow-y: auto;
+  max-height: min(24rem, 60vh);
+  border: 1px solid #c6c6c6;
+  background: #fff;
+  box-shadow: 0 0.25rem 0.75rem rgb(0 0 0 / 18%);
+}
+
+.workbench-rail__session-menu-title {
+  padding: 0.5rem 0.75rem 0.25rem;
+  margin: 0;
+  color: #6f6f6f;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.workbench-rail__session-menu [role="menuitem"] {
+  display: flex;
+  width: 100%;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-menu [role="menuitem"]:hover {
+  background: #f4f4f4;
+}
+
+.workbench-rail__session-menu [role="menuitem"] > span:first-child {
+  width: 0.75rem;
+  flex: none;
+  color: #0f62fe;
+  font-size: 0.75rem;
+}
+
+/* Without this the flex child refuses to shrink and a long session name
+   overflows the rail instead of ellipsing. */
+.workbench-rail__session-menu [role="menuitem"] > span:last-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.workbench-rail__session-entry-name {
+  display: block;
+  overflow: hidden;
+  color: #161616;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-entry-meta {
+  display: block;
+  color: #6f6f6f;
+  font-size: 0.625rem;
+}
+
+.workbench-rail__session-empty {
+  padding: 0 0.75rem 0.5rem;
+  margin: 0;
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}
+
+.workbench-rail__session-new {
+  min-height: 2.25rem;
+  align-items: center;
+  border-top: 1px solid #e0e0e0 !important;
+  color: #0f62fe;
+  font-size: 0.75rem;
+}
+
+.workbench-rail__session-form {
+  padding: 0.75rem;
+}
+
+.workbench-rail__session-form label {
+  display: block;
+  margin-bottom: 0.625rem;
+}
+
+.workbench-rail__session-form label > span {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #6f6f6f;
+  font-size: 0.6875rem;
+}
+
+.workbench-rail__session-form :is(input, select) {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid #8d8d8d;
+  background: #f4f4f4;
+  color: #161616;
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+}
+
+.workbench-rail__session-note {
+  margin: 0.5rem 0 0.75rem;
+  color: #6f6f6f;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+}
+
+.workbench-rail__session-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.workbench-rail__session-actions button {
+  min-height: 2rem;
+  padding: 0 0.625rem;
+  border: 1px solid #c6c6c6;
+  background: #fff;
+  color: #161616;
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.workbench-rail__session-start {
+  flex: 1;
+  border: 0 !important;
+  background: #0f62fe !important;
+  color: #fff !important;
+}
+
+.workbench-rail__session-start:disabled {
+  background: #c6c6c6 !important;
+  cursor: not-allowed;
+}

@@ -83,6 +83,7 @@ const makeSession = (
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: "session-1",
   question: "How many viral load results are above 1000 copies/ml?",
+  name: "How many viral load results are above 1000 copies/ml?",
   profileId: "catalyst-query-gemma-e4b",
   datasetId: "openelis-fhir",
   datasetVersion: "pipeline-run-7",

@@ -456,10 +456,27 @@ export interface DashboardPublication {
   };
 }
 
+export interface WorkbenchSessionSummary {
+  sessionId: string;
+  name: string;
+  question: string;
+  dataSourceId: string | null;
+  turnCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchSessionList {
+  contractVersion: "catalyst.workbench.session-list.v1";
+  sessions: WorkbenchSessionSummary[];
+}
+
 export interface WorkbenchSession {
   contractVersion: "catalyst.workbench.session.v1";
   sessionId: string;
   question: string;
+  /** What the analyst calls this thread; defaults to its opening question. */
+  name: string;
   profileId: string;
   dataSourceId?: string | null;
   datasetId: string;

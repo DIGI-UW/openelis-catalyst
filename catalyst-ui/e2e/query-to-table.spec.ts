@@ -153,6 +153,7 @@ const session = (
   contractVersion: "catalyst.workbench.session.v1",
   sessionId,
   question: query,
+  name: query,
   profileId,
   datasetId: "openelis-fhir",
   datasetVersion: "pipeline-run-77",

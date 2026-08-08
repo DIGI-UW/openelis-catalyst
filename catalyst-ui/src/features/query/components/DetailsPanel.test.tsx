@@ -116,6 +116,7 @@ const session: WorkbenchSession = {
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: "7f2a91c4-3b5e-4d21-9a0c-1f2e3d4c5b6a",
   question: "Monthly viral load, 2026",
+  name: "Monthly viral load, 2026",
   profileId: "catalyst-query",
   datasetId: "openelis-analytics",
   datasetVersion: "lab_result_fact_v1 · r7",

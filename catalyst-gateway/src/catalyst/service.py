@@ -739,6 +739,11 @@ class CatalystService:
                 or runtime_catalog.catalog_version
             ),
             catalog_version=runtime_catalog.catalog_version,
+            name=(
+                str(payload["name"]).strip()
+                if isinstance(payload.get("name"), str) and payload["name"].strip()
+                else None
+            ),
             browser_state=dict(payload.get("browserState") or {}),
             provenance=provenance,
         )
@@ -1045,6 +1050,22 @@ class CatalystService:
                 "Workbench session was not found.",
             )
         return ServiceResponse(200, self._present_workbench_session(session))
+
+    def list_workbench_sessions(self, limit: int = 20) -> ServiceResponse:
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual workbench is not configured.",
+            )
+        return ServiceResponse(
+            200,
+            {
+                "contractVersion": "catalyst.workbench.session-list.v1",
+                "sessions": store.list_sessions(limit=limit),
+            },
+        )
 
     def get_workbench_turns(self, session_id: str) -> ServiceResponse:
         store = self.workbench_store

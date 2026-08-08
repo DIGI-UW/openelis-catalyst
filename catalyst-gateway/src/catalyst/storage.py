@@ -833,12 +833,34 @@ class WorkbenchStore:
                 """,
                 (_timestamp(self._now()),),
             )
+            # A session's name is what an analyst calls the thread. It is
+            # distinct from the question that opened it, which is immutable
+            # evidence of what was asked.
+            session_columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(catalyst_workbench_sessions)"
+                ).fetchall()
+            }
+            if "name" not in session_columns:
+                self._connection.execute(
+                    "ALTER TABLE catalyst_workbench_sessions ADD COLUMN name TEXT"
+                )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO catalyst_workbench_schema_migrations (
+                    migration_version, applied_at
+                ) VALUES (4, ?)
+                """,
+                (_timestamp(self._now()),),
+            )
             self._recover_orphaned_turns()
 
     def create_session(
         self,
         *,
         question: str,
+        name: str | None = None,
         profile_id: str,
         dataset_id: str,
         dataset_version: str,
@@ -855,15 +877,16 @@ class WorkbenchStore:
             connection.execute(
                 """
                 INSERT INTO catalyst_workbench_sessions (
-                    session_id, question, profile_id, dataset_id,
+                    session_id, question, name, profile_id, dataset_id,
                     dataset_version, catalog_version, current_version_id,
                     browser_state_json, provenance_json, status,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     question,
+                    name,
                     profile_id,
                     dataset_id,
                     dataset_version,
@@ -879,6 +902,7 @@ class WorkbenchStore:
                 "contractVersion": "catalyst.workbench.session.v1",
                 "sessionId": session_id,
                 "question": question,
+                "name": name or question,
                 "profileId": profile_id,
                 "datasetId": dataset_id,
                 "datasetVersion": dataset_version,
@@ -2084,6 +2108,38 @@ class WorkbenchStore:
                 """,
                 (_json(provenance), timestamp, session_id),
             )
+
+    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Recent sessions, newest first, with just enough to pick one."""
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT s.session_id, s.question, s.name, s.provenance_json,
+                       s.created_at, s.updated_at,
+                       (
+                           SELECT COUNT(*) FROM catalyst_workbench_turns t
+                           WHERE t.session_id = s.session_id
+                       ) AS turn_count
+                FROM catalyst_workbench_sessions s
+                ORDER BY s.updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "sessionId": row["session_id"],
+                "name": row["name"] or row["question"],
+                "question": row["question"],
+                "dataSourceId": (
+                    json.loads(row["provenance_json"]) or {}
+                ).get("dataSourceId"),
+                "turnCount": row["turn_count"],
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+            }
+            for row in rows
+        ]
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -3350,6 +3406,9 @@ class WorkbenchStore:
             "contractVersion": "catalyst.workbench.session.v1",
             "sessionId": row["session_id"],
             "question": row["question"],
+            # Sessions created before naming existed are called by their
+            # opening question, which is what the UI showed anyway.
+            "name": row["name"] or row["question"],
             "profileId": row["profile_id"],
             "datasetId": row["dataset_id"],
             "datasetVersion": row["dataset_version"],

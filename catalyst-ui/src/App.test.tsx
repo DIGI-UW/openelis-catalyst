@@ -131,6 +131,7 @@ const workbenchSession: WorkbenchSession = {
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: workbenchVersion.sessionId,
   question: QUESTION,
+  name: QUESTION,
   profileId: "catalyst-query-gemma-e4b",
   datasetId: "catalyst-openelis-cohort-v1",
   datasetVersion: "pipeline-run-77",
@@ -490,6 +491,21 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
+/**
+ * The session control owns both the session list and the data source, so
+ * reaching either means opening it the way a user does.
+ */
+const openSessionMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(
+    screen.getByRole("button", { name: /^Session:/ }),
+  );
+};
+
+const openNewSessionForm = async (user: ReturnType<typeof userEvent.setup>) => {
+  await openSessionMenu(user);
+  await user.click(screen.getByRole("menuitem", { name: /New session/ }));
+};
+
 describe("Catalyst query workflow", () => {
   it("keeps the demo boundary visible from the initial state", () => {
     render(<App api={makeApi()} />);
@@ -707,6 +723,8 @@ describe("Catalyst query workflow", () => {
       "catalyst-query-gemma-e4b",
       undefined,
       undefined,
+      undefined,
+      undefined,
     );
     expect(api.submitQuestion).not.toHaveBeenCalled();
     expect(
@@ -774,7 +792,8 @@ describe("Catalyst query workflow", () => {
     const user = await askQuestion();
     expect(await screen.findByRole("heading", { name: "Query workbench" })).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "New session" }));
+    await openNewSessionForm(user);
+    await user.click(screen.getByRole("button", { name: "Start session" }));
 
     expect(screen.queryByRole("heading", { name: "Query workbench" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Question")).toHaveValue("");
@@ -1005,7 +1024,9 @@ describe("Catalyst query workflow", () => {
       "false",
     );
     expect(screen.getByLabelText("Parameter 1 value")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+    await openNewSessionForm(user);
+    expect(screen.getByRole("button", { name: "Start session" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
@@ -1164,7 +1185,8 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchSession).not.toHaveBeenCalled();
     expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "New session" }));
+    await openNewSessionForm(user);
+    await user.click(screen.getByRole("button", { name: "Start session" }));
     expect(screen.queryByRole("button", { name: /query turn 1/i }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Follow-up instruction" }))
@@ -1178,6 +1200,8 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       "Count creatinine results",
       "catalyst-query-gemma-4-12b",
+      undefined,
+      undefined,
       undefined,
       undefined,
     );
@@ -1220,7 +1244,8 @@ describe("Catalyst query workflow", () => {
     expect(
       await screen.findByRole("heading", { name: "Query workbench" }),
     ).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "New session" }));
+    await openNewSessionForm(user);
+    await user.click(screen.getByRole("button", { name: "Start session" }));
 
     const profileSelector = screen.getByRole("combobox", {
       name: "Model profile",
@@ -1233,6 +1258,8 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchSession).toHaveBeenCalledWith(
       "Count recent results",
       "catalyst-query-gemma-e4b",
+      undefined,
+      undefined,
       undefined,
       undefined,
     );
@@ -1784,7 +1811,7 @@ describe("Catalyst query workflow", () => {
     ).toBeVisible();
   });
 
-  it("shows the switcher for multiple sources, defaults to it, and filters unavailable ones", async () => {
+  it("offers the source only when creating a session, and filters unavailable ones", async () => {
     const api = makeNotebookApi();
     api.getDataSources = vi.fn().mockResolvedValue({
       contractVersion: "catalyst.data-sources.v1",
@@ -1796,7 +1823,9 @@ describe("Catalyst query workflow", () => {
       ],
     });
     render(<App api={api} />);
+    const user = userEvent.setup();
 
+    await openNewSessionForm(user);
     const switcher = await screen.findByLabelText("Data source");
     expect(switcher).toHaveValue("openelis");
     expect(
@@ -1825,6 +1854,7 @@ describe("Catalyst query workflow", () => {
     const user = userEvent.setup();
     render(<App api={api} />);
 
+    await openNewSessionForm(user);
     const switcher = await screen.findByLabelText("Data source");
     await user.selectOptions(switcher, "openmrs-hiv");
 
@@ -1839,7 +1869,9 @@ describe("Catalyst query workflow", () => {
     window.history.replaceState(null, "", "/?dataSource=openmrs-hiv");
     const api = twoSourceApi();
     render(<App api={api} />);
+    const user = userEvent.setup();
 
+    await openNewSessionForm(user);
     expect(await screen.findByLabelText("Data source")).toHaveValue("openmrs-hiv");
     await waitFor(() =>
       expect(api.getWorkbenchCatalog).toHaveBeenCalledWith(
@@ -1857,7 +1889,9 @@ describe("Catalyst query workflow", () => {
     window.history.replaceState(null, "", "/?dataSource=retired-source");
     const api = twoSourceApi();
     render(<App api={api} />);
+    const user = userEvent.setup();
 
+    await openNewSessionForm(user);
     expect(await screen.findByLabelText("Data source")).toHaveValue("openelis");
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get("dataSource")).toBe(
@@ -1866,7 +1900,7 @@ describe("Catalyst query workflow", () => {
     );
   });
 
-  it("carries the switched source into the follow-up request and refetches its catalog", async () => {
+  it("carries the session's chosen source into its turns and catalog fetches", async () => {
     const api = makeNotebookApi();
     api.getDataSources = vi.fn().mockResolvedValue({
       contractVersion: "catalyst.data-sources.v1",
@@ -1879,6 +1913,7 @@ describe("Catalyst query workflow", () => {
     const user = userEvent.setup();
     render(<App api={api} />);
 
+    await openNewSessionForm(user);
     const switcher = await screen.findByLabelText("Data source");
     await user.selectOptions(switcher, "openmrs-hiv");
 
@@ -1897,6 +1932,8 @@ describe("Catalyst query workflow", () => {
       "catalyst-query-gemma-4-12b",
       undefined,
       "openmrs-hiv",
+      undefined,
+      undefined,
     );
 
     await screen.findByRole("heading", { name: "Refine Query v1" });

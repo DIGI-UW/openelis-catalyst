@@ -386,3 +386,51 @@ def test_execution_routes_to_version_source_adapter(tmp_path: Path) -> None:
     assert response.status_code in (200, 201), response.text
     assert analytics_b.manual_executions == 1
     assert analytics_a.manual_executions == 0
+
+
+def test_sessions_are_named_and_listed_for_the_rail(tmp_path: Path) -> None:
+    """The rail's session control needs a name to show and a list to pick from.
+
+    A name is what an analyst calls the thread; the question is immutable
+    evidence of what was asked. They are stored separately so renaming a
+    session never rewrites what it asked.
+    """
+    client, _, _, _ = _two_source_client(tmp_path)
+    named = _create_session(client, name="Monthly viral load, 2026")
+    unnamed = _create_session(client, dataSourceId="openmrs-hiv")
+
+    assert named["name"] == "Monthly viral load, 2026"
+    assert named["question"] == QUESTION
+    # A session created without a name is called by the question that opened
+    # it, which is what the UI displayed before naming existed.
+    assert unnamed["name"] == QUESTION
+
+    listing = client.get("/v1/catalyst/workbench/sessions")
+    assert listing.status_code == 200, listing.text
+    body = listing.json()
+    assert body["contractVersion"] == "catalyst.workbench.session-list.v1"
+
+    by_id = {row["sessionId"]: row for row in body["sessions"]}
+    assert by_id[named["sessionId"]]["name"] == "Monthly viral load, 2026"
+    # Each row carries the source it is grounded in, so the menu can say
+    # which catalog a thread belongs to without opening it.
+    assert by_id[named["sessionId"]]["dataSourceId"] == "openelis"
+    assert by_id[unnamed["sessionId"]]["dataSourceId"] == "openmrs-hiv"
+    assert by_id[named["sessionId"]]["turnCount"] == 1
+
+    # Newest first, so the menu opens on what was worked on last.
+    assert [row["sessionId"] for row in body["sessions"]][:2] == [
+        unnamed["sessionId"],
+        named["sessionId"],
+    ]
+
+
+def test_session_name_survives_reload(tmp_path: Path) -> None:
+    client, _, _, _ = _two_source_client(tmp_path)
+    session = _create_session(client, name="Turnaround time, Q3")
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert reloaded["name"] == "Turnaround time, Q3"
+    assert reloaded["question"] == QUESTION

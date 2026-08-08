@@ -10,7 +10,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { DashboardBuilderSection } from "../types";
+import type {
+  DashboardBuilderSection,
+  DataSource,
+  WorkbenchSessionSummary,
+} from "../types";
 import {
   clampRailWidth,
   RAIL_MIN_WIDTH,
@@ -38,7 +42,17 @@ interface WorkbenchRailProps {
   onWidthCommit: (width: number) => void;
   sessionName: string | null;
   sessionSourceLabel: string | null;
-  onNewSession?: () => void;
+  sessionMenu: "closed" | "list" | "new";
+  onSessionMenuChange: (menu: "closed" | "list" | "new") => void;
+  recentSessions: WorkbenchSessionSummary[];
+  onOpenSession: (sessionId: string) => void;
+  activeSessionId: string | null;
+  dataSources: DataSource[];
+  draftSessionName: string;
+  draftDataSourceId: string;
+  onDraftSessionNameChange: (name: string) => void;
+  onDraftDataSourceChange: (dataSourceId: string) => void;
+  onStartSession: () => void;
   newSessionDisabled?: boolean;
   openSection: RailSection;
   onOpenSectionChange: (section: RailSection) => void;
@@ -60,7 +74,17 @@ export const WorkbenchRail = ({
   onWidthCommit,
   sessionName,
   sessionSourceLabel,
-  onNewSession,
+  sessionMenu,
+  onSessionMenuChange,
+  recentSessions,
+  onOpenSession,
+  activeSessionId,
+  dataSources,
+  draftSessionName,
+  draftDataSourceId,
+  onDraftSessionNameChange,
+  onDraftDataSourceChange,
+  onStartSession,
   newSessionDisabled = false,
   openSection,
   onOpenSectionChange,
@@ -160,25 +184,131 @@ export const WorkbenchRail = ({
       </div>
 
       <div className="workbench-rail__session">
-        <div className="workbench-rail__session-name">
-          <strong>{sessionName ?? "No session yet"}</strong>
-          {/*
-            The data source is a property of the session, fixed when the
-            session is created. A session's SQL, versions and evidence are all
-            grounded in one catalog, so switching source mid-thread would
-            invalidate the thread. It is displayed here, never edited.
-          */}
-          <small>{sessionSourceLabel ?? "Choose a source to begin"}</small>
-        </div>
-        {onNewSession && (
-          <button
-            type="button"
-            className="workbench-rail__new-session"
-            disabled={newSessionDisabled}
-            onClick={onNewSession}
-          >
-            <span aria-hidden="true">＋ </span>New session
-          </button>
+        {/*
+          The session owns its data source, so both live here rather than
+          beside the model profile in the composer — a per-turn choice with a
+          different lifetime. The source is always visible, never guessed at.
+        */}
+        <button
+          type="button"
+          className="workbench-rail__session-button"
+          aria-label={`Session: ${sessionName ?? "none yet"}`}
+          aria-expanded={sessionMenu !== "closed"}
+          aria-haspopup="menu"
+          onClick={() =>
+            onSessionMenuChange(sessionMenu === "closed" ? "list" : "closed")
+          }
+        >
+          <span>
+            <strong>{sessionName ?? "No session yet"}</strong>
+            <small>{sessionSourceLabel ?? "Choose a source to begin"}</small>
+          </span>
+          <span aria-hidden="true">▾</span>
+        </button>
+
+        {sessionMenu === "list" && (
+          <div className="workbench-rail__session-menu" role="menu">
+            <p className="workbench-rail__session-menu-title">
+              RECENT SESSIONS
+            </p>
+            {recentSessions.length === 0 ? (
+              <p className="workbench-rail__session-empty">
+                No sessions recorded yet.
+              </p>
+            ) : (
+              recentSessions.map((entry) => (
+                <button
+                  key={entry.sessionId}
+                  type="button"
+                  role="menuitem"
+                  aria-current={
+                    entry.sessionId === activeSessionId ? "true" : undefined
+                  }
+                  onClick={() => onOpenSession(entry.sessionId)}
+                >
+                  <span aria-hidden="true">
+                    {entry.sessionId === activeSessionId ? "✓" : ""}
+                  </span>
+                  <span>
+                    <span className="workbench-rail__session-entry-name">
+                      {entry.name}
+                    </span>
+                    <span className="workbench-rail__session-entry-meta">
+                      {[
+                        dataSources.find(
+                          (source) => source.id === entry.dataSourceId,
+                        )?.label ?? entry.dataSourceId,
+                        `${entry.turnCount} ${entry.turnCount === 1 ? "turn" : "turns"}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </span>
+                </button>
+              ))
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="workbench-rail__session-new"
+              onClick={() => onSessionMenuChange("new")}
+            >
+              <span aria-hidden="true">＋ </span>New session…
+            </button>
+          </div>
+        )}
+
+        {sessionMenu === "new" && (
+          <div className="workbench-rail__session-menu workbench-rail__session-form">
+            <p className="workbench-rail__session-menu-title">NEW SESSION</p>
+            <label>
+              <span>Name</span>
+              <input
+                value={draftSessionName}
+                placeholder="e.g. Turnaround time, Q3"
+                onChange={(event) =>
+                  onDraftSessionNameChange(event.currentTarget.value)
+                }
+              />
+            </label>
+            <label>
+              <span>Data source</span>
+              <select
+                value={draftDataSourceId}
+                onChange={(event) =>
+                  onDraftDataSourceChange(event.currentTarget.value)
+                }
+              >
+                {dataSources
+                  .filter((source) => source.available)
+                  .map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="workbench-rail__session-note">
+              A session is grounded in one catalog. Its queries and versions
+              can't move to another source later.
+            </p>
+            <div className="workbench-rail__session-actions">
+              <button
+                type="button"
+                className="workbench-rail__session-start"
+                disabled={newSessionDisabled}
+                onClick={onStartSession}
+              >
+                Start session
+              </button>
+              <button
+                type="button"
+                onClick={() => onSessionMenuChange("closed")}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
