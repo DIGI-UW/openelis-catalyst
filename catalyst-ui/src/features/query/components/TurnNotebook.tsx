@@ -183,26 +183,58 @@ export const TurnNotebook = ({
 
   useEffect(() => {
     if (composerPinned) return;
+
+    // Two things caused flicker before: the mode was recomputed from the sign
+    // of every individual scroll event, so any jitter near a threshold flipped
+    // it; and the thresholds were single values, so hovering on one oscillated.
+    // Intent is now accumulated until it is unambiguous, each state has to be
+    // clearly left before it changes, and at most one decision is made per
+    // frame.
+    const INTENT = 24; // px of consistent travel before the mode may change
+    const NEAR_END = 200; // scrolling down within this: full
+    const LEAVE_END = 320; // once full, only leave beyond this
+    const FAR_BACK = 560; // scrolling up beyond this: tucked
+    const LEAVE_FAR = 440; // once tucked, only leave inside this
+
     let lastY = window.scrollY;
-    const onScroll = () => {
+    let intent = 0;
+    let frame = 0;
+
+    const measure = () => {
+      frame = 0;
       const y = window.scrollY;
       const delta = y - lastY;
       lastY = y;
-      if (Math.abs(delta) < 4) return;
+      // Reverse of travel abandons the intent that was building.
+      intent = Math.sign(intent) === Math.sign(delta) ? intent + delta : delta;
+      if (Math.abs(intent) < INTENT) return;
+
       const gap =
         document.documentElement.scrollHeight - (y + window.innerHeight);
-      setScrollMode(
-        delta > 0
-          ? gap < 240
-            ? "full"
-            : "line"
-          : gap > 520
-            ? "tucked"
-            : "line",
-      );
+
+      // Read out of the mutable accumulator before handing React an updater:
+      // the updater runs later, by which time `intent` has been reset.
+      const towardNow = intent > 0;
+      intent = 0;
+
+      setScrollMode((current) => {
+        if (towardNow) {
+          if (gap < NEAR_END) return "full";
+          return current === "full" && gap < LEAVE_END ? "full" : "line";
+        }
+        if (gap > FAR_BACK) return "tucked";
+        return current === "tucked" && gap > LEAVE_FAR ? "tucked" : "line";
+      });
+    };
+
+    const onScroll = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(measure);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
   }, [composerPinned]);
 
   const composerMode = composerPinned ? "full" : scrollMode;
@@ -413,7 +445,13 @@ export const TurnNotebook = ({
         </li>
       </ol>
 
-      {composerMode === "tucked" && (
+      {/*
+        A stable slot: rendering the pill as a bare sibling shifted every
+        following child's position, so React remounted the composer each time
+        it appeared or vanished — losing focus and flickering mid-scroll.
+      */}
+      <div className="turn-composer__jump-slot">
+        {composerMode === "tucked" && (
         <button
           type="button"
           className="turn-composer__jump"
@@ -427,7 +465,8 @@ export const TurnNotebook = ({
         >
           ↓ back to [{turns.length}] · ask
         </button>
-      )}
+        )}
+      </div>
 
       <section
         id="refine-openelis"

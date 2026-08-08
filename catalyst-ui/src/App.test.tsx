@@ -786,7 +786,7 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
     // Findings never block a run: the workbench stays usable while the
     // Details panel carries why the model output was rejected.
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: /^Details/ }));
@@ -826,7 +826,7 @@ describe("Catalyst query workflow", () => {
       ),
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
     expect(localStorage.getItem("catalyst.workbench.activeSessionId")).toBe(
       workbenchSession.sessionId,
@@ -1093,7 +1093,7 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByRole("button", { name: "Start session" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Save version & check/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
   });
 
@@ -1111,7 +1111,7 @@ describe("Catalyst query workflow", () => {
       name: "Follow-up instruction",
     });
     await user.type(instruction, "Only include released results");
-    await user.click(screen.getByRole("button", { name: "Validate query" }));
+    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
 
     await waitFor(() => expect(api.createWorkbenchVersion).toHaveBeenCalledOnce());
     expect(instruction).toBeDisabled();
@@ -1434,7 +1434,7 @@ describe("Catalyst query workflow", () => {
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
     await user.type(screen.getByLabelText("Parameter 1 name"), "test_name");
     await user.type(screen.getByLabelText("Parameter 2 name"), "threshold");
-    await user.click(screen.getByRole("button", { name: "Validate query" }));
+    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
 
     await waitFor(() =>
       expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
@@ -1513,7 +1513,7 @@ describe("Catalyst query workflow", () => {
     const parameterName = await screen.findByLabelText("Parameter 2 name");
     await user.clear(parameterName);
     await user.type(parameterName, "threshold");
-    await user.click(screen.getByRole("button", { name: "Validate query" }));
+    await user.click(screen.getByRole("button", { name: /Save version & check/ }));
 
     await waitFor(() =>
       expect(api.createWorkbenchVersion).toHaveBeenCalledWith(

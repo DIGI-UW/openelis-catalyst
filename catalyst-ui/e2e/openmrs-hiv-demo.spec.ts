@@ -44,7 +44,7 @@ test("OpenMRS HIV/ART: ask, then add patient demographic detail", async ({
     "hiv_observation_fact_v1",
   );
 
-  await page.getByRole("button", { name: "Validate query" }).click();
+  await page.getByRole("button", { name: /Save version & check/ }).click();
   await expect(page.getByRole("heading", { name: "Validation" })).toBeVisible({
     timeout: 60_000,
   });
@@ -69,7 +69,7 @@ test("OpenMRS HIV/ART: ask, then add patient demographic detail", async ({
     "hiv_observation_fact_v1",
   );
 
-  await page.getByRole("button", { name: "Validate query" }).click();
+  await page.getByRole("button", { name: /Save version & check/ }).click();
   await page.getByRole("button", { name: "Run query" }).click();
   await expect(
     execution.getByRole("heading", { name: /Results from Query v2/ }),

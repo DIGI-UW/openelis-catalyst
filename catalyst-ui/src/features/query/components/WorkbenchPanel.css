@@ -502,3 +502,36 @@
     flex-direction: column;
   }
 }
+
+.workbench-actions__outcome {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.workbench-actions__outcome [data-status="valid"] {
+  color: #0e6027;
+}
+
+.workbench-actions__outcome [data-status="warning"],
+.workbench-actions__outcome [data-status="invalid"] {
+  color: #6929c4;
+}
+
+.workbench-actions__outcome button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #0f62fe;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.workbench-actions__note {
+  margin: 0;
+  color: #6f6f6f;
+  font-size: 0.75rem;
+}

@@ -228,13 +228,13 @@ describe("WorkbenchPanel", () => {
         busy="validating"
       />,
     );
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
 
     rerender(
       <WorkbenchPanel {...defaultProps} session={makeSession()} sql="   " />,
     );
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
   });
 
@@ -261,7 +261,7 @@ describe("WorkbenchPanel", () => {
       screen.getByRole("button", { name: "Remove parameter 1" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
   });
 
@@ -280,7 +280,7 @@ describe("WorkbenchPanel", () => {
 
     const restore = screen.getByRole("button", { name: "Restore Query v1" });
     expect(restore).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Sav(e|ing) version/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
     await user.click(restore);
     expect(onRestoreCurrentVersion).toHaveBeenCalledOnce();

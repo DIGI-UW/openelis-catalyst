@@ -34,6 +34,12 @@ interface WorkbenchPanelProps {
   busy?: "generating" | "validating" | "running" | null;
   error?: string | null;
   announcement?: string;
+  /** Outcome of the last check, reported where the button that ran it is. */
+  checkOutcome?: {
+    status: "invalid" | "warning" | "valid";
+    findings: number;
+  } | null;
+  onOpenValidationDetails?: () => void;
   sqlEditorFocusRequestId?: number;
   showExecutionResult?: boolean;
   onSqlChange: (sql: string) => void;
@@ -540,6 +546,8 @@ export const WorkbenchPanel = ({
   busy = null,
   error = null,
   announcement = "",
+  checkOutcome = null,
+  onOpenValidationDetails,
   sqlEditorFocusRequestId = 0,
   showExecutionResult = true,
   onSqlChange,
@@ -636,6 +644,11 @@ export const WorkbenchPanel = ({
             Restore Query v{session.currentVersion.ordinal}
           </Button>
         )}
+        {/*
+          This saves the editor as an immutable version and checks it, which
+          is why it does not say "Validate": the version is the point, and
+          the check is what the save reports back.
+        */}
         <Button
           type="button"
           kind="secondary"
@@ -643,7 +656,7 @@ export const WorkbenchPanel = ({
           aria-busy={busy === "validating"}
           onClick={onValidate}
         >
-          Validate query
+          {busy === "validating" ? "Saving version…" : "Save version & check"}
         </Button>
         <Button
           type="button"
@@ -653,7 +666,27 @@ export const WorkbenchPanel = ({
         >
           Run query
         </Button>
-        <p>Run remains available when validation reports errors.</p>
+        {checkOutcome ? (
+          <p className="workbench-actions__outcome" role="status">
+            <span data-status={checkOutcome.status}>
+              {checkOutcome.status === "valid"
+                ? "✓ No findings"
+                : `${checkOutcome.findings} ${checkOutcome.findings === 1 ? "finding" : "findings"}`}
+            </span>
+            {checkOutcome.findings > 0 && onOpenValidationDetails && (
+              <button type="button" onClick={onOpenValidationDetails}>
+                What was found
+              </button>
+            )}
+            <span className="workbench-actions__note">
+              Findings never block a run.
+            </span>
+          </p>
+        ) : (
+          <p className="workbench-actions__note">
+            Saving keeps every version. Findings never block a run.
+          </p>
+        )}
       </div>
 
       <ParameterEditor

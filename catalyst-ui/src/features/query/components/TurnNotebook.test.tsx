@@ -218,8 +218,11 @@ const defaultProps = {
   onOpenDetails: vi.fn(),
 };
 
-/** Drive the scroll listener the composer's state machine reads. */
-const scrollTo = ({
+/**
+ * Drive the scroll listener the composer's state machine reads. The handler
+ * decides at most once per frame, so the frame has to be flushed.
+ */
+const scrollTo = async ({
   y,
   scrollHeight,
   innerHeight,
@@ -237,8 +240,9 @@ const scrollTo = ({
     configurable: true,
     value: innerHeight,
   });
-  act(() => {
+  await act(async () => {
     window.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
   });
 };
 
@@ -422,39 +426,40 @@ describe("TurnNotebook", () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
 
-    const composer = document.getElementById("refine-openelis")!;
+    const composerMode = () =>
+      document.getElementById("refine-openelis")!.getAttribute("data-mode");
     const instruction = screen.getByRole("textbox", {
       name: "Follow-up instruction",
     });
-    expect(composer).toHaveAttribute("data-mode", "full");
+    expect(composerMode()).toBe("full");
     expect(screen.getByText(/Execution summary: Query v3.*49 rows/i)).toBeVisible();
 
     // Land at the end of the thread, then scroll up into history: the
     // composer tucks to a lip and offers a way back rather than stranding you.
-    scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
-    expect(composer).toHaveAttribute("data-mode", "full");
-    scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
-    expect(composer).toHaveAttribute("data-mode", "tucked");
+    await scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    expect(composerMode()).toBe("full");
+    await scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
+    expect(composerMode()).toBe("tucked");
     expect(instruction.closest("form")).toHaveAttribute("hidden");
     const jump = screen.getByRole("button", { name: /back to \[2\] · ask/ });
     expect(jump).toBeVisible();
 
     // Scrolling back down toward now brings it back in full.
-    scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
-    expect(composer).toHaveAttribute("data-mode", "full");
+    await scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    expect(composerMode()).toBe("full");
     expect(instruction.closest("form")).not.toHaveAttribute("hidden");
     expect(screen.getAllByRole("textbox", { name: "Follow-up instruction" }))
       .toHaveLength(1);
 
     // Scrolling up while still near the end only drops it to one line, which
     // is the manual way back.
-    scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
-    expect(composer).toHaveAttribute("data-mode", "line");
+    await scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
+    expect(composerMode()).toBe("line");
     await user.click(screen.getByRole("button", { name: /Refine Query v3/ }));
-    expect(composer).toHaveAttribute("data-mode", "full");
+    expect(composerMode()).toBe("full");
   });
 
-  it("never hides the composer at a moment that would cost an action", () => {
+  it("never hides the composer at a moment that would cost an action", async () => {
     // Typed text, a run in flight, and a failed last run each pin it open:
     // an action bar that disappears at the wrong moment costs more than the
     // space it saves.
@@ -464,7 +469,7 @@ describe("TurnNotebook", () => {
       { lastRunFailed: true },
     ]) {
       const view = render(<TurnNotebook {...defaultProps} {...props} />);
-      scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
+      await scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
       expect(document.getElementById("refine-openelis")).toHaveAttribute(
         "data-mode",
         "full",

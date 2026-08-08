@@ -608,3 +608,8 @@
   outline: 2px solid #0f62fe;
   outline-offset: 2px;
 }
+
+/* Reserves nothing; exists so the pill's arrival never reorders its siblings. */
+.turn-composer__jump-slot {
+  display: contents;
+}

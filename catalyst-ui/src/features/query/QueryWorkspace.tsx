@@ -1183,6 +1183,7 @@ export const QueryWorkspace = ({
     if (menu === "new") setDraftSessionName("");
     // Renaming starts from the name it already has.
     if (menu === "rename") setDraftSessionName(workbenchSession?.name ?? "");
+
   };
 
   const renameSession = (name: string) => {
@@ -1192,7 +1193,7 @@ export const QueryWorkspace = ({
       !workbenchSession ||
       !api.renameWorkbenchSession ||
       !trimmed ||
-      trimmed === workbenchSession.name
+      trimmed === (workbenchSession.name ?? "")
     ) {
       return;
     }
@@ -1250,7 +1251,11 @@ export const QueryWorkspace = ({
         onWidthChange={setRailWidth}
         onWidthCommit={persistRailWidth}
         sessionName={
-          workbenchSession ? workbenchSession.name.trim() || "New session" : null
+          workbenchSession
+            ? (workbenchSession.name ?? "").trim() ||
+              workbenchSession.question.trim() ||
+              "New session"
+            : null
         }
         sessionSourceLabel={activeDataSourceLabel}
         sessionMenu={sessionMenu}
@@ -1405,6 +1410,20 @@ export const QueryWorkspace = ({
           busy={followupBusy ? "generating" : workbenchBusy}
           error={workbenchError}
           announcement={workbenchAnnouncement}
+          checkOutcome={
+            workbenchSession.latestValidation &&
+            workbenchSession.latestValidation.versionId ===
+              workbenchSession.currentVersionId
+              ? {
+                  status: workbenchSession.latestValidation.status,
+                  findings: workbenchSession.latestValidation.findings.length,
+                }
+              : null
+          }
+          onOpenValidationDetails={() => {
+            const latest = activeNotebookTurns.at(-1);
+            openDetails(latest?.turnId ?? null, "validation");
+          }}
           sqlEditorFocusRequestId={sqlEditorFocusRequestId}
           // Each notebook cell renders the run recorded against its own query
           // version, so repeating the latest one here would show the same

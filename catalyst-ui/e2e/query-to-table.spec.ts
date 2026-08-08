@@ -952,7 +952,7 @@ test("question to iterative notebook to imported dashboard", async ({
     await page.getByRole("textbox", { name: "SQL query" }).fill(manualSql);
   }
 
-  await page.getByRole("button", { name: "Validate query" }).click();
+  await page.getByRole("button", { name: /Save version & check/ }).click();
   if (useMockApi) {
     await expect(page.getByText("Valid", { exact: true })).toBeVisible();
     await expect.poll(() => calls?.versionRequests.length).toBe(1);
@@ -1176,7 +1176,7 @@ test("question to iterative notebook to imported dashboard", async ({
         .toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "SQL query" })).toHaveCount(1);
-      await expect(page.getByRole("button", { name: "Validate query" })).toBeVisible();
+      await expect(page.getByRole("button", { name: /Save version & check/ })).toBeVisible();
       await expect(page.getByRole("button", { name: "Run query" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Datasets", exact: true }))
         .toBeVisible();
