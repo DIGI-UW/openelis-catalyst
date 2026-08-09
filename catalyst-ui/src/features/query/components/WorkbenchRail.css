@@ -49,31 +49,72 @@
   gap: 0.625rem;
 }
 
-.workbench-rail__brand > span:first-child {
+/*
+ * The mark, in Carbon's AI treatment. A grey square said nothing about what
+ * this product is; the aura and border tokens are the vocabulary Carbon
+ * designed for content a model produced, which is the whole claim here. Both
+ * are theme-aware, so this holds in dark with no second definition.
+ */
+.workbench-rail__mark {
+  position: relative;
   display: flex;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2rem;
+  height: 2rem;
   flex: none;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--cds-border-subtle-02);
-  background: var(--cds-background);
-  color: var(--cds-text-secondary);
+  border: 1px solid var(--cds-ai-border-strong);
+  background:
+    linear-gradient(
+      135deg,
+      var(--cds-ai-aura-start) 0%,
+      var(--cds-ai-aura-end) 100%
+    ),
+    var(--cds-layer-01);
+  box-shadow: var(--cds-ai-inner-shadow) 0 0 0.75rem inset;
+  color: var(--cds-text-primary);
   font-family: "IBM Plex Mono", "Menlo", monospace;
-  font-size: 0.875rem;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
+  font-weight: 600;
 }
 
-.workbench-rail__brand > span:last-child {
+.workbench-rail__wordmark {
   min-width: 0;
   flex: 1;
+}
+
+.workbench-rail__theme {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-icon-secondary, var(--cds-text-secondary));
+  cursor: pointer;
+}
+
+.workbench-rail__theme:hover {
+  background: var(--cds-layer-hover-01);
+  color: var(--cds-text-primary);
+}
+
+.workbench-rail__theme:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
 }
 
 .workbench-rail__brand strong {
   display: block;
   color: var(--cds-text-primary);
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.2;
+  /* Carbon's scale, now that the type custom properties are emitted. */
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
+  font-weight: var(--cds-heading-compact-01-font-weight, 600);
+  letter-spacing: var(--cds-heading-compact-01-letter-spacing, 0.16px);
+  line-height: var(--cds-heading-compact-01-line-height, 1.28572);
 }
 
 .workbench-rail__brand small {
@@ -237,7 +278,7 @@
 
 .workbench-rail__turns button[aria-current="true"] {
   border-left-color: var(--cds-border-interactive);
-  background: var(--catalyst-surface-info);
+  background: var(--cds-layer-selected-01);
   font-weight: 500;
 }
 

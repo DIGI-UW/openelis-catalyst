@@ -1,6 +1,16 @@
 /*
  * Project tokens: Carbon palette steps the Gray 10 theme binds to no semantic
- * name. Authored once here, by their palette names, so `features/query/**`
+ * name.
+ *
+ * These are literal values and therefore theme-blind, which is a constraint
+ * rather than an oversight: every one is either intentionally fixed across
+ * themes (the demo banner is dark in both) or applies to a disabled control,
+ * where WCAG does not require contrast. Anything that must follow the theme
+ * uses a --cds-* token instead. Two earlier entries here -- a purple and a
+ * blue tint standing in for AI and selected surfaces -- were exactly that
+ * mistake: they stayed light while text went near-white in Gray 100, and the
+ * SQL in a model-authored cell became invisible. They are Carbon's
+ * theme-aware ai-popover-background and layer-selected-01 now. Authored once here, by their palette names, so `features/query/**`
  * holds no colour literals and every value still traces to a Carbon ramp.
  * See specs/008-catalyst-query-workbench/token-map.md.
  */
@@ -15,8 +25,6 @@
   --catalyst-surface-warning: #fddc69; /* yellow20 */
   --catalyst-text-success-strong: #044317; /* green80 */
   --catalyst-border-accent-soft: #d4bbff; /* purple30 */
-  --catalyst-surface-ai: #f6f2ff; /* purple10 — assistant/model accent */
-  --catalyst-surface-info: #edf5ff; /* blue10 — selected and info surfaces */
 }
 
 :root {

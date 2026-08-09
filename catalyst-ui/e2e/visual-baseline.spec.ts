@@ -47,47 +47,65 @@ const shot = {
   maxDiffPixels: 2,
 };
 
-test.describe("visual baseline", () => {
+const THEMES = ["light", "dark"] as const;
+
+/** Pin the preference before the app boots, so no flash of the other theme. */
+const useTheme = async (page: import("@playwright/test").Page, theme: string) => {
+  await page.addInitScript(
+    `window.localStorage.setItem("catalyst.theme", ${JSON.stringify("PLACEHOLDER")})`.replace(
+      "PLACEHOLDER",
+      theme,
+    ),
+  );
+};
+
+for (const theme of THEMES) {
+test.describe(`visual baseline (${theme})`, () => {
   test("empty session", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page, { empty: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
     await expect(page.getByLabel("Question")).toBeVisible();
-    await expect(page).toHaveScreenshot("empty-session.png", {
+    await expect(page).toHaveScreenshot(`empty-session-${theme}.png`, {
       ...shot,
       fullPage: true,
     });
   });
 
   test("thread with a run, a failure and a repair", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
     // The newest cell is open on arrival and carries its dataset.
     await expect(page.locator(".query-turn__dataset").first()).toBeVisible();
-    await expect(page).toHaveScreenshot("thread.png", { ...shot, fullPage: true });
+    await expect(page).toHaveScreenshot(`thread-${theme}.png`, { ...shot, fullPage: true });
   });
 
   test("a failed run's cell", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
     // Cell [2] is the run the database rejected; open it.
     await page.getByRole("button", { name: /Query turn 2/ }).click();
     await expect(page.getByText('column "test_type" does not exist')).toBeVisible();
-    await expect(page.locator("#turn-2")).toHaveScreenshot("failed-run.png", shot);
+    await expect(page.locator("#turn-2")).toHaveScreenshot(`failed-run-${theme}.png`, shot);
   });
 
   test("expanded dataset tile", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
     const tile = page.locator(".query-turn__dataset").first();
     await expect(tile).toBeVisible();
-    await expect(tile).toHaveScreenshot("dataset-tile.png", shot);
+    await expect(tile).toHaveScreenshot(`dataset-tile-${theme}.png`, shot);
   });
 
   test("dataset review dialog", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
@@ -98,11 +116,12 @@ test.describe("visual baseline", () => {
       .click();
     const dialog = page.getByRole("dialog", { name: "Review panel" });
     await expect(dialog).toBeVisible();
-    await expect(dialog).toHaveScreenshot("review-dialog.png", shot);
+    await expect(dialog).toHaveScreenshot(`review-dialog-${theme}.png`, shot);
   });
 
   for (const section of ["Datasets", "Widgets", "Dashboards"] as const) {
     test(`${section.toLowerCase()} library`, async ({ page }) => {
+      await useTheme(page, theme);
       await installBaselineApi(page);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto("/");
@@ -125,8 +144,7 @@ test.describe("visual baseline", () => {
       // changes the document height between runs, which a full-page shot
       // records as a difference. (That the composer appears here at all is a
       // separate finding, recorded in the follow-through goals.)
-      await expect(page.locator(".builder-library")).toHaveScreenshot(
-        `library-${section.toLowerCase()}.png`,
+      await expect(page.locator(".builder-library")).toHaveScreenshot(`library-${section.toLowerCase()}-${theme}.png`,
         shot,
       );
     });
@@ -135,6 +153,7 @@ test.describe("visual baseline", () => {
   // States CP-3 changed and nothing was watching: the editor's own chrome, a
   // selected turn in the rail, and the thread's status colours side by side.
   test("open editor", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
@@ -142,10 +161,11 @@ test.describe("visual baseline", () => {
     const editor = page.locator(".workbench-panel");
     await expect(editor).toBeVisible();
     await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
-    await expect(editor).toHaveScreenshot("editor.png", shot);
+    await expect(editor).toHaveScreenshot(`editor-${theme}.png`, shot);
   });
 
   test("rail turns, with one selected", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
@@ -153,13 +173,13 @@ test.describe("visual baseline", () => {
     const turns = rail.getByRole("button", { name: /^TURNS/ });
     await expect(turns).toHaveAttribute("aria-expanded", "true");
     // Succeeded, failed and not-run dots in one shot.
-    await expect(rail.locator(".workbench-rail__turns")).toHaveScreenshot(
-      "rail-turns.png",
+    await expect(rail.locator(".workbench-rail__turns")).toHaveScreenshot(`rail-turns-${theme}.png`,
       shot,
     );
   });
 
   test("thread statuses side by side", async ({ page }) => {
+    await useTheme(page, theme);
     await installBaselineApi(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto("/");
@@ -167,7 +187,7 @@ test.describe("visual baseline", () => {
     await page.getByRole("button", { name: /Query turn 3/ }).click();
     const timeline = page.locator(".turn-notebook__timeline");
     await expect(timeline).toBeVisible();
-    await expect(timeline).toHaveScreenshot("thread-statuses.png", shot);
+    await expect(timeline).toHaveScreenshot(`thread-statuses-${theme}.png`, shot);
   });
 
   // The rail is resizable, and its catalog and nav both adapt to the width —
@@ -178,6 +198,7 @@ test.describe("visual baseline", () => {
     ["wide", 520],
   ] as const) {
     test(`rail at ${name} width`, async ({ page }) => {
+      await useTheme(page, theme);
       await installBaselineApi(page);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto("/");
@@ -193,7 +214,8 @@ test.describe("visual baseline", () => {
           `.dashboard-builder-shell{--dashboard-nav-width:${width}px}` +
           `.workbench-rail{width:${width}px}`,
       });
-      await expect(rail).toHaveScreenshot(`rail-${name}.png`, shot);
+      await expect(rail).toHaveScreenshot(`rail-${name}-${theme}.png`, shot);
     });
   }
 });
+}
