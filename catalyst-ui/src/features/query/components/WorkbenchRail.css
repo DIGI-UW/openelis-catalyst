@@ -18,8 +18,8 @@
   position: relative;
   top: 0;
   width: 100%;
-  max-height: 60vh;
-  max-height: 60dvh;
+  /* The body carries its own cap now; the bar itself is content-sized. */
+  max-height: none;
   border-right: 0;
   border-bottom: 1px solid var(--cds-border-subtle-01);
 }
@@ -682,4 +682,38 @@
 
 .workbench-rail__session-rename-action:hover {
   background: var(--cds-background);
+}
+
+/*
+ * Stacked, the rail is a bar. Its body -- session, catalog, thread, details --
+ * collapses behind a disclosure so the thread leads on a phone instead of
+ * starting below the fold. The section nav stays, because it is how you move
+ * between screens.
+ */
+.workbench-rail__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.workbench-rail[data-stacked="true"] .workbench-rail__body {
+  overflow-y: auto;
+  max-height: 50dvh;
+}
+
+.workbench-rail__disclosure {
+  flex: none;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cds-border-subtle-02);
+  background: none;
+  color: var(--cds-link-primary);
+  font-family: inherit;
+  font-size: var(--cds-label-01-font-size, 0.75rem);
+  cursor: pointer;
+}
+
+.workbench-rail__disclosure:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
 }

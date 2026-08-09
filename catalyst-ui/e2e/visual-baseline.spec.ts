@@ -190,6 +190,23 @@ test.describe(`visual baseline (${theme})`, () => {
     await expect(timeline).toHaveScreenshot(`thread-statuses-${theme}.png`, shot);
   });
 
+  // A phone. The rail is a bar here rather than a column, and it was 398px of
+  // a 664px screen before it collapsed behind a disclosure, so this is the
+  // state most worth holding still.
+  test("stacked on a phone", async ({ page }) => {
+    await useTheme(page, theme);
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 390, height: 664 });
+    await page.goto("/");
+    const rail = page.getByRole("complementary", { name: "Catalyst" });
+    await expect(rail).toHaveAttribute("data-stacked", "true");
+    await expect(page.getByRole("button", { name: "Menu" })).toBeVisible();
+    await expect(page).toHaveScreenshot(`stacked-${theme}.png`, {
+      ...shot,
+      fullPage: false,
+    });
+  });
+
   // The rail is resizable, and its catalog and nav both adapt to the width —
   // the labels hide near the minimum, the catalog gains columns near the top.
   for (const [name, width] of [
