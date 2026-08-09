@@ -76,7 +76,7 @@
 }
 
 .dataset-browser__glyph {
-  color: var(--catalyst-text-muted);
+  color: var(--cds-text-helper);
   font-family: "IBM Plex Mono", "Menlo", monospace;
   font-size: 0.5625rem;
 }

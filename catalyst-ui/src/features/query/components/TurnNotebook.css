@@ -23,7 +23,8 @@
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
-  color: var(--catalyst-text-disabled);
+  /* A status line, not a disabled control: it has to meet AA. */
+  color: var(--cds-text-helper);
   font-size: 0.75rem;
 }
 
@@ -302,7 +303,7 @@
 
 .turn-composer__restore > span:nth-child(2) {
   margin-left: auto;
-  color: var(--catalyst-text-muted);
+  color: var(--cds-text-helper);
 }
 
 .turn-composer__jump {

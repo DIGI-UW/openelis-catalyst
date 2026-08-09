@@ -21,8 +21,6 @@
 
 :root {
   --dashboard-nav-width: 15rem;
-  color: var(--cds-text-primary);
-  background: var(--cds-background);
   font-synthesis: none;
   scroll-padding-block: 4rem 5rem;
   text-rendering: optimizeLegibility;
@@ -40,9 +38,20 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+}
+
+/*
+ * Carbon emits its palette only under .cds--g10 and never on :root, so the
+ * page has to be painted from inside the theme subtree. Painting it on body
+ * would reference tokens that do not exist there and leave the page
+ * transparent -- which is exactly what happened.
+ */
+.application {
+  min-height: 100vh;
   background:
     linear-gradient(135deg, rgb(15 98 254 / 5%) 0, transparent 32rem),
     var(--cds-background);
+  color: var(--cds-text-primary);
 }
 
 button,
@@ -50,10 +59,6 @@ textarea,
 select,
 input {
   font: inherit;
-}
-
-.application {
-  min-height: 100vh;
 }
 
 .demo-banner {

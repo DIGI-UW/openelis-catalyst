@@ -18,13 +18,20 @@ import { expect, test } from "@playwright/test";
 import { installBaselineApi } from "./support/baseline-fixture";
 
 /*
-  No pixel tolerance. A tolerance of 1% sounded reasonable and was measured to
-  be blind: recolouring a 3px cell border changed 0.26% of a full-page shot and
-  passed. Regeneration is byte-identical on one machine, so zero is achievable,
-  and an instrument that cannot see the change it exists to review is worse
-  than none.
+  No pixel tolerance, and no per-pixel threshold either.
+
+  Both defaults were measured to be blind, in turn. A 1% pixel ratio missed a
+  recoloured 3px border (0.26% of a full-page shot). Removing it left
+  Playwright's default `threshold: 0.2`, which compares pixels perceptually --
+  and #ffffff against #f4f4f4 is roughly a 4% distance, so an entire surface
+  can swap between near-whites and be reported identical. That is exactly the
+  change a token migration between neutral greys makes, so the instrument was
+  blind to the one thing it was built to watch.
+
+  Verified the hard way: it reported 11/11 while the rail and its nav had
+  swapped colours on screen.
 */
-const shot = { animations: "disabled" as const };
+const shot = { animations: "disabled" as const, threshold: 0 };
 
 test.describe("visual baseline", () => {
   test("empty session", async ({ page }) => {
