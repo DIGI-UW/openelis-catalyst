@@ -50,10 +50,6 @@
   text-align: right;
 }
 
-.query-turn[data-current="true"] .query-turn__gutter {
-  color: var(--cds-link-primary);
-}
-
 .query-turn__body {
   min-width: 0;
   flex: 1;
@@ -61,10 +57,6 @@
   background: var(--cds-layer-01);
   /* Lifts the cell off the Gray 10 page rather than relying on a hairline. */
   box-shadow: 0 0.0625rem 0.125rem rgb(22 22 22 / 6%);
-}
-
-.query-turn[data-current="true"] .query-turn__body {
-  border-color: var(--cds-border-interactive);
 }
 
 .query-turn__disclosure {
@@ -101,8 +93,19 @@
   border-left-color: var(--cds-support-error);
 }
 
+/*
+  CP-5: one channel, one meaning.
+    colour  -> outcome   (succeeded / failed / not-run)
+    weight  -> current   (which cell the session is standing on)
+    gutter  -> authorship (§10 gives purple to the model)
+  No colour here that does not encode one of those.
+*/
+.query-turn[data-status="not-run"] .query-turn__disclosure {
+  border-left-color: var(--cds-border-strong-01);
+}
+
 .query-turn[data-current="true"] .query-turn__disclosure {
-  border-left-color: var(--cds-border-interactive);
+  border-left-width: 4px;
 }
 
 .query-turn__dot {
@@ -121,6 +124,23 @@
 .query-turn[data-status="failed"] .query-turn__dot {
   border-color: var(--cds-support-error);
   background: var(--cds-support-error);
+}
+
+/* Not run is a state, not the absence of one, so it is drawn rather than
+   left blank -- an outline, because nothing has happened to fill it. */
+.query-turn[data-status="not-run"] .query-turn__dot {
+  border-color: var(--cds-border-strong-01);
+  background: var(--cds-layer-01);
+}
+
+/* Authorship, legible while collapsed. */
+.query-turn[data-author="model"] .query-turn__gutter,
+.query-turn[data-author="reviewer"] .query-turn__gutter {
+  color: var(--cds-status-purple);
+}
+
+.query-turn[data-author="human"] .query-turn__gutter {
+  color: var(--cds-text-helper);
 }
 
 .query-turn__summary {

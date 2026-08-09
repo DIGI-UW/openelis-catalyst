@@ -172,6 +172,7 @@ const initialTurn = {
     reviewer: { modelId: "qwen2.5-14b" },
   },
   failure: null,
+  createdAt: "2026-08-07T10:01:00Z",
 };
 
 const followupTurn = {
@@ -197,6 +198,7 @@ const followupTurn = {
   ],
   profileSnapshot: initialTurn.profileSnapshot,
   failure: null,
+  createdAt: "2026-08-07T10:02:00Z",
 };
 
 const defaultProps = {
@@ -642,5 +644,29 @@ describe("TurnNotebook", () => {
     expect(screen.getAllByRole("textbox", {
       name: "Follow-up instruction",
     })).toHaveLength(1);
+  });
+
+  it("encodes outcome and authorship on separate channels", () => {
+    render(<TurnNotebook {...defaultProps} />);
+    const cells = [...document.querySelectorAll("article.query-turn")];
+    expect(cells.length).toBeGreaterThan(0);
+
+    // Outcome and authorship are different questions, so they cannot share
+    // one attribute: a current cell that succeeded must still read as
+    // succeeded, and a hand-edited cell must be identifiable while collapsed.
+    for (const cell of cells) {
+      expect(cell.getAttribute("data-status")).toMatch(
+        /^(succeeded|failed|not-run)$/,
+      );
+      expect(cell.getAttribute("data-author")).toMatch(
+        /^(model|human|reviewer)$/,
+      );
+    }
+    const current = cells.find((cell) => cell.getAttribute("data-current"));
+    if (current) {
+      expect(current.getAttribute("data-status")).toMatch(
+        /^(succeeded|failed|not-run)$/,
+      );
+    }
   });
 });
