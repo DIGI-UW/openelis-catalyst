@@ -706,27 +706,35 @@ describe("Catalyst query workflow", () => {
     expect(
       screen.queryByText(/test types and numeric distributions/i),
     ).not.toBeInTheDocument();
+    // Source-neutral: the workbench is not laboratory-only, and this composer
+    // is shown for whichever catalog the session is grounded in.
     expect(screen.getByLabelText("Question")).toHaveAttribute(
       "placeholder",
-      "Describe the laboratory data you want to explore",
+      "Describe the data you want to explore",
     );
     expect(screen.getByLabelText("Model profile")).toHaveValue(
       "catalyst-query-gemma-e4b",
     );
     const profileSelector = screen.getByLabelText("Model profile");
+    /*
+     * The option carries the profile's prose label only. It used to append the
+     * model aliases, which restated what the label already said and overflowed
+     * the control; the concrete aliases are disclosed in helper text beneath
+     * the field instead, so they are still on screen (and still on camera in
+     * the published demo cuts) without crowding the option.
+     */
     expect(
       within(profileSelector).getByRole("option", {
-        name: "Catalyst governed query — Gemma 4 E4B — gemma-e4b",
+        name: "Catalyst governed query — Gemma 4 E4B",
       }),
     ).toBeInTheDocument();
     expect(
-      within(profileSelector).queryByRole("option", {
-        name: /gemma-e4b, gemma-e4b/,
-      }),
+      within(profileSelector).queryByRole("option", { name: /gemma-e4b/ }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText("gemma-e4b")).toBeVisible();
     expect(
       within(profileSelector).getByRole("option", {
-        name: "Split generation and review — generation-model, review-model",
+        name: "Split generation and review",
       }),
     ).toBeInTheDocument();
     expect(

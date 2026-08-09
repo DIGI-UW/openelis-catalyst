@@ -248,10 +248,15 @@ input {
   outline-offset: 0.25rem;
 }
 
+/*
+ * Full width, like every other element in the shell. This was capped at 58rem
+ * and centred, so on a wide screen the composer floated in the middle with the
+ * catalog and the result tables running edge to edge behind it -- the one
+ * control that did not line up with anything else on the page.
+ */
 .query-composer-form {
-  width: min(100%, 58rem);
-  max-width: 58rem;
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
 }
 
 .query-composer {
@@ -273,18 +278,55 @@ input {
   line-height: 1.5;
 }
 
+/*
+ * Wraps rather than relying on a viewport breakpoint. The composer starts at
+ * the rail's edge, so how much room this toolbar has depends on the rail width
+ * as much as the window: at 700px the content column is ~412px and a row
+ * layout squeezed the profile name down to "Catalyst ...". Wrapping is driven
+ * by the space actually available.
+ */
 .query-composer__toolbar {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
   padding: 0.625rem 1rem;
   border-top: 1px solid var(--cds-border-subtle-02);
 }
 
-.query-composer__toolbar .profile-selector {
+/* Stays on the right when the button drops to its own line. */
+.query-composer__toolbar .cds--btn {
+  margin-inline-start: auto;
+}
+
+/*
+ * The profile control takes the room it needs and no more, so the submit
+ * button stays anchored at the right edge on a wide screen instead of being
+ * pushed around by whichever profile name happens to be selected.
+ */
+/*
+ * flex-basis, not width: Carbon gives .cds--form-item `flex: 1 1 auto`, so a
+ * plain width loses and the control grows to fill the whole toolbar -- a
+ * dropdown the width of the screen for four short options.
+ */
+.query-composer__toolbar .query-composer__profile {
+  flex: 1 1 20rem;
+  max-width: 34rem;
   min-width: 0;
-  width: min(32rem, 100%);
+}
+
+.query-composer__toolbar .query-composer__profile .cds--select-input {
+  width: 100%;
+}
+
+/* The concrete model aliases, kept legible rather than crammed into the option. */
+.query-composer__toolbar .query-composer__profile .cds--form__helper-text {
+  overflow: hidden;
+  max-width: 100%;
+  font-family: var(--cds-code-01-font-family, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dataset-browser {
@@ -483,8 +525,7 @@ input {
   margin: 1.5rem 0 1rem;
 }
 
-.dataset-filters label,
-.profile-selector {
+.dataset-filters label {
   display: grid;
   gap: 0.4rem;
   color: var(--cds-text-secondary);
@@ -492,8 +533,7 @@ input {
 }
 
 .dataset-filters select,
-.dataset-filters input,
-.profile-selector select {
+.dataset-filters input {
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -866,6 +906,15 @@ input {
   .query-composer__toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  /*
+   * flex-basis follows the main axis, so the 30rem basis that keeps the
+   * dropdown a sane width in a row becomes a 30rem *height* once the toolbar
+   * stacks -- which pushed the submit button off the bottom of the dock.
+   */
+  .query-composer__toolbar .query-composer__profile {
+    flex: 0 0 auto;
   }
 
   .query-composer__toolbar .cds--btn {
