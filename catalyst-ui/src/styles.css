@@ -36,7 +36,15 @@
 
 body {
   min-width: 320px;
+  /*
+   * dvh, not vh: on a phone 100vh is the LARGE viewport, which includes the
+   * space the collapsible URL bar occupies. Sizing to it makes the page taller
+   * than the screen at rest, so it never quite pins -- and a bottom-fixed
+   * composer sits below the fold until you scroll. vh stays first as the
+   * fallback for browsers without dvh.
+   */
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
 }
 
@@ -48,6 +56,7 @@ body {
  */
 .application {
   min-height: 100vh;
+  min-height: 100dvh;
   background:
     linear-gradient(135deg, rgb(15 98 254 / 5%) 0, transparent 32rem),
     var(--cds-background);
@@ -121,6 +130,7 @@ input {
 
 .dashboard-builder-shell {
   min-height: calc(100vh - 2.5rem);
+  min-height: calc(100dvh - 2.5rem);
   padding-left: var(--dashboard-nav-width);
 }
 
