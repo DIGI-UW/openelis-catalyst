@@ -289,7 +289,7 @@ describe("TurnNotebook", () => {
 
     await user.click(first);
     const opened = screen.getByRole("region", { name: /query turn 1/i });
-    expect(within(opened).getByText(modelVersion.sql)).toBeVisible();
+    expect(opened.querySelector("pre")?.textContent).toBe(modelVersion.sql);
     // Refinement stays with the one composer; a cell is never an editor.
     expect(within(opened).queryByRole("textbox")).not.toBeInTheDocument();
     expect(
@@ -375,7 +375,7 @@ describe("TurnNotebook", () => {
     render(<TurnNotebook {...defaultProps} />);
 
     const latest = screen.getByRole("region", { name: /query turn 2/i });
-    expect(within(latest).getByText(reviewerVersion.sql)).toBeVisible();
+    expect(latest.querySelector("pre")?.textContent).toBe(reviewerVersion.sql);
     expect(
       within(latest).getByText(/reviewer correction · qwen2\.5-14b/i),
     ).toBeVisible();
@@ -668,5 +668,19 @@ describe("TurnNotebook", () => {
         /^(succeeded|failed|not-run)$/,
       );
     }
+  });
+
+  it("highlights committed SQL without mounting an editor per cell", () => {
+    const { container } = render(<TurnNotebook {...defaultProps} />);
+
+    // Highlighted: the reader scans a committed cell the same way they scan
+    // the editor, so it cannot be a wall of one colour.
+    expect(container.querySelector(".query-turn__sql .sql-keyword")).not.toBeNull();
+
+    // And it costs nothing to do so. A CodeMirror view per cell would make a
+    // long thread expensive to render text nobody can type into. The editor
+    // is the only .cm-editor on the page, and it is not inside a cell.
+    const editors = [...container.querySelectorAll(".cm-editor")];
+    expect(editors.filter((el) => el.closest(".query-turn__sql"))).toHaveLength(0);
   });
 });
