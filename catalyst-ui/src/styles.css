@@ -325,13 +325,11 @@ input {
   white-space: nowrap;
 }
 
+/* Narrow screens keep the heading and drop the id beside it. */
 @media (max-width: 48rem) {
   .dashboard-session-meta {
-  display: flex;
-  align-items: center;
-  color: var(--cds-text-helper);
-  font-size: var(--cds-label-01-font-size, 0.75rem);
-  white-space: nowrap;
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
