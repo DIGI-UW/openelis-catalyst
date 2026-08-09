@@ -195,35 +195,27 @@ export const WorkbenchRail = ({
       */}
       <div className="workbench-rail__brand">
         <span className="workbench-rail__mark" aria-hidden="true">
-          C
+          {/*
+            A C that is also the thing the product does: an open arc taking
+            something in, and a node where it comes out changed. A letterform
+            alone said nothing, and at this size a literal glyph in a
+            monospace face reads as a placeholder.
+          */}
+          <svg viewBox="0 0 32 32" role="presentation" focusable="false">
+            <path
+              d="M23 9.2a10 10 0 1 0 0 13.6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3.4"
+              strokeLinecap="round"
+            />
+            <circle cx="24.4" cy="16" r="3.1" fill="currentColor" />
+          </svg>
         </span>
         <span className="workbench-rail__wordmark">
           <strong>Catalyst</strong>
           <small>Governed queries → dashboards</small>
         </span>
-        <button
-          type="button"
-          className="workbench-rail__theme"
-          aria-label={`Theme: ${themePreference}. Change it.`}
-          title={`Theme: ${themePreference}`}
-          onClick={() =>
-            onThemePreferenceChange(
-              themePreference === "system"
-                ? "light"
-                : themePreference === "light"
-                  ? "dark"
-                  : "system",
-            )
-          }
-        >
-          {themePreference === "dark" ? (
-            <Asleep size={16} aria-hidden="true" />
-          ) : themePreference === "light" ? (
-            <Light size={16} aria-hidden="true" />
-          ) : (
-            <Screen size={16} aria-hidden="true" />
-          )}
-        </button>
       </div>
 
       <div className="workbench-rail__session">
@@ -472,6 +464,29 @@ export const WorkbenchRail = ({
         >
           <Settings size={16} aria-hidden="true" />
           Details
+        </button>
+        <button
+          type="button"
+          className="workbench-rail__theme"
+          aria-label={`Theme: ${themePreference}. Change it.`}
+          title={`Theme: ${themePreference}`}
+          onClick={() =>
+            onThemePreferenceChange(
+              themePreference === "system"
+                ? "light"
+                : themePreference === "light"
+                  ? "dark"
+                  : "system",
+            )
+          }
+        >
+          {themePreference === "dark" ? (
+            <Asleep size={16} aria-hidden="true" />
+          ) : themePreference === "light" ? (
+            <Light size={16} aria-hidden="true" />
+          ) : (
+            <Screen size={16} aria-hidden="true" />
+          )}
         </button>
       </div>
 
