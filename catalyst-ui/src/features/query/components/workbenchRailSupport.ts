@@ -1,5 +1,7 @@
 export const RAIL_MIN_WIDTH = 200;
-export const RAIL_DEFAULT_WIDTH = 240;
+// 240 was tight once the rail's text came up to a readable size: session
+// names truncated early and the section counts crowded their headers.
+export const RAIL_DEFAULT_WIDTH = 288;
 /** Below this the rail stops being a column and stacks above the notebook. */
 export const RAIL_STACK_BREAKPOINT = 672;
 

@@ -78,34 +78,28 @@ input {
   font: inherit;
 }
 
-.demo-banner {
+.app-bar {
   position: sticky;
   z-index: 100;
   top: 0;
   width: 100%;
-  border-bottom: 1px solid var(--cds-border-strong-01);
-  color: var(--catalyst-text-on-inverse);
-  background: var(--catalyst-surface-inverse);
 }
 
-.demo-banner__inner {
+.app-bar__inner {
   display: flex;
-  min-height: 2.5rem;
-  max-width: 80rem;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 1.5rem;
-  margin: 0 auto;
+  justify-content: flex-end;
+  padding: 0 1.5rem;
   font-size: var(--cds-body-compact-01-font-size, 0.875rem);
 }
 
-.demo-banner .cds--tag {
+.app-bar .cds--tag {
   flex: 0 0 auto;
   margin: 0;
 }
 
-.demo-banner__message {
-  flex: 1 1 18rem;
+.app-bar__spacer {
+  flex: 1;
 }
 
 .ask-openelis-navigation {
@@ -132,13 +126,13 @@ input {
 
 .app-shell {
   width: 100%;
-  padding: 2rem 1.5rem 5rem;
+  padding: 1rem 1.5rem 5rem;
   margin: 0;
 }
 
 .dashboard-builder-shell {
-  min-height: calc(100vh - 2.5rem);
-  min-height: calc(100dvh - 2.5rem);
+  min-height: 100vh;
+  min-height: 100dvh;
   padding-left: var(--dashboard-nav-width);
 }
 
@@ -324,22 +318,20 @@ input {
  * is placed there rather than lifting session state up to reach it.
  */
 .dashboard-session-meta {
-  position: fixed;
-  z-index: 130;
-  top: 0;
-  right: 1.5rem;
   display: flex;
-  min-height: 2.5rem;
   align-items: center;
-  color: var(--catalyst-text-on-inverse-muted);
-  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
-  pointer-events: none;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-label-01-font-size, 0.75rem);
+  white-space: nowrap;
 }
 
 @media (max-width: 48rem) {
   .dashboard-session-meta {
-    display: none;
-  }
+  display: flex;
+  align-items: center;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-label-01-font-size, 0.75rem);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -634,6 +626,13 @@ input {
   margin-bottom: 1.25rem;
 }
 
+.workbench-header__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .workbench-header .eyebrow {
   margin-bottom: 0.25rem !important;
 }
@@ -832,7 +831,7 @@ input {
 }
 
 @media (max-width: 42rem) {
-  .demo-banner__inner,
+  .app-bar__inner,
   .app-shell {
     width: 100%;
     padding-right: 1rem;
@@ -858,7 +857,7 @@ input {
     transform: none;
   }
 
-  .demo-banner__inner {
+  .app-bar__inner {
     flex-wrap: wrap;
   }
 
@@ -908,21 +907,14 @@ input {
 }
 
 @media (max-width: 28rem) {
-  .demo-banner__inner {
+  .app-bar__inner {
     align-items: center;
     flex-wrap: nowrap;
     gap: 0.5rem;
   }
 
-  .demo-banner .cds--tag {
+  .app-bar .cds--tag {
     display: none;
-  }
-
-  .demo-banner__message {
-    overflow: hidden;
-    min-width: 0;
-    white-space: nowrap;
-    text-overflow: ellipsis;
   }
 
   .ask-openelis-navigation[data-compact="true"] {

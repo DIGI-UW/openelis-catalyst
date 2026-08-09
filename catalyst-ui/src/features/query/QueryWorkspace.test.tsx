@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryWorkspace } from "./QueryWorkspace";
 import type { CatalystApi } from "./api";
+import { RAIL_DEFAULT_WIDTH } from "./components/workbenchRailSupport";
 import type {
   WorkbenchExecution,
   WorkbenchQueryVersion,
@@ -252,11 +253,14 @@ describe("Dashboard Builder Ask shell", () => {
     render(<QueryWorkspace api={api()} />);
 
     const handle = screen.getByRole("separator", { name: "Resize sidebar" });
-    expect(handle).toHaveAttribute("aria-valuenow", "240");
+    expect(handle).toHaveAttribute("aria-valuenow", String(RAIL_DEFAULT_WIDTH));
 
     handle.focus();
     await user.keyboard("{ArrowRight}");
-    expect(handle).toHaveAttribute("aria-valuenow", "272");
+    expect(handle).toHaveAttribute(
+      "aria-valuenow",
+      String(RAIL_DEFAULT_WIDTH + 32),
+    );
 
     // 200px is the floor however far left it is dragged.
     for (let index = 0; index < 5; index += 1) {

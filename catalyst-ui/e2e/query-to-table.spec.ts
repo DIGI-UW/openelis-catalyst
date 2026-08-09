@@ -942,9 +942,8 @@ test("question to iterative notebook to imported dashboard", async ({
   await page.goto("/");
 
   // ---------------------------------------------------------------- shell
-  await expect(
-    page.getByRole("complementary", { name: "Demo environment notice" }),
-  ).toBeVisible();
+  // The top strip carries no label of its own now -- the demo banner it used
+  // to hold is gone -- so the rail is what proves the shell rendered.
   const rail = page.getByRole("complementary", { name: "Catalyst" });
   await expect(rail).toBeVisible();
   const sections = rail.getByRole("navigation", { name: "Sections" });
@@ -1292,7 +1291,8 @@ test("question to iterative notebook to imported dashboard", async ({
     }
   }
 
+  // Still the same session at the end of the run as at the start.
   await expect(
-    page.getByRole("complementary", { name: "Demo environment notice" }),
+    page.getByRole("complementary", { name: "Catalyst" }),
   ).toBeVisible();
 });

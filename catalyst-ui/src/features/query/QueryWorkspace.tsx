@@ -1543,7 +1543,21 @@ export const QueryWorkspace = ({
             is the thing on screen.
           */}
           <header className="workbench-header">
-            {workbenchSession && <p className="eyebrow">Workbench</p>}
+            <div className="workbench-header__label">
+              {workbenchSession && <p className="eyebrow">Workbench</p>}
+              {workbenchSession && (
+                // Beside the heading that names the same session, rather than
+                // floating in a strip that no longer exists.
+                <span className="dashboard-session-meta">
+                  Session {workbenchSession.sessionId.slice(0, 8)}
+                  {workbenchTimeline
+                    ? ` · ${workbenchTimeline.turns.length} turn${
+                        workbenchTimeline.turns.length === 1 ? "" : "s"
+                      }`
+                    : ""}
+                </span>
+              )}
+            </div>
             <h1 id="question-title" tabIndex={-1}>
               {workbenchSession
                 ? (workbenchSession.name ?? "").trim() ||
@@ -1552,20 +1566,6 @@ export const QueryWorkspace = ({
                 : "Workbench"}
             </h1>
           </header>
-
-          {workbenchSession && (
-            // Rendered into the demo banner's trailing edge. The banner is a
-            // sibling of this workspace, so it is positioned there rather
-            // than lifting session state out of the workspace to reach it.
-            <div className="dashboard-session-meta">
-              Session {workbenchSession.sessionId.slice(0, 8)}
-              {workbenchTimeline
-                ? ` · ${workbenchTimeline.turns.length} turn${
-                    workbenchTimeline.turns.length === 1 ? "" : "s"
-                  }`
-                : ""}
-            </div>
-          )}
 
       {!sessionHasWork && state.kind !== "submitting" && (
         /*

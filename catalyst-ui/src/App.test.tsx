@@ -560,13 +560,14 @@ const openNewSessionForm = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("Catalyst query workflow", () => {
-  it("keeps the demo boundary visible from the initial state", () => {
+  it("cannot generate before a question is written", () => {
     render(<App api={makeApi()} />);
 
-    expect(screen.getByText("Demo environment")).toBeVisible();
-    expect(
-      screen.getByText(/demo data only; not for clinical decision-making/i),
-    ).toBeVisible();
+    // This used to also assert the demo banner. The banner is gone -- it was
+    // a label, not a safeguard. The safeguards are synthetic data, local
+    // models, a read-only database identity and an explicit Run, none of
+    // which this screen can bypass; the one it can demonstrate is that
+    // nothing is generated until a question exists.
     expect(screen.getByRole("button", { name: "Generate query" })).toBeDisabled();
   });
 
@@ -1785,7 +1786,6 @@ describe("Catalyst query workflow", () => {
     expect(within(provenance).getByText("hub-trace-456")).toBeVisible();
     expect(within(provenance).getByText("pipeline-run-77")).toBeVisible();
     expect(within(provenance).getByText("catalyst-query-gemma-e4b")).toBeVisible();
-    expect(screen.getByText("Demo environment")).toBeVisible();
     expect(screen.getByLabelText("Question")).toBeEnabled();
     expect(screen.getByLabelText("Model profile")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Generate query" })).toBeEnabled();
