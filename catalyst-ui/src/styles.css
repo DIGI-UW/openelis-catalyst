@@ -1,7 +1,28 @@
+/*
+ * Project tokens: Carbon palette steps the Gray 10 theme binds to no semantic
+ * name. Authored once here, by their palette names, so `features/query/**`
+ * holds no colour literals and every value still traces to a Carbon ramp.
+ * See specs/008-catalyst-query-workbench/token-map.md.
+ */
+:root {
+  --catalyst-surface-inverse: #262626; /* gray90 — demo banner, deliberately not themed */
+  --catalyst-text-on-inverse: #f4f4f4; /* gray10 */
+  --catalyst-text-on-inverse-muted: #c6c6c6; /* gray30 */
+  --catalyst-text-muted: #8d8d8d; /* gray50 */
+  --catalyst-text-disabled: #a8a8a8; /* gray40 */
+  --catalyst-surface-disabled: #c6c6c6; /* gray30 */
+  --catalyst-text-warning-strong: #684e00; /* yellow70 */
+  --catalyst-surface-warning: #fddc69; /* yellow20 */
+  --catalyst-text-success-strong: #044317; /* green80 */
+  --catalyst-border-accent-soft: #d4bbff; /* purple30 */
+  --catalyst-surface-ai: #f6f2ff; /* purple10 — assistant/model accent */
+  --catalyst-surface-info: #edf5ff; /* blue10 — selected and info surfaces */
+}
+
 :root {
   --dashboard-nav-width: 15rem;
-  color: #161616;
-  background: #f4f4f4;
+  color: var(--cds-text-primary);
+  background: var(--cds-background);
   font-synthesis: none;
   scroll-padding-block: 4rem 5rem;
   text-rendering: optimizeLegibility;
@@ -21,7 +42,7 @@ body {
   margin: 0;
   background:
     linear-gradient(135deg, rgb(15 98 254 / 5%) 0, transparent 32rem),
-    #f4f4f4;
+    var(--cds-background);
 }
 
 button,
@@ -40,9 +61,9 @@ input {
   z-index: 100;
   top: 0;
   width: 100%;
-  border-bottom: 1px solid #8d8d8d;
-  color: #f4f4f4;
-  background: #262626;
+  border-bottom: 1px solid var(--cds-border-strong-01);
+  color: var(--catalyst-text-on-inverse);
+  background: var(--catalyst-surface-inverse);
 }
 
 .demo-banner__inner {
@@ -136,7 +157,7 @@ input {
   align-items: center;
   justify-content: space-between;
   padding: 0 0 1.5rem;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -145,7 +166,7 @@ input {
 }
 
 .product-mark {
-  color: #161616;
+  color: var(--cds-text-primary);
   font-weight: 600;
 }
 
@@ -157,14 +178,14 @@ input {
 }
 
 .app-shell__session-meta {
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .query-turn__source {
-  background: #e0e0e0;
-  color: #161616;
+  background: var(--cds-layer-accent-01);
+  color: var(--cds-text-primary);
   border-radius: 0.75rem;
   padding: 0.125rem 0.625rem;
   font-size: 0.75rem;
@@ -174,9 +195,9 @@ input {
 
 .query-card {
   padding: clamp(1rem, 3vw, 2rem);
-  border-top: 4px solid #0f62fe;
+  border-top: 4px solid var(--cds-border-interactive);
   margin-bottom: 1rem;
-  background: #fff;
+  background: var(--cds-layer-01);
   box-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 8%);
 }
 
@@ -206,7 +227,7 @@ input {
 }
 
 .query-composer__heading h1:focus-visible {
-  outline: 2px solid #0f62fe;
+  outline: 2px solid var(--cds-focus);
   outline-offset: 0.25rem;
 }
 
@@ -218,19 +239,19 @@ input {
 
 .query-composer {
   overflow: hidden;
-  border: 1px solid #8d8d8d;
-  background: #f4f4f4;
+  border: 1px solid var(--cds-border-strong-01);
+  background: var(--cds-background);
 }
 
 .query-composer__input {
   padding: 0;
-  background: #fff;
+  background: var(--cds-layer-01);
 }
 
 .query-composer__input .cds--text-area {
   min-height: 3.5rem;
   border-bottom-color: transparent;
-  background: #fff;
+  background: var(--cds-layer-01);
   font-size: 1rem;
   line-height: 1.5;
 }
@@ -241,7 +262,7 @@ input {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.625rem 1rem;
-  border-top: 1px solid #c6c6c6;
+  border-top: 1px solid var(--cds-border-subtle-02);
 }
 
 .query-composer__toolbar .profile-selector {
@@ -250,24 +271,24 @@ input {
 }
 
 .dataset-browser {
-  border-top-color: #8a3ffc;
+  border-top-color: var(--cds-status-purple);
 }
 
 .dataset-browser--compact {
   padding: 0;
-  border-top: 1px solid #c6c6c6;
+  border-top: 1px solid var(--cds-border-subtle-02);
 }
 
 .dataset-browser--compact > summary {
   padding: 0.875rem 1rem;
-  color: #0f62fe;
+  color: var(--cds-link-primary);
   font-size: 0.875rem;
   cursor: pointer;
 }
 
 .dataset-browser__compact-content {
   padding: 1.25rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--cds-border-subtle-01);
 }
 
 .dataset-browser--compact .section-heading h1 {
@@ -287,7 +308,7 @@ input {
   display: flex;
   min-height: 2.5rem;
   align-items: center;
-  color: #c6c6c6;
+  color: var(--catalyst-text-on-inverse-muted);
   font-size: 0.75rem;
   pointer-events: none;
 }
@@ -310,16 +331,16 @@ input {
   margin: 0 0 1.5rem;
   gap: 1px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: #e0e0e0;
+  background: var(--cds-layer-accent-01);
 }
 
 .dataset-metrics > div {
   padding: 1rem;
-  background: #f4f4f4;
+  background: var(--cds-background);
 }
 
 .dataset-metrics dt {
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
   font-size: 0.75rem;
 }
 
@@ -330,7 +351,7 @@ input {
 
 .dataset-browser__rows {
   overflow-x: auto;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--cds-border-subtle-01);
 }
 
 .dataset-browser__details .cds--accordion__content {
@@ -353,12 +374,12 @@ input {
 .dataset-schema__heading p,
 .dataset-schema__grain {
   margin: 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
   line-height: 1.5;
 }
 
 .dataset-schema__relations {
-  border-top: 1px solid #c6c6c6;
+  border-top: 1px solid var(--cds-border-subtle-02);
 }
 
 .dataset-schema__relation-title,
@@ -376,7 +397,7 @@ input {
 
 .dataset-schema__relation-title > span {
   flex: none;
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
   font-size: 0.75rem;
 }
 
@@ -412,7 +433,7 @@ input {
 .dataset-browser caption,
 .dataset-schema caption {
   padding: 0.75rem 1rem;
-  color: #525252;
+  color: var(--cds-text-secondary);
   text-align: left;
 }
 
@@ -421,19 +442,19 @@ input {
 .dataset-schema th,
 .dataset-schema td {
   padding: 0.75rem 1rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--cds-border-subtle-01);
   text-align: left;
   white-space: nowrap;
 }
 
 .dataset-browser thead th,
 .dataset-schema thead th {
-  background: #e8e8e8;
+  background: var(--cds-layer-hover-01);
 }
 
 .dataset-browser tbody tr:nth-child(even),
 .dataset-schema tbody tr:nth-child(even) {
-  background: #f4f4f4;
+  background: var(--cds-background);
 }
 
 .dataset-schema td:last-child {
@@ -453,7 +474,7 @@ input {
 .profile-selector {
   display: grid;
   gap: 0.4rem;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -466,8 +487,8 @@ input {
   min-height: 2.5rem;
   padding: 0.5rem;
   border: 0;
-  border-bottom: 1px solid #8d8d8d;
-  background: #f4f4f4;
+  border-bottom: 1px solid var(--cds-border-strong-01);
+  background: var(--cds-background);
 }
 
 .dataset-pagination {
@@ -477,21 +498,21 @@ input {
 
 .dataset-browser__message {
   padding: 0.75rem;
-  border-left: 3px solid #da1e28;
-  background: #fff1f1;
+  border-left: 3px solid var(--cds-support-error);
+  background: var(--cds-notification-background-error);
 }
 
 .dataset-browser__empty {
   padding: 2rem 1rem;
-  border: 1px dashed #8d8d8d;
-  color: #525252;
+  border: 1px dashed var(--cds-border-strong-01);
+  color: var(--cds-text-secondary);
   text-align: center;
 }
 
 .reasoning-trace {
   padding: 1rem;
-  border-left: 3px solid #8a3ffc;
-  background: #f7f2ff;
+  border-left: 3px solid var(--cds-status-purple);
+  background: #f6f2ff;
 }
 
 .reasoning-stages {
@@ -503,7 +524,7 @@ input {
 
 .reasoning-stages li {
   padding: 0.4rem 0.6rem;
-  background: #e8daff;
+  background: var(--cds-tag-background-purple);
   font-size: 0.8rem;
 }
 
@@ -517,7 +538,7 @@ input {
 }
 
 .reasoning-models dt {
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
   font-size: 0.75rem;
   text-transform: capitalize;
 }
@@ -572,13 +593,13 @@ input {
 .section-heading p,
 .execution-state p {
   margin: 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
   line-height: 1.5;
 }
 
 .eyebrow {
   margin: 0 0 0.5rem !important;
-  color: #0f62fe !important;
+  color: var(--cds-link-primary) !important;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -604,7 +625,7 @@ input {
 }
 
 .workbench-header h1:focus-visible {
-  outline: 2px solid #0f62fe;
+  outline: 2px solid var(--cds-focus);
   outline-offset: 4px;
 }
 
@@ -620,20 +641,20 @@ input {
   margin: 0;
   gap: 1px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: #e0e0e0;
+  background: var(--cds-layer-accent-01);
 }
 
 .preview-metadata > div,
 .provenance-grid > div {
   min-width: 0;
   padding: 1rem;
-  background: #f4f4f4;
+  background: var(--cds-background);
 }
 
 .preview-metadata dt,
 .provenance-grid dt {
   margin-bottom: 0.375rem;
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
   font-size: 0.75rem;
 }
 
@@ -666,7 +687,7 @@ input {
 
 .muted,
 .trace-line {
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
 }
 
 .trace-line,
@@ -682,7 +703,7 @@ input {
 .diagnostic-candidate {
   margin-top: 1.25rem;
   padding-top: 1.25rem;
-  border-top: 1px solid #c6c6c6;
+  border-top: 1px solid var(--cds-border-subtle-02);
 }
 
 .diagnostic-candidate__heading {
@@ -723,7 +744,7 @@ input {
 
 .diagnostic-attempts p {
   margin: 0.25rem 0 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
 }
 
 .execution-state__heading {
@@ -749,13 +770,13 @@ input {
 
 .results__summary {
   margin: 1rem 0 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.875rem;
 }
 
 .empty-state {
   padding: 3rem 1rem;
-  border: 1px dashed #8d8d8d;
+  border: 1px dashed var(--cds-border-strong-01);
   text-align: center;
 }
 
@@ -766,11 +787,11 @@ input {
 
 .empty-state p {
   margin: 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
 }
 
 .provenance {
-  border-top-color: #8a3ffc;
+  border-top-color: var(--cds-status-purple);
 }
 
 .provenance .cds--accordion__content {
@@ -905,7 +926,7 @@ input {
 .workbench-empty {
   max-width: 34rem;
   padding: 3rem 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.875rem;
   line-height: 1.6;
 }
@@ -915,17 +936,17 @@ input {
 }
 
 .workbench-empty__lead {
-  color: #161616;
+  color: var(--cds-text-primary);
   font-size: 1.125rem;
   font-weight: 500;
 }
 
 .workbench-empty__catalog {
   padding: 1rem 1.25rem;
-  border: 1px solid #e0e0e0;
-  border-left: 3px solid #0f62fe;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-left: 3px solid var(--cds-border-interactive);
   margin-top: 1.25rem;
-  background: #fff;
+  background: var(--cds-layer-01);
 }
 
 .workbench-empty__catalog dl {
@@ -935,7 +956,7 @@ input {
 }
 
 .workbench-empty__catalog dt {
-  color: #6f6f6f;
+  color: var(--cds-text-helper);
   font-size: 0.6875rem;
 }
 
@@ -951,7 +972,7 @@ input {
 
 .workbench-empty__catalog > p {
   margin: 0 0 0.75rem;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.75rem;
   line-height: 1.5;
 }
@@ -960,7 +981,7 @@ input {
   padding: 0;
   border: 0;
   background: none;
-  color: #0f62fe;
+  color: var(--cds-link-primary);
   font-family: inherit;
   font-size: 0.8125rem;
   cursor: pointer;

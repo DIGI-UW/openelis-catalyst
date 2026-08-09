@@ -1,21 +1,21 @@
 .sql-editor {
   overflow: hidden;
-  border: 1px solid #8d8d8d;
-  background: #fff;
+  border: 1px solid var(--cds-border-strong-01);
+  background: var(--cds-layer-01);
 }
 
 .sql-editor__label {
   padding: 0.75rem 1rem 0.5rem;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.875rem;
   font-weight: 600;
 }
 
 .sql-editor__surface .cm-editor {
   min-height: 12rem;
-  border-top: 1px solid #e0e0e0;
-  border-bottom: 1px solid #c6c6c6;
-  background: #fdfdfd;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  border-bottom: 1px solid var(--cds-border-subtle-02);
+  background: var(--cds-field-01);
   font-size: 0.875rem;
 }
 
@@ -26,14 +26,14 @@
 }
 
 .sql-editor__surface .cm-focused {
-  outline: 2px solid #0f62fe;
+  outline: 2px solid var(--cds-focus);
   outline-offset: -2px;
 }
 
 .sql-editor__surface .cm-gutters {
-  border-right-color: #e0e0e0;
-  background: #f4f4f4;
-  color: #6f6f6f;
+  border-right-color: var(--cds-border-subtle-01);
+  background: var(--cds-background);
+  color: var(--cds-text-helper);
 }
 
 .sql-editor__toolbar {
@@ -43,14 +43,14 @@
   gap: 0.25rem;
   min-height: 2.5rem;
   padding-inline: 0.5rem;
-  background: #f4f4f4;
+  background: var(--cds-background);
 }
 
 .sql-editor__status {
   min-height: 1.25rem;
   padding: 0 1rem 0.5rem;
   margin: 0;
-  color: #525252;
+  color: var(--cds-text-secondary);
   font-size: 0.75rem;
 }
 
