@@ -1,8 +1,11 @@
 import {
+  Asleep,
   Chat,
   ChartLine,
   Dashboard,
   DataBase,
+  Light,
+  Screen,
   Settings,
 } from "@carbon/icons-react";
 import {
@@ -10,6 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import type { ThemePreference } from "../theme";
 import type {
   DashboardBuilderSection,
   DataSource,
@@ -65,6 +69,8 @@ interface WorkbenchRailProps {
   onSelectTurn: (ordinal: number) => void;
   onOpenDetails?: () => void;
   detailsOpen: boolean;
+  themePreference: ThemePreference;
+  onThemePreferenceChange: (preference: ThemePreference) => void;
   activeSection: DashboardBuilderSection;
   onSectionChange: (section: DashboardBuilderSection) => void;
   children: ReactNode;
@@ -98,6 +104,8 @@ export const WorkbenchRail = ({
   onSelectTurn,
   onOpenDetails,
   detailsOpen,
+  themePreference,
+  onThemePreferenceChange,
   activeSection,
   onSectionChange,
   children,
@@ -179,12 +187,43 @@ export const WorkbenchRail = ({
         />
       )}
 
+      {/*
+        The mark carries Carbon's AI treatment rather than a grey square: this
+        product's whole claim is that a model wrote the query, and Carbon
+        ships a designed vocabulary for exactly that. Both its tokens are
+        theme-aware, so it holds up in dark without a second definition.
+      */}
       <div className="workbench-rail__brand">
-        <span aria-hidden="true">C</span>
-        <span>
+        <span className="workbench-rail__mark" aria-hidden="true">
+          C
+        </span>
+        <span className="workbench-rail__wordmark">
           <strong>Catalyst</strong>
           <small>Governed queries → dashboards</small>
         </span>
+        <button
+          type="button"
+          className="workbench-rail__theme"
+          aria-label={`Theme: ${themePreference}. Change it.`}
+          title={`Theme: ${themePreference}`}
+          onClick={() =>
+            onThemePreferenceChange(
+              themePreference === "system"
+                ? "light"
+                : themePreference === "light"
+                  ? "dark"
+                  : "system",
+            )
+          }
+        >
+          {themePreference === "dark" ? (
+            <Asleep size={16} aria-hidden="true" />
+          ) : themePreference === "light" ? (
+            <Light size={16} aria-hidden="true" />
+          ) : (
+            <Screen size={16} aria-hidden="true" />
+          )}
+        </button>
       </div>
 
       <div className="workbench-rail__session">

@@ -1,4 +1,5 @@
 import { Theme } from "@carbon/react";
+import { useThemePreference } from "./features/query/theme";
 import {
   DemoBanner,
   QueryWorkspace,
@@ -10,19 +11,25 @@ interface AppProps {
   pollIntervalMs?: number;
 }
 
-export const App = ({ api, pollIntervalMs }: AppProps) => (
+export const App = ({ api, pollIntervalMs }: AppProps) => {
   /*
-   * Gray 10, as §10 of the design contract mandates. Under White the page and
-   * the cards are both #ffffff, so depth had to be faked with hairlines; under
-   * Gray 10 the page is #f4f4f4 and layer-01 is #ffffff, and they separate for
-   * free. It is also what makes CP-3's token mapping resolve to the values its
-   * literals originally meant -- verified against g10 while the app still ran
-   * White, which inverted every page-versus-card surface.
+   * Gray 10 for light, as §10 mandates, and Gray 100 for dark -- both are
+   * already emitted in the bundle, so this is a theme swap rather than a
+   * second stylesheet. Under White the page and the cards were both #ffffff
+   * and depth had to be faked with hairlines; Gray 10 separates them for free.
    */
-  <Theme theme="g10">
-    <div className="application">
-      <DemoBanner />
-      <QueryWorkspace api={api} pollIntervalMs={pollIntervalMs} />
-    </div>
-  </Theme>
-);
+  const { preference, theme, choose } = useThemePreference();
+  return (
+    <Theme theme={theme}>
+      <div className="application" data-theme={theme}>
+        <DemoBanner />
+        <QueryWorkspace
+          api={api}
+          pollIntervalMs={pollIntervalMs}
+          themePreference={preference}
+          onThemePreferenceChange={choose}
+        />
+      </div>
+    </Theme>
+  );
+};

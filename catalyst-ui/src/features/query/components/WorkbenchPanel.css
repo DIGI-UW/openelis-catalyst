@@ -124,7 +124,13 @@
 
 .workbench-validation {
   border-left: 4px solid var(--cds-status-purple);
-  background: var(--catalyst-surface-ai);
+  background:
+    linear-gradient(
+      135deg,
+      var(--cds-ai-aura-start) 0%,
+      var(--cds-ai-aura-end) 100%
+    ),
+    var(--cds-ai-popover-background);
 }
 
 .workbench-validation__status {

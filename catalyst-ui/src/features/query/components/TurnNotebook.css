@@ -189,7 +189,13 @@
   padding: 0.75rem 1rem;
   border: 1px solid var(--cds-border-subtle-01);
   border-left: 3px solid var(--cds-status-purple);
-  background: var(--catalyst-surface-ai);
+  background:
+    linear-gradient(
+      135deg,
+      var(--cds-ai-aura-start) 0%,
+      var(--cds-ai-aura-end) 100%
+    ),
+    var(--cds-ai-popover-background);
 }
 
 .query-turn__sql[data-author="human"] {

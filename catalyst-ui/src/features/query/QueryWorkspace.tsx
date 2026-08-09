@@ -35,6 +35,7 @@ import {
   editorContentMatchesVersion,
   workbenchEditorDigest,
 } from "./editorDigest";
+import type { ThemePreference } from "./theme";
 import {
   isPreview,
   isTable,
@@ -75,6 +76,8 @@ type WorkflowState =
 interface QueryWorkspaceProps {
   api?: CatalystApi;
   pollIntervalMs?: number;
+  themePreference?: ThemePreference;
+  onThemePreferenceChange?: (preference: ThemePreference) => void;
 }
 
 
@@ -564,6 +567,8 @@ const QueryOutcomeState = ({ outcome }: { outcome: CatalystQueryOutcome }) => {
 export const QueryWorkspace = ({
   api = catalystApi,
   pollIntervalMs = 1000,
+  themePreference = "system",
+  onThemePreferenceChange,
 }: QueryWorkspaceProps) => {
   const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
@@ -1517,6 +1522,8 @@ export const QueryWorkspace = ({
             : undefined
         }
         detailsOpen={detailsOpen}
+        themePreference={themePreference}
+        onThemePreferenceChange={onThemePreferenceChange ?? (() => undefined)}
         activeSection={activeSection}
         onSectionChange={setActiveSection}
       >
