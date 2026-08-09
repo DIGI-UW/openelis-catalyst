@@ -54,7 +54,12 @@ export default defineConfig({
       testIgnore: /visual-baseline\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
-        video: "on",
+        // Record at the viewport's own size. Playwright otherwise fits the
+        // recording into an 800x800 box, so a 1280x720 viewport comes back as
+        // 800x450 and the published 1280x720 cut is an upscale of that. These
+        // demos exist to show SQL the viewer is meant to read, so the capture
+        // has to carry the pixels rather than have ffmpeg invent them later.
+        video: { mode: "on", size: { width: 1280, height: 720 } },
         trace: "on",
         screenshot: "on",
       },
