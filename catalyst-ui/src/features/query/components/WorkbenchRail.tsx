@@ -196,20 +196,20 @@ export const WorkbenchRail = ({
       <div className="workbench-rail__brand">
         <span className="workbench-rail__mark" aria-hidden="true">
           {/*
-            A C that is also the thing the product does: an open arc taking
-            something in, and a node where it comes out changed. A letterform
-            alone said nothing, and at this size a literal glyph in a
-            monospace face reads as a placeholder.
+            The C, drawn rather than typed -- a letterform in a monospace face
+            reads as a placeholder at this size. Centred on the viewBox: it
+            used to sit left of centre and was balanced by a node on the right,
+            so removing the node meant recentring the arc rather than leaving
+            it visibly off.
           */}
           <svg viewBox="0 0 32 32" role="presentation" focusable="false">
             <path
-              d="M23 9.2a10 10 0 1 0 0 13.6"
+              d="M22.4 9.6a9 9 0 1 0 0 12.8"
               fill="none"
               stroke="currentColor"
-              strokeWidth="3.4"
+              strokeWidth="3.6"
               strokeLinecap="round"
             />
-            <circle cx="24.4" cy="16" r="3.1" fill="currentColor" />
           </svg>
         </span>
         <span className="workbench-rail__wordmark">
