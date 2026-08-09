@@ -56,17 +56,15 @@
  * are theme-aware, so this holds in dark with no second definition.
  */
 /*
- * The mark, with actual presence.
+ * The mark: one flat shade, circular, no frame.
  *
- * A first attempt used Carbon's ai-aura tokens directly and was invisible:
- * ai-aura-start is #4589ff1a, ten percent opacity, which over white resolves
- * to #f6f9ff. The aura is designed to sit *behind* content as a hint, not to
- * be the content. A brand mark has to carry weight, so it uses the two accent
- * colours §10 actually assigns this product -- interactive blue and the purple
- * that means model -- as a solid gradient, and reads on either theme.
+ * Purple rather than the interactive blue, which everything else already
+ * spends -- links, focus rings, the current section, the active cell. A blue
+ * circle here would read as one more control. §10 gives purple to the model,
+ * which is what this product is for, and it is used sparingly enough
+ * elsewhere to still read as identity. Theme-aware, so it holds in both.
  */
 .workbench-rail__mark {
-  position: relative;
   display: flex;
   width: 2.25rem;
   height: 2.25rem;
@@ -74,27 +72,14 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  background: linear-gradient(
-    135deg,
-    var(--cds-link-primary) 0%,
-    var(--cds-status-purple) 100%
-  );
-  box-shadow: 0 0.0625rem 0.25rem rgb(15 98 254 / 32%);
+  border-radius: 50%;
+  background: var(--cds-status-purple);
   color: var(--cds-text-on-color);
 }
 
 .workbench-rail__mark svg {
   width: 1.375rem;
   height: 1.375rem;
-}
-
-/* A hairline of the aura, where it belongs: around the mark, not inside it. */
-.workbench-rail__mark::after {
-  position: absolute;
-  content: "";
-  inset: -0.1875rem;
-  border: 1px solid var(--cds-ai-border-start);
-  pointer-events: none;
 }
 
 .workbench-rail__wordmark {
