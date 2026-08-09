@@ -962,7 +962,7 @@ describe("Catalyst query workflow", () => {
 
     expect(
       await screen.findByText(
-        "Query v2 generated. The SQL editor now contains the successor query.",
+        "The next query is ready. The SQL editor now contains it.",
       ),
     ).toHaveAttribute("role", "status");
     await waitFor(() => expect(editor).toHaveFocus());

@@ -735,6 +735,139 @@ describe("Dashboard Builder Ask shell", () => {
     ).toBeVisible();
   });
 
+  it("shows a generating cell, then says why a generation failed", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const failedTurn = {
+      ...timeline.turns[0]!,
+      turnId: "88888888-8888-4888-8888-888888888888",
+      ordinal: 2,
+      kind: "followup" as const,
+      instruction: "Split it by test type",
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      resultingCurrentVersion: null,
+      failure: {
+        stage: "reviewer_output_contract",
+        code: "reviewer_output_contract_failed",
+        message: "Query review failed: query review was not valid JSON",
+      },
+      createdAt: "2026-08-06T00:09:00Z",
+    };
+    let release: (() => void) | null = null;
+    client.createWorkbenchTurn = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(failedTurn);
+        }),
+    );
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.type(
+      await screen.findByRole("textbox", { name: "Follow-up instruction" }),
+      "Split it by test type",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate next query" }));
+
+    // A cell appears in the thread, where the answer will be -- not merely a
+    // busy label on the button, which may be scrolled out of sight.
+    const thread = screen.getByRole("region", { name: "Iterative query notebook" });
+    expect(
+      await within(thread).findByText("Generating the next query…"),
+    ).toBeVisible();
+
+    await waitFor(() => expect(release).not.toBeNull());
+    release!();
+
+    // A generation that failed says so, and does not throw away what was asked.
+    expect(
+      await screen.findByText(/query review was not valid JSON/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+    ).toHaveValue("Split it by test type");
+  });
+
+  it("files a turn that produced no version by when it happened", async () => {
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      createdAt: "2026-08-06T00:05:00Z",
+    };
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          { ordinal: 0, name: "n", databaseType: "bigint", typeOid: null, logicalType: "integer" },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:05:05Z",
+    };
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      versions: [version, edited],
+      executions: [ran],
+    });
+    client.getWorkbenchTurns = vi.fn().mockResolvedValue({
+      ...timeline,
+      turns: [
+        timeline.turns[0]!,
+        {
+          ...timeline.turns[0]!,
+          turnId: "77777777-7777-4777-8777-777777777777",
+          ordinal: 2,
+          kind: "followup" as const,
+          instruction: "Split it by test type",
+          status: "failed" as const,
+          selectedVersionId: null,
+          outputVersions: [],
+          failure: { message: "Query review failed" },
+          // Later than the hand edit, so it belongs after it.
+          createdAt: "2026-08-06T00:09:00Z",
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    const { container } = render(<QueryWorkspace api={client} />);
+
+    await screen.findAllByText("Split it by test type");
+    // A failed generation has no version to be ordered by, so it used to sort
+    // ahead of every hand edit that came after it.
+    expect(
+      [...container.querySelectorAll(".query-turn__summary")].map(
+        (cell) => cell.textContent,
+      ),
+    ).toEqual([session.question, "Edited by hand", "Split it by test type"]);
+  });
+
   it("keeps a hand-edited run where it happened in the thread", async () => {
     const client = api();
     const edited: WorkbenchQueryVersion = {
@@ -809,6 +942,8 @@ describe("Dashboard Builder Ask shell", () => {
           ordinal: 2,
           kind: "followup" as const,
           instruction: "Split it by test type",
+          // After the hand edit, which is the point of the ordering.
+          createdAt: "2026-08-06T00:02:00Z",
           selectedVersionId: generated.versionId,
           outputVersions: [
             {

@@ -51,6 +51,8 @@ export interface NotebookTurn {
   validationStatus?: "invalid" | "warning" | "valid" | null;
   /** True for the turn whose selected version is the session's current one. */
   current?: boolean;
+  /** When this happened. The clock both kinds of cell share. */
+  createdAt: string;
 }
 
 export interface NotebookGrounding {
@@ -522,10 +524,30 @@ export const TurnNotebook = ({
             </article>
           </li>
         )}
-        {!activeCell && (
+        {!activeCell && !generating && (
           <li className="turn-notebook__composing" aria-hidden="true">
             <span className="query-turn__gutter">[{turns.length + 1}]</span>
             <span>composing…</span>
+          </li>
+        )}
+        {/*
+          Where the answer will appear, from the moment it is asked for. The
+          composer's busy label is the only other signal and it can be
+          scrolled out of sight, which reads as nothing happening at all.
+        */}
+        {generating && (
+          <li>
+            <article className="query-turn query-turn--pending">
+              <div className="query-turn__gutter" aria-hidden="true">
+                [{turns.length + (activeCell ? 2 : 1)}]
+              </div>
+              <div className="query-turn__body">
+                <p className="query-turn__pending" role="status">
+                  <span className="query-turn__pending-dot" aria-hidden="true" />
+                  Generating the next query…
+                </p>
+              </div>
+            </article>
           </li>
         )}
       </ol>

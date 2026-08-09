@@ -263,6 +263,7 @@ const manualNotebookTurns = (
             version.versionId,
           ),
           current: version.versionId === session.currentVersionId,
+          createdAt: version.createdAt,
         },
       ];
     });
@@ -306,6 +307,7 @@ const notebookTurns = (
     current:
       turn.selectedVersionId !== null &&
       turn.selectedVersionId === session?.currentVersionId,
+    createdAt: turn.createdAt,
   }));
 
 /**
@@ -321,29 +323,18 @@ const notebookTurns = (
 const threadCells = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
-): NotebookTurn[] => {
-  const versionOrdinal = (versionId: string | null) =>
-    versionId === null
-      ? null
-      : (session?.versions.find((version) => version.versionId === versionId)
-          ?.ordinal ?? null);
-
-  // A generation that produced no version — one that failed — still holds its
-  // place, just after whatever preceded it.
-  let previous = 0;
-  const generated = notebookTurns(timeline, session).map((turn) => {
-    previous = versionOrdinal(turn.selectedVersionId) ?? previous + 0.5;
-    return { turn, at: previous };
-  });
-  const manual = manualNotebookTurns(session, timeline).map((turn) => ({
-    turn,
-    at: versionOrdinal(turn.selectedVersionId) ?? 0,
-  }));
-
-  return [...generated, ...manual]
-    .sort((left, right) => left.at - right.at)
-    .map(({ turn }, index) => ({ ...turn, ordinal: index + 1 }));
-};
+): NotebookTurn[] =>
+  [
+    ...notebookTurns(timeline, session),
+    ...manualNotebookTurns(session, timeline),
+  ]
+    // When it happened, which both kinds of cell record. An earlier version
+    // keyed off the selected version's ordinal, which a failed generation
+    // does not have -- so it inherited a position just after the turn before
+    // it and sorted ahead of every hand edit made since. A turn that produced
+    // nothing still happened at a time.
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .map((turn, index) => ({ ...turn, ordinal: index + 1 }));
 
 const notebookGrounding = (
   session: WorkbenchSession,
@@ -596,6 +587,7 @@ export const QueryWorkspace = ({
   // A run asks for the cell that will carry its result; the cell is only in
   // the document a render later, so the request waits here until it exists.
   const revealVersionId = useRef<string | null>(null);
+  const revealTurnId = useRef<string | null>(null);
   // The dashboard panel owns the review dialog; the cell that produced the
   // result asks it to open.
   const openDatasetReview = useRef<(() => void) | null>(null);
@@ -1148,12 +1140,25 @@ export const QueryWorkspace = ({
           turn.resultingCurrentVersion.versionId
       ) {
         setWorkbenchAnnouncement(
-          `Query v${restored.currentVersion.ordinal} generated. ` +
-            "The SQL editor now contains the successor query.",
+          "The next query is ready. The SQL editor now contains it.",
         );
         setSqlEditorFocusRequestId((requestId) => requestId + 1);
       }
-      setFollowupInstruction("");
+      if (turn.status === "failed") {
+        // A turn that comes back failed is not an error to throw, so it used
+        // to be treated as success: nothing was said, the instruction was
+        // cleared, and the failed cell was filed wherever the ordering put
+        // it. From the composer that is indistinguishable from nothing
+        // happening. Say what went wrong, keep what was asked so it can be
+        // tried again, and move to the cell that carries the diagnosis.
+        setWorkbenchError(
+          turn.failure?.message ??
+            "The next query could not be generated. The turn records why.",
+        );
+        revealTurnId.current = turn.turnId;
+      } else {
+        setFollowupInstruction("");
+      }
     } catch (error) {
       setWorkbenchError(messageFromError(error));
     } finally {
@@ -1226,6 +1231,16 @@ export const QueryWorkspace = ({
   // move to it: the outcome leads, whether the database returned rows or a
   // diagnostic, and editing again is a choice made from there.
   useEffect(() => {
+    const turnId = revealTurnId.current;
+    if (turnId !== null) {
+      const failed = activeNotebookTurns.find((turn) => turn.turnId === turnId);
+      if (failed) {
+        revealTurnId.current = null;
+        document
+          .getElementById(`turn-${failed.ordinal}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
     const versionId = revealVersionId.current;
     if (versionId === null) return;
     const cell = activeNotebookTurns.find(

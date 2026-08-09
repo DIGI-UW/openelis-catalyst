@@ -698,3 +698,41 @@
   color: var(--cds-text-secondary);
   font-size: 0.8125rem;
 }
+
+/* The cell an answer is on its way into. */
+.query-turn--pending .query-turn__body {
+  border-style: dashed;
+  background: var(--cds-layer-01);
+  box-shadow: none;
+}
+
+.query-turn__pending {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  margin: 0;
+  color: var(--cds-text-helper);
+  font-size: 0.8125rem;
+  gap: 0.625rem;
+}
+
+.query-turn__pending-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cds-border-interactive);
+  animation: query-turn-pending 1.2s ease-in-out infinite;
+}
+
+@keyframes query-turn-pending {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .query-turn__pending-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}
