@@ -172,6 +172,7 @@ const initialTurn = {
     reviewer: { modelId: "qwen2.5-14b" },
   },
   failure: null,
+  createdAt: "2026-08-07T10:01:00Z",
 };
 
 const followupTurn = {
@@ -197,6 +198,7 @@ const followupTurn = {
   ],
   profileSnapshot: initialTurn.profileSnapshot,
   failure: null,
+  createdAt: "2026-08-07T10:02:00Z",
 };
 
 const defaultProps = {
