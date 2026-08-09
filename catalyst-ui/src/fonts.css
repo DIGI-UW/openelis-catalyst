@@ -1,0 +1,50 @@
+/*
+ * IBM Plex, served rather than assumed.
+ *
+ * Carbon's stylesheet asks for "IBM Plex Sans" and "IBM Plex Mono", but
+ * `src/carbon.scss` sets `$css--font-face: false` and Carbon's own
+ * `$font-path` default (`~@ibm/plex`) is a webpack convention Vite cannot
+ * resolve — so the bundle shipped zero @font-face rules and every viewer
+ * without Plex installed locally fell back to system-ui. It looked correct on
+ * a developer machine that happens to have Plex, which is why it went
+ * unnoticed. Carbon's typographic identity rests on this font.
+ *
+ * Three faces, not the package's default stylesheet: that one declares 21
+ * faces against the complete character sets, about 1.1 MB of woff2. These are
+ * the Latin-1 subsets of the weights Carbon's type scale actually uses —
+ * 59 KB in total.
+ *
+ * Latin-1 covers Western European text. A deployment needing Greek, Cyrillic
+ * or the Plex Sans regional families should add those subsets here; the
+ * package ships them alongside.
+ *
+ * font-display: swap — text is readable in the fallback immediately and
+ * reflows when Plex arrives, rather than blocking the first paint.
+ */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("@ibm/plex-sans/fonts/split/woff2/IBMPlexSans-Regular-Latin1.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("@ibm/plex-sans/fonts/split/woff2/IBMPlexSans-SemiBold-Latin1.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("@ibm/plex-mono/fonts/split/woff2/IBMPlexMono-Regular-Latin1.woff2")
+    format("woff2");
+}
