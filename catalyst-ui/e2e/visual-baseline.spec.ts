@@ -31,7 +31,21 @@ import { installBaselineApi } from "./support/baseline-fixture";
   Verified the hard way: it reported 11/11 while the rail and its nav had
   swapped colours on screen.
 */
-const shot = { animations: "disabled" as const, threshold: 0 };
+const shot = {
+  animations: "disabled" as const,
+  // A blinking caret is not a design change; it moved 2% of the editor shot.
+  caret: "hide" as const,
+  threshold: 0,
+  /*
+    An absolute two-pixel allowance, not a ratio. A ratio scales with the
+    image and is how the first two versions of this went blind. Two pixels
+    cannot conceal anything this instrument exists to catch -- the surface
+    inversion it missed moved tens of thousands -- but it does absorb the
+    single antialiased pixel on an element boundary that otherwise makes the
+    whole set flap.
+  */
+  maxDiffPixels: 2,
+};
 
 test.describe("visual baseline", () => {
   test("empty session", async ({ page }) => {
@@ -117,6 +131,44 @@ test.describe("visual baseline", () => {
       );
     });
   }
+
+  // States CP-3 changed and nothing was watching: the editor's own chrome, a
+  // selected turn in the rail, and the thread's status colours side by side.
+  test("open editor", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Edit query" }).click();
+    const editor = page.locator(".workbench-panel");
+    await expect(editor).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+    await expect(editor).toHaveScreenshot("editor.png", shot);
+  });
+
+  test("rail turns, with one selected", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    const rail = page.getByRole("complementary", { name: "Catalyst" });
+    const turns = rail.getByRole("button", { name: /^TURNS/ });
+    await expect(turns).toHaveAttribute("aria-expanded", "true");
+    // Succeeded, failed and not-run dots in one shot.
+    await expect(rail.locator(".workbench-rail__turns")).toHaveScreenshot(
+      "rail-turns.png",
+      shot,
+    );
+  });
+
+  test("thread statuses side by side", async ({ page }) => {
+    await installBaselineApi(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/");
+    // Collapse the newest cell so all three headers show their status at once.
+    await page.getByRole("button", { name: /Query turn 3/ }).click();
+    const timeline = page.locator(".turn-notebook__timeline");
+    await expect(timeline).toBeVisible();
+    await expect(timeline).toHaveScreenshot("thread-statuses.png", shot);
+  });
 
   // The rail is resizable, and its catalog and nav both adapt to the width —
   // the labels hide near the minimum, the catalog gains columns near the top.

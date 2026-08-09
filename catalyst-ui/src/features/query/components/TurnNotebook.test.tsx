@@ -645,4 +645,28 @@ describe("TurnNotebook", () => {
       name: "Follow-up instruction",
     })).toHaveLength(1);
   });
+
+  it("encodes outcome and authorship on separate channels", () => {
+    render(<TurnNotebook {...defaultProps} />);
+    const cells = [...document.querySelectorAll("article.query-turn")];
+    expect(cells.length).toBeGreaterThan(0);
+
+    // Outcome and authorship are different questions, so they cannot share
+    // one attribute: a current cell that succeeded must still read as
+    // succeeded, and a hand-edited cell must be identifiable while collapsed.
+    for (const cell of cells) {
+      expect(cell.getAttribute("data-status")).toMatch(
+        /^(succeeded|failed|not-run)$/,
+      );
+      expect(cell.getAttribute("data-author")).toMatch(
+        /^(model|human|reviewer)$/,
+      );
+    }
+    const current = cells.find((cell) => cell.getAttribute("data-current"));
+    if (current) {
+      expect(current.getAttribute("data-status")).toMatch(
+        /^(succeeded|failed|not-run)$/,
+      );
+    }
+  });
 });

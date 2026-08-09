@@ -143,6 +143,23 @@ const cellStatus = (turn: NotebookTurn): CellStatus => {
 
 const rowLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
 
+/**
+ * Who wrote this cell's query, as its own channel.
+ *
+ * Outcome and authorship are different questions and cannot share one
+ * attribute: a hand-edited cell that succeeded is both, and a collapsed header
+ * showed neither. §10 gives purple to the model, so the gutter carries it.
+ */
+const cellAuthor = (turn: NotebookTurn): "model" | "human" | "reviewer" => {
+  const version = selectedVersionOf(turn);
+  if (!version) return "model";
+  const collaborationRole = textAt(version.provenance, "collaborationRole");
+  if (version.authorType === "model_repair" || collaborationRole === "reviewer") {
+    return "reviewer";
+  }
+  return version.authorType === "human" ? "human" : "model";
+};
+
 /** The right-hand summary in a collapsed header: `v3 · 12 rows`. */
 const cellOutcome = (turn: NotebookTurn) => {
   if (turn.status === "failed") return "generation failed";
@@ -332,6 +349,7 @@ export const TurnNotebook = ({
         id={`turn-${turn.ordinal}`}
         key={turn.turnId}
         data-status={status}
+        data-author={cellAuthor(turn)}
         data-current={turn.current ? "true" : undefined}
       >
         <div className="query-turn__gutter" aria-hidden="true">
