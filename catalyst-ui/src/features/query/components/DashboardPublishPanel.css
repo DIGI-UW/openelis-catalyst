@@ -55,7 +55,7 @@
   height: 1.5rem;
   place-items: center;
   color: var(--cds-status-purple);
-  font-size: 1.25rem;
+  font-size: var(--cds-heading-03-font-size, 1.25rem);
 }
 
 .builder-empty-note {
@@ -76,7 +76,7 @@
 
 .builder-library__header h1 {
   margin: 0 0 0.5rem;
-  font-size: 2rem;
+  font-size: var(--cds-heading-05-font-size, 2rem);
   font-weight: 400;
   letter-spacing: -0.025em;
 }
@@ -132,13 +132,13 @@
   background:
     linear-gradient(135deg, transparent 49%, var(--cds-border-interactive) 50%, transparent 51%),
     var(--cds-background);
-  font-size: 2rem;
+  font-size: var(--cds-heading-05-font-size, 2rem);
 }
 
 .builder-widget-card h2,
 .builder-dashboard-row h2 {
   margin: 1rem 0 0.25rem;
-  font-size: 1rem;
+  font-size: var(--cds-heading-compact-02-font-size, 1rem);
 }
 
 .builder-widget-card p,
@@ -255,7 +255,7 @@
 
 .builder-review__header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--cds-heading-03-font-size, 1.25rem);
   font-weight: 400;
 }
 
@@ -299,7 +299,7 @@
 
 .builder-review__metrics dt {
   color: var(--cds-text-helper);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
 }
 
 .builder-review__metrics dd {
@@ -326,7 +326,7 @@
 
 .builder-review__evidence h3 {
   margin-bottom: 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
 }
 
 .builder-review__evidence dl {
@@ -369,7 +369,7 @@
   max-width: 24rem;
   margin: 0;
   color: var(--cds-text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--cds-code-02-font-size, 0.875rem);
   text-align: center;
 }
 
@@ -485,13 +485,13 @@
 
 .builder-dataset__heading strong {
   display: block;
-  font-size: 0.875rem;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
 }
 
 .builder-dataset__heading small {
   display: block;
   color: var(--cds-text-helper);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
 }
 
 .builder-dataset .workbench-execution {

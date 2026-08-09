@@ -29,7 +29,7 @@
 .workbench-actions p {
   margin: 0;
   color: var(--workbench-muted);
-  font-size: 0.875rem;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
 }
 
 .workbench-subheading--row {
@@ -63,7 +63,7 @@
   margin: 0;
   color: var(--workbench-muted);
   background: var(--cds-background);
-  font-size: 0.875rem;
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
 }
 
 .workbench-parameters__list {
@@ -83,7 +83,7 @@
 .workbench-parameter legend {
   padding: 0 0.35rem;
   color: var(--workbench-muted);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -92,7 +92,7 @@
   display: grid;
   gap: 0.35rem;
   color: var(--workbench-muted);
-  font-size: 0.75rem;
+  font-size: var(--cds-label-01-font-size, 0.75rem);
 }
 
 .workbench-parameter input,
@@ -119,7 +119,7 @@
   align-items: flex-end;
   gap: 0.25rem;
   color: var(--workbench-muted);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
 }
 
 .workbench-validation {
@@ -140,7 +140,7 @@
   padding: 0.2rem 0.65rem;
   border-radius: 1rem;
   background: var(--cds-layer-accent-01);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
   font-weight: 600;
 }
 
@@ -180,7 +180,7 @@
 .workbench-history dt,
 .workbench-database-error dt {
   color: var(--workbench-muted);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
 }
 
 .workbench-inline-metadata dd,
@@ -225,13 +225,13 @@
   display: inline-block;
   padding: 0.2rem 0.35rem;
   background: var(--cds-layer-hover-01);
-  font-size: 0.75rem;
+  font-size: var(--cds-code-01-font-size, 0.75rem);
   overflow-wrap: anywhere;
 }
 
 .workbench-findings__suggestion {
   color: var(--workbench-muted);
-  font-size: 0.875rem;
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
 }
 
 .workbench-actions {
@@ -304,7 +304,7 @@
   margin: 0 auto 0 0;
   padding: 0 0.75rem;
   color: var(--workbench-muted);
-  font-size: 0.875rem;
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
 }
 
 .workbench-execution table {
@@ -377,7 +377,7 @@
   background: var(--catalyst-surface-inverse);
   color: var(--catalyst-text-on-inverse);
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.75rem;
+  font-size: var(--cds-code-01-font-size, 0.75rem);
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -539,7 +539,7 @@
 .workbench-actions__note {
   margin: 0;
   color: var(--cds-text-helper);
-  font-size: 0.75rem;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
 }
 
 /* A section with nothing in it should not occupy a card's worth of page. */
@@ -553,7 +553,7 @@
 
 .workbench-parameters:has(.workbench-empty-note) h3 {
   display: inline;
-  font-size: 0.875rem;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
 }
 
 .workbench-parameters:has(.workbench-empty-note) .workbench-empty-note {
