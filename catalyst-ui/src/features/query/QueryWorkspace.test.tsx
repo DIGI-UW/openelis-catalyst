@@ -983,4 +983,48 @@ describe("Dashboard Builder Ask shell", () => {
       ),
     ).toEqual(["turn-1", "turn-2", "turn-3"]);
   });
+
+  it("shows what can be asked about, at full width, before anything is asked", () => {
+    // Earlier tests leave an active session in storage, and a session with
+    // work in it replaces this screen entirely.
+    window.localStorage.clear();
+    const client = api();
+    client.getWorkbenchCatalog = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.workbench.editor-catalog.v1",
+      catalogVersion: "catalog-1",
+      schemaVersion: "schema-1",
+      dialect: "postgresql",
+      schemas: [
+        {
+          name: "analytics",
+          views: [
+            {
+              name: "lab_result_fact_v1",
+              qualifiedName: "analytics.lab_result_fact_v1",
+              grain: "One row per FHIR Observation.",
+              columns: [
+                { name: "patient_id", logicalType: "string", databaseType: "text", nullable: false },
+                { name: "test_name", logicalType: "string", databaseType: "text", nullable: false },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(<QueryWorkspace api={client} />);
+
+    // The empty screen's job is to answer "what is in here?". It used to show
+    // one relation name and a count in a 34rem card, with the rest behind a
+    // rail section you had to know about.
+    return waitFor(() => {
+      const cards = document.querySelectorAll(".workbench-catalog__relation");
+      expect(cards.length).toBeGreaterThan(0);
+      // Each names its relation and shows some of its columns, so the screen
+      // is browsable rather than a pointer to somewhere else.
+      expect(cards[0]!.querySelector(".workbench-catalog__columns code")).not.toBeNull();
+      expect(
+        document.querySelector(".workbench-empty")?.className,
+      ).toContain("workbench-empty");
+    });
+  });
 });

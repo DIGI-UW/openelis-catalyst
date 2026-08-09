@@ -1268,16 +1268,12 @@ export const QueryWorkspace = ({
 
   // Enough of the catalog to know what can be asked about, with the rail as
   // the way to the rest of it.
-  const catalogSummary = (() => {
-    const relations = (workbenchCatalog?.schemas ?? []).flatMap(
-      (schema) => schema.views,
-    );
-    if (relations.length === 0) return null;
-    const widest = relations.reduce((largest, view) =>
-      view.columns.length > largest.columns.length ? view : largest,
-    );
-    return { relations: relations.length, widest };
-  })();
+  // Every relation, biggest first: the empty screen's job is to show what can
+  // be asked about, and a single summary line could not do that.
+  const catalogRelations = (workbenchCatalog?.schemas ?? [])
+    .flatMap((schema) => schema.views)
+    .slice()
+    .sort((left, right) => right.columns.length - left.columns.length);
 
   const catalogRelationCount = (workbenchCatalog?.schemas ?? []).reduce(
     (total, schema) => total + schema.views.length,
@@ -1581,36 +1577,60 @@ export const QueryWorkspace = ({
           <p className="workbench-empty__lead">
             Ask a question about {activeDataSourceLabel ?? "the connected data"}.
           </p>
-          <p>
+          <p className="workbench-empty__note">
             Catalyst writes SQL you can read and edit, runs it, and keeps every
             version. Nothing is saved until you review it.
           </p>
-          {catalogSummary && (
-            <div className="workbench-empty__catalog">
-              <dl>
-                <div>
-                  <dt>Relations</dt>
-                  <dd>{catalogSummary.relations}</dd>
-                </div>
-                <div>
-                  <dt>Largest</dt>
-                  <dd>
-                    <code>{catalogSummary.widest.qualifiedName}</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Columns</dt>
-                  <dd>{catalogSummary.widest.columns.length}</dd>
-                </div>
-              </dl>
-              <p>{catalogSummary.widest.grain}</p>
-              <button
-                type="button"
-                onClick={() => changeRailSection("data")}
-              >
-                Browse every relation and column in DATA →
-              </button>
-            </div>
+
+          {catalogRelations.length > 0 && (
+            <section
+              className="workbench-catalog"
+              aria-labelledby="workbench-catalog-title"
+            >
+              <header className="workbench-catalog__heading">
+                <h2 id="workbench-catalog-title">
+                  {catalogRelations.length} relations you can query
+                </h2>
+                <button
+                  type="button"
+                  className="workbench-catalog__all"
+                  onClick={() => changeRailSection("data")}
+                >
+                  Browse columns in DATA →
+                </button>
+              </header>
+              <ul className="workbench-catalog__grid">
+                {catalogRelations.map((view) => (
+                  <li key={view.qualifiedName}>
+                    <button
+                      type="button"
+                      className="workbench-catalog__relation"
+                      onClick={() => changeRailSection("data")}
+                    >
+                      <span className="workbench-catalog__name">
+                        <code>{view.qualifiedName}</code>
+                      </span>
+                      <span className="workbench-catalog__count">
+                        {view.columns.length} columns
+                      </span>
+                      {view.grain && (
+                        <span className="workbench-catalog__grain">
+                          {view.grain}
+                        </span>
+                      )}
+                      <span className="workbench-catalog__columns">
+                        {view.columns.slice(0, 6).map((column) => (
+                          <code key={column.name}>{column.name}</code>
+                        ))}
+                        {view.columns.length > 6 && (
+                          <em>+{view.columns.length - 6} more</em>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </div>
       )}
