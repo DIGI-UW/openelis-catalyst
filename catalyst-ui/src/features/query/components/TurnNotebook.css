@@ -566,7 +566,14 @@
   .turn-composer {
     left: var(--dashboard-nav-width);
     width: auto;
-    max-height: min(21rem, calc(100dvh - 3rem));
+    /*
+     * 21rem was half of a 664px phone, so the thread got two cells and the
+     * composer got the rest. Bounded by the viewport as well as by content:
+     * the thread keeps the majority of the screen, and the composer scrolls
+     * within its own dock rather than growing past it.
+     */
+    max-height: min(20rem, 40dvh);
+    overflow-y: auto;
     transform: none;
   }
 

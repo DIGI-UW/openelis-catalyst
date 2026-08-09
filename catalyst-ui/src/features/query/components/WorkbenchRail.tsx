@@ -10,6 +10,7 @@ import {
 } from "@carbon/icons-react";
 import {
   useEffect,
+  useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -151,8 +152,17 @@ export const WorkbenchRail = ({
     return () => window.removeEventListener("resize", onResize);
   }, [onWidthChange, stacked, width]);
 
-  const dataOpen = openSection === "data";
-  const turnsOpen = openSection === "turns";
+  /*
+   * Stacked, the rail is a bar rather than a column. Measured on a 390x664
+   * phone it stood 398px tall and pushed the first cell to y=534 -- the thread
+   * was entirely below the fold and the rail was the app. Everything except
+   * the mark, the session and the section nav now sits behind a disclosure
+   * that starts closed, so the content leads and the rail is reachable.
+   */
+  const [stackedOpen, setStackedOpen] = useState(false);
+  const bodyVisible = !stacked || stackedOpen;
+  const dataOpen = openSection === "data" && bodyVisible;
+  const turnsOpen = openSection === "turns" && bodyVisible;
 
   return (
     <aside
@@ -216,8 +226,24 @@ export const WorkbenchRail = ({
           <strong>Catalyst</strong>
           <small>Governed queries → dashboards</small>
         </span>
+        {stacked && (
+          <button
+            type="button"
+            className="workbench-rail__disclosure"
+            aria-expanded={stackedOpen}
+            aria-controls="workbench-rail-body"
+            onClick={() => setStackedOpen((open) => !open)}
+          >
+            {stackedOpen ? "Hide" : "Menu"}
+          </button>
+        )}
       </div>
 
+      <div
+        className="workbench-rail__body"
+        id="workbench-rail-body"
+        hidden={!bodyVisible}
+      >
       <div className="workbench-rail__session">
         {/*
           The session owns its data source, so both live here rather than
@@ -489,6 +515,8 @@ export const WorkbenchRail = ({
           )}
         </button>
       </div>
+      </div>
+
 
       <nav className="workbench-rail__nav" aria-label="Sections">
         {sections.map(({ id, label, icon: Icon }) => (
