@@ -23,6 +23,7 @@
     "@codemirror/state": "^6.7.1",
     "@ibm/plex-mono": "^2.5.0",
     "@ibm/plex-sans": "^1.1.0",
+    "@lezer/highlight": "^1.2.3",
     "codemirror": "^6.0.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

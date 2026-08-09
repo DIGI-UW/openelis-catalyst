@@ -15,6 +15,7 @@ import type {
   WorkbenchSession,
 } from "../types";
 import type { DetailsTab } from "./DetailsPanel";
+import { highlightSql } from "./sqlHighlight";
 import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
 
@@ -389,7 +390,21 @@ export const TurnNotebook = ({
                     {versionAuthor(version)}
                     {versionModel(version) ? ` · ${versionModel(version)}` : ""}
                   </p>
-                  <pre>{version.sql}</pre>
+                  {/*
+                    Highlighted by parsing, not by mounting an editor: a long
+                    thread would otherwise pay for one CodeMirror view per
+                    cell to render text nobody can type into.
+                  */}
+                  <pre>
+                    {highlightSql(version.sql).map((span, index) => (
+                      <span
+                        className={span.className}
+                        key={`${index}-${span.text.length}`}
+                      >
+                        {span.text}
+                      </span>
+                    ))}
+                  </pre>
                 </div>
               )}
 
