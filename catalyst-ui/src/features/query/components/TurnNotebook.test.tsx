@@ -424,6 +424,63 @@ describe("TurnNotebook", () => {
     expect(onGenerate).toHaveBeenCalledOnce();
   });
 
+  it("submits the instruction from the keyboard, with Command or with Control", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        instruction="Narrow this to the last 30 days"
+        onGenerate={onGenerate}
+      />,
+    );
+
+    const instruction = screen.getByRole("textbox", {
+      name: "Follow-up instruction",
+    });
+    instruction.focus();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(onGenerate).toHaveBeenCalledOnce();
+
+    // Control does the same, for a keyboard with no Command key.
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(onGenerate).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves an unmodified Return to write a second line of instruction", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    const onInstructionChange = vi.fn();
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        instruction="Narrow this"
+        onGenerate={onGenerate}
+        onInstructionChange={onInstructionChange}
+      />,
+    );
+
+    screen.getByRole("textbox", { name: "Follow-up instruction" }).focus();
+    await user.keyboard("{Enter}");
+
+    expect(onGenerate).not.toHaveBeenCalled();
+    expect(onInstructionChange).toHaveBeenCalled();
+  });
+
+  it("refuses a keyboard submit for the same reasons the button is disabled", async () => {
+    const user = userEvent.setup();
+    const onGenerate = vi.fn();
+    render(
+      <TurnNotebook {...defaultProps} editorEmpty onGenerate={onGenerate} />,
+    );
+
+    screen.getByRole("textbox", { name: "Follow-up instruction" }).focus();
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+
   it("collapses as you scroll up into history and returns as you scroll back", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
