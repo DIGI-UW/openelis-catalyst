@@ -542,3 +542,110 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
     assert "another-secret" not in serialized
     assert "demo-password" not in serialized
     assert str(caught.value) == 'column "missing" does not exist'
+
+
+@pytest.mark.parametrize(
+    ("submitted", "expected"),
+    [
+        # The case that sent us here: a per-cent sign in a TO_CHAR format string.
+        (
+            "SELECT TO_CHAR(ratio * 100, '990D9%') AS pct",
+            "SELECT TO_CHAR(ratio * 100, '990D9%%') AS pct",
+        ),
+        # psycopg's scanner does not know about SQL quoting, so a LIKE pattern
+        # needs doubling just as much as anything else.
+        (
+            "SELECT 1 WHERE name LIKE '%acid%'",
+            "SELECT 1 WHERE name LIKE '%%acid%%'",
+        ),
+        # Modulo, outside any quoting at all.
+        ("SELECT n % 2 FROM t", "SELECT n %% 2 FROM t"),
+        # An escaped quote inside a literal must not end the literal early.
+        ("SELECT 'it''s 50%' AS note", "SELECT 'it''s 50%%' AS note"),
+        # Comments reach psycopg too.
+        ("SELECT 1 -- 50% done\n", "SELECT 1 -- 50%% done\n"),
+        ("SELECT /* 50% */ 1", "SELECT /* 50%% */ 1"),
+        # Dollar-quoted bodies are opaque to Postgres, not to psycopg.
+        ("SELECT $$100%$$", "SELECT $$100%%$$"),
+        ("SELECT $tag$100%$tag$", "SELECT $tag$100%%$tag$"),
+    ],
+)
+def test_driver_sql_doubles_literal_per_cent_signs_wherever_they_appear(
+    submitted: str, expected: str
+) -> None:
+    assert PostgresAnalyticsAdapter._driver_sql(submitted, set()) == expected
+
+
+def test_driver_sql_leaves_the_placeholder_it_generates_undoubled() -> None:
+    assert (
+        PostgresAnalyticsAdapter._driver_sql("SELECT * FROM t WHERE id = :pid", {"pid"})
+        == "SELECT * FROM t WHERE id = %(pid)s"
+    )
+
+
+def test_driver_sql_can_rewrite_a_binding_and_escape_a_literal_in_one_statement() -> (
+    None
+):
+    assert (
+        PostgresAnalyticsAdapter._driver_sql(
+            "SELECT TO_CHAR(v, '990D9%') FROM t WHERE id = :pid AND n % 2 = 0",
+            {"pid"},
+        )
+        == "SELECT TO_CHAR(v, '990D9%%') FROM t WHERE id = %(pid)s AND n %% 2 = 0"
+    )
+
+
+def test_driver_sql_reads_a_doubled_per_cent_sign_as_two_literal_per_cent_signs() -> (
+    None
+):
+    """Submitted SQL now means what it says.
+
+    Before this escaping existed, ``%%`` was the workaround for getting a single
+    per-cent sign past psycopg. It is no longer needed, and it no longer does
+    that: two per-cent signs in the submitted SQL are two per-cent signs in the
+    statement Postgres runs.
+    """
+    assert (
+        PostgresAnalyticsAdapter._driver_sql("SELECT '990D9%%'", set())
+        == "SELECT '990D9%%%%'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_manual_execution_escapes_per_cent_signs_and_always_binds_a_mapping():
+    executed: list[tuple[str, object]] = []
+
+    class Cursor:
+        description = [SimpleNamespace(name="pct", type_code=25)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, sql, params=None):
+            if sql.startswith("SELECT TO_CHAR"):
+                executed.append((sql, params))
+
+        def fetchmany(self, count):
+            return [("99.5%",)]
+
+    adapter = PostgresAnalyticsAdapter(
+        "postgresql://demo",
+        connect=lambda *args, **kwargs: _Connection(Cursor()),
+    )
+
+    await adapter.execute_manual(
+        sql="SELECT TO_CHAR(0.995 * 100, '990D9%') AS pct",
+        parameters=[],
+        max_rows=10,
+        statement_timeout_ms=500,
+    )
+
+    ((sql, params),) = executed
+    assert "'990D9%%'" in sql
+    # psycopg collapses ``%%`` back to ``%`` only when it has parameters to
+    # convert, so an empty mapping has to be passed rather than None. If this
+    # ever becomes ``bindings or None``, the doubled signs reach the database.
+    assert params == {}
