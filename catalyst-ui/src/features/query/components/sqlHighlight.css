@@ -1,0 +1,58 @@
+/*
+ * Colours for the spans sqlHighlight.ts produces. Carbon emits 88 --cds-syntax-*
+ * tokens and every one is theme-aware, so this needs no dark-mode counterpart.
+ *
+ * Deliberately unscoped. These class names exist only where that module put
+ * them, and both renderers use it: a committed cell builds spans through
+ * `highlightTree`, and the editor installs the same style through
+ * `syntaxHighlighting`. Scoping the colours to the cell was what left the
+ * editor's spans present but uncoloured — the markup was right in both places
+ * and only the stylesheet could not reach one of them.
+ *
+ * A rule on the span itself beats the colour the editor's own `.cm-line`
+ * inherits down, so no extra specificity is needed to win inside CodeMirror.
+ */
+.sql-keyword {
+  color: var(--cds-syntax-keyword);
+}
+
+.sql-control {
+  color: var(--cds-syntax-control-keyword);
+}
+
+.sql-operator {
+  color: var(--cds-syntax-operator);
+}
+
+.sql-string {
+  color: var(--cds-syntax-special-string);
+}
+
+.sql-number {
+  color: var(--cds-syntax-number);
+}
+
+.sql-comment {
+  color: var(--cds-syntax-comment);
+  font-style: italic;
+}
+
+.sql-type {
+  color: var(--cds-syntax-type-name);
+}
+
+.sql-function {
+  color: var(--cds-syntax-function);
+}
+
+.sql-punctuation {
+  color: var(--cds-syntax-punctuation);
+}
+
+.sql-name {
+  color: var(--cds-syntax-variable-name);
+}
+
+.sql-invalid {
+  color: var(--cds-syntax-invalid);
+}
