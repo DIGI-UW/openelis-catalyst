@@ -47,6 +47,12 @@ interface WorkbenchPanelProps {
   onWrapLinesChange: (wrapLines: boolean) => void;
   onClearDraft: () => void;
   onRestoreCurrentVersion: () => void;
+  /**
+   * Put the editor away and go back to looking at the result. Omitted when
+   * there is no run to go back to, because then the editor is the only thing
+   * on offer and closing it would leave an empty turn.
+   */
+  onCloseEditor?: () => void;
   onRun: () => void;
 }
 
@@ -564,12 +570,18 @@ export const WorkbenchPanel = ({
   onWrapLinesChange,
   onClearDraft,
   onRestoreCurrentVersion,
+  onCloseEditor,
   onRun,
 }: WorkbenchPanelProps) => {
   const hasSql = sql.trim().length > 0;
   const actionsDisabled = busy !== null || !hasSql;
   const clearDisabled = busy !== null || (!hasSql && parameters.length === 0);
   const relations = workbenchCatalogRelations(editorCatalog);
+  // Closing throws away whatever the editor holds that the current version does
+  // not, so say which of the two things the button is about to do.
+  const closeDiscardsEdits = Boolean(
+    session.currentVersion && sql !== session.currentVersion.sql,
+  );
 
   return (
     <section className="query-card workbench-panel" aria-labelledby="workbench-title">
@@ -650,6 +662,16 @@ export const WorkbenchPanel = ({
             onClick={onRestoreCurrentVersion}
           >
             Restore the current query
+          </Button>
+        )}
+        {onCloseEditor && (
+          <Button
+            type="button"
+            kind="ghost"
+            disabled={busy !== null}
+            onClick={onCloseEditor}
+          >
+            {closeDiscardsEdits ? "Discard edits and close" : "Close editor"}
           </Button>
         )}
         {/*

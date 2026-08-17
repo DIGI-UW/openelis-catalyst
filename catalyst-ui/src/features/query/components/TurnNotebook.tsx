@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import type {
@@ -309,6 +310,17 @@ export const TurnNotebook = ({
   };
 
   const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (editorEmpty || busy || noRevisionProfiles) return;
+    onGenerate();
+  };
+
+  // The tucked composer has always shown a ⌘↵ hint; this is what makes it true.
+  // Ctrl is accepted alongside Command so the shortcut works on a keyboard that
+  // has no Command key. Enter on its own still starts a new line: an instruction
+  // is prose, and prose sometimes runs to a second line.
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
     if (editorEmpty || busy || noRevisionProfiles) return;
     onGenerate();
@@ -660,6 +672,7 @@ export const TurnNotebook = ({
             disabled={busy}
             onFocus={() => setComposerFocused(true)}
             onBlur={() => setComposerFocused(false)}
+            onKeyDown={handleComposerKeyDown}
             onChange={(event) => onInstructionChange(event.currentTarget.value)}
             placeholder="Ask a question, or say how you want the current query changed"
           />

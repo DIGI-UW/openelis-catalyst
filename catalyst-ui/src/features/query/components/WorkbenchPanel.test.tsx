@@ -290,6 +290,47 @@ describe("WorkbenchPanel", () => {
     expect(onRestoreCurrentVersion).toHaveBeenCalledOnce();
   });
 
+  it("offers no way out of the editor when there is nothing to go back to", () => {
+    render(<WorkbenchPanel {...defaultProps} session={makeSession()} />);
+
+    expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
+  });
+
+  it("closes the editor when the draft still matches the current query", async () => {
+    const user = userEvent.setup();
+    const onCloseEditor = vi.fn();
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession()}
+        onCloseEditor={onCloseEditor}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close editor" }));
+    expect(onCloseEditor).toHaveBeenCalledOnce();
+  });
+
+  it("says that closing discards edits when the draft has diverged", async () => {
+    const user = userEvent.setup();
+    const onCloseEditor = vi.fn();
+    render(
+      <WorkbenchPanel
+        {...defaultProps}
+        session={makeSession()}
+        sql={`${SQL} ORDER BY patient_id`}
+        onCloseEditor={onCloseEditor}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Close editor" })).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Discard edits and close" }),
+    );
+    expect(onCloseEditor).toHaveBeenCalledOnce();
+  });
+
   it("keeps prior results visible and marks them stale when the editor changes", () => {
     const execution: WorkbenchExecution = {
       contractVersion: "catalyst.workbench.execution.v1",

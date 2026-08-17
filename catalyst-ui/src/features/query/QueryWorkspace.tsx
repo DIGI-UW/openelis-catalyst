@@ -989,6 +989,14 @@ export const QueryWorkspace = ({
     setWorkbenchError(null);
   };
 
+  // Putting the editor away is going back to looking at the result, so the draft
+  // returns to the current version on the way out: the editor stays open while
+  // it differs, and a draft that could not be closed was the whole complaint.
+  const closeWorkbenchEditor = () => {
+    restoreCurrentWorkbenchVersion();
+    setEditorOpen(false);
+  };
+
   const persistWorkbenchDraft = async (): Promise<{
     session: WorkbenchSession;
     version: WorkbenchQueryVersion;
@@ -1397,6 +1405,11 @@ export const QueryWorkspace = ({
     usesNotebook && workbenchSession && workbenchTimeline,
   );
   const hasQueryDock = hasRefineDock || workbenchSession === null;
+  // Declared here rather than below the panel: whether the notebook is on decides
+  // whether closing the editor has anywhere to go back to.
+  const notebookShowing = Boolean(
+    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
+  );
 
   const currentVersionRan = Boolean(
     workbenchSession?.currentVersionId &&
@@ -1458,13 +1471,15 @@ export const QueryWorkspace = ({
           onWrapLinesChange={updateWorkbenchWrapLines}
           onClearDraft={clearWorkbenchDraft}
           onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
+          // Only offered when there is a run to return to and a thread holding
+          // it. Without the notebook this panel is the whole surface, so closing
+          // it would leave nothing behind.
+          onCloseEditor={
+            notebookShowing && currentVersionRan ? closeWorkbenchEditor : undefined
+          }
           onRun={runWorkbenchDraft}
         />
   ) : null;
-
-  const notebookShowing = Boolean(
-    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
-  );
 
   return (
     <div
