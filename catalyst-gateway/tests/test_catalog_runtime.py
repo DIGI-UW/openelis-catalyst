@@ -125,7 +125,91 @@ def test_discovered_relations_expand_catalog_and_keep_curated_semantics():
     assert fields["result_value"]["unitColumn"] == "result_unit"
     assert fact["grain"].startswith("Exactly one row per FHIR Observation")
     assert fact["semanticDimensions"][0]["field"] == "test_name"
-    assert expanded.request_catalog()["views"][1]["name"] == ("public.patient_flat_v1")
+    # Discovery describes the table, so the browser and the existence check can
+    # see it -- but describing it is not approving it, and the request catalog
+    # is what the writer reads. This assertion used to expect the discovered
+    # table here, which is exactly how an unapproved relation reached the model.
+    assert [view["name"] for view in expanded.request_catalog()["views"]] == [
+        "analytics.lab_result_fact_v1"
+    ]
+
+
+def test_discovery_describes_new_relations_without_approving_them():
+    """A readable table is not a query surface.
+
+    ``with_discovered_relations`` re-describes every relation the PostgreSQL role
+    can read. That is right for the dataset browser and for the "does this
+    relation exist" check, and wrong for approval: before this was separated, a
+    raw table in the same database silently became something a generated query
+    was allowed to join, and the linter -- which derives its allowlist from the
+    same request catalog -- had no reason to object.
+    """
+    base = Catalog.load(CATALOG_PATH)
+    curated = "analytics.lab_result_fact_v1"
+    relations = [
+        {
+            "name": curated,
+            "relationType": "view",
+            "grain": "Database-derived grain",
+            "fields": deepcopy(base.views[0]["fields"]),
+        },
+        {
+            "name": "public.raw_cross_product_flat",
+            "relationType": "table",
+            "grain": "Rows readable from public.raw_cross_product_flat (table)",
+            "fields": [
+                {
+                    "name": "id",
+                    "type": "string",
+                    "databaseType": "text",
+                    "description": "Raw identifier",
+                    "nullable": False,
+                }
+            ],
+        },
+    ]
+
+    expanded = base.with_discovered_relations(relations)
+
+    # Described, so the browser and the existence check can see it.
+    assert "public.raw_cross_product_flat" in expanded.relation_names
+    # Not approved, so a generated query may not reference it...
+    assert expanded.approved_view_names == {curated}
+    # ...and it is not even described to the writer.
+    assert [view["name"] for view in expanded.request_catalog()["views"]] == [curated]
+
+    # Approval survives a second discovery pass rather than widening again.
+    assert expanded.with_discovered_relations(relations).approved_view_names == {
+        curated
+    }
+
+
+def test_discovery_rejects_a_schema_with_no_approved_view_left():
+    """A curated view the role cannot read leaves nothing to query.
+
+    Reported here, where the cause is visible, rather than downstream as an
+    empty catalog failing the request contract.
+    """
+    base = Catalog.load(CATALOG_PATH)
+    with pytest.raises(ValueError, match="No approved catalog view is readable"):
+        base.with_discovered_relations(
+            [
+                {
+                    "name": "public.something_else",
+                    "relationType": "table",
+                    "grain": "Rows readable from public.something_else (table)",
+                    "fields": [
+                        {
+                            "name": "id",
+                            "type": "string",
+                            "databaseType": "text",
+                            "description": "Raw identifier",
+                            "nullable": False,
+                        }
+                    ],
+                }
+            ]
+        )
 
 
 def _viral_load_request(catalog: Catalog) -> dict:
