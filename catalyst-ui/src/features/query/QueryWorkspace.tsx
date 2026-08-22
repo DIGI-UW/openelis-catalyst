@@ -38,6 +38,7 @@ import {
   workbenchEditorDigest,
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
+import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
 import type { ThemePreference } from "./theme";
 import {
   isPreview,
@@ -52,7 +53,6 @@ import {
   type CatalystTable,
   type QueryOptions,
   type WorkbenchEditorCatalog,
-  type WorkbenchGenerationEvidence,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
   type WorkbenchSessionSummary,
@@ -650,12 +650,14 @@ export const QueryWorkspace = ({
     useState<WorkbenchTurnTimeline | null>(null);
   const [followupInstruction, setFollowupInstruction] = useState("");
   const [followupBusy, setFollowupBusy] = useState(false);
-  const [generationEvidence, setGenerationEvidence] =
-    useState<WorkbenchGenerationEvidence | null>(null);
-  const [generationEvidenceLoadingTurnId, setGenerationEvidenceLoadingTurnId] =
-    useState<string | null>(null);
-  const [generationEvidenceError, setGenerationEvidenceError] =
-    useState<string | null>(null);
+  const {
+    evidence: generationEvidence,
+    loadingTurnId: generationEvidenceLoadingTurnId,
+    error: generationEvidenceError,
+    show: showGenerationEvidence,
+    reset: resetGenerationEvidence,
+    invalidate: invalidateGenerationEvidence,
+  } = useGenerationEvidence(api);
   const usesWorkbench = Boolean(
     api.createWorkbenchSession &&
       api.createWorkbenchVersion &&
@@ -963,9 +965,7 @@ export const QueryWorkspace = ({
     setWorkbenchTimeline(null);
     setFollowupInstruction("");
     setFollowupBusy(false);
-    setGenerationEvidence(null);
-    setGenerationEvidenceLoadingTurnId(null);
-    setGenerationEvidenceError(null);
+    resetGenerationEvidence();
     forgetActiveWorkbenchSession();
     setActiveSection("ask");
     try {
@@ -1121,8 +1121,7 @@ export const QueryWorkspace = ({
     setFollowupBusy(true);
     setWorkbenchError(null);
     setWorkbenchAnnouncement("");
-    setGenerationEvidence(null);
-    setGenerationEvidenceError(null);
+    invalidateGenerationEvidence();
     const baseVersion = workbenchSession.currentVersion;
     const content = {
       sql: workbenchSql,
@@ -1215,27 +1214,6 @@ export const QueryWorkspace = ({
       setWorkbenchError(messageFromError(error));
     } finally {
       setFollowupBusy(false);
-    }
-  };
-
-  const showWorkbenchGenerationEvidence = async (turnId: string) => {
-    if (!workbenchSession || !api.getWorkbenchGenerationEvidence) {
-      setGenerationEvidenceError("Generation evidence is unavailable.");
-      return;
-    }
-    setGenerationEvidenceLoadingTurnId(turnId);
-    setGenerationEvidenceError(null);
-    try {
-      setGenerationEvidence(
-        await api.getWorkbenchGenerationEvidence(
-          workbenchSession.sessionId,
-          turnId,
-        ),
-      );
-    } catch (error) {
-      setGenerationEvidenceError(messageFromError(error));
-    } finally {
-      setGenerationEvidenceLoadingTurnId(null);
     }
   };
 
@@ -1361,7 +1339,7 @@ export const QueryWorkspace = ({
     if (turn) setActiveTurnOrdinal(turn.ordinal);
     if (isManualCell(turnId)) return;
     if (generationEvidence?.turnId !== turnId) {
-      void showWorkbenchGenerationEvidence(turnId);
+      void showGenerationEvidence(workbenchSession?.sessionId ?? null, turnId);
     }
   };
 
