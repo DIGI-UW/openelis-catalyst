@@ -1015,6 +1015,7 @@ class CatalystService:
                 ),
                 retained_writer=retained,
                 retained_writer_validation=retained_validation,
+                details=self._failure_check_details(generation.body),
             )
             restored = store.get_session(session["sessionId"])
             assert restored is not None
@@ -1174,6 +1175,7 @@ class CatalystService:
                     kind="initial",
                     failed=True,
                 ),
+                details=self._failure_check_details(generation.body),
             )
 
         restored = store.get_session(session["sessionId"])
@@ -1511,6 +1513,7 @@ class CatalystService:
                     ),
                     retained_writer=retained_writer,
                     retained_writer_validation=retained_validation,
+                    details=self._failure_check_details(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -1538,6 +1541,7 @@ class CatalystService:
                         kind="followup",
                         failed=True,
                     ),
+                    details=self._failure_check_details(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -2637,6 +2641,38 @@ class CatalystService:
             # decision was a rejection, not because of a transport problem.
             return f"{role}_decision", f"{role}_rejected"
         return f"{role}_transport", f"{role}_transport_failed"
+
+    @staticmethod
+    def _failure_check_details(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """The named checks that failed, out of a generation outcome.
+
+        A failed turn's diagnostic must name what failed -- these are read in
+        the cell instead of the person opening Evidence. Passed checks are not
+        failures; transport errors carry no outcome and get an empty list.
+        """
+        if not isinstance(outcome, dict):
+            return []
+        validation = outcome.get("validation")
+        checks = validation.get("checks") if isinstance(validation, dict) else None
+        details: list[dict[str, Any]] = []
+        for check in checks if isinstance(checks, list) else []:
+            if not isinstance(check, dict) or check.get("status") == "passed":
+                continue
+            status = str(check.get("status") or "failed")
+            message = check.get("message")
+            value = (
+                f"{status} — {message}"
+                if isinstance(message, str) and message
+                else status
+            )
+            # The diagnostic contract's detail shape is {name, value}.
+            details.append(
+                {
+                    "name": str(check.get("name") or "unnamed_check")[:100],
+                    "value": value[:4000],
+                }
+            )
+        return details[:32]
 
     @staticmethod
     def _response_hub_trace_id(outcome: dict[str, Any]) -> str | None:
