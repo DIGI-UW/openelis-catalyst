@@ -808,12 +808,58 @@ describe("TurnNotebook", () => {
     expect(screen.getAllByRole("textbox", { name: "Follow-up instruction" }))
       .toHaveLength(1);
 
-    // Scrolling up while still near the end only drops it to one line, which
-    // is the manual way back.
-    await scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
+    // Scrolling up out of the end band drops it to one line, which is the
+    // manual way back. It takes a real scroll rather than a few pixels: at the
+    // very end a wobble must not change anything (catalyst#35), so `line` is
+    // the middle band, not the first pixel above the bottom.
+    await scrollTo({ y: 2800, scrollHeight: 4000, innerHeight: 800 });
     expect(composerMode()).toBe("line");
     await user.click(screen.getByRole("button", { name: /Refine \[2\]/ }));
     expect(composerMode()).toBe("full");
+  });
+
+  it("does not flicker while scroll jitters below the intent gate", async () => {
+    // catalyst#35. Up-then-down near the end legitimately moves full <-> line
+    // (scrolling up to the lip is a documented affordance), so the guard is
+    // not "never change" -- it is that *jitter* changes nothing. Wobbles under
+    // the 24px intent gate, straddling the full/line boundary, must leave the
+    // mode exactly where it was.
+    render(<TurnNotebook {...defaultProps} />);
+    const mode = () =>
+      document.getElementById("refine-openelis")!.getAttribute("data-mode");
+
+    const H = 4000;
+    const V = 800;
+    await scrollTo({ y: 3200, scrollHeight: H, innerHeight: V });
+    expect(mode()).toBe("full");
+    // Settle deliberately at the boundary first — that scroll is a real
+    // gesture, not jitter, and whatever it lands on is the baseline.
+    await scrollTo({ y: 3010, scrollHeight: H, innerHeight: V });
+    const settled = mode();
+
+    // gap = H - (y + V): 3010 -> 190, just inside NEAR_END. Each step below is
+    // 4-16px, all under the 24px gate, crossing the boundary repeatedly.
+    const jitter = [3002, 3010, 2998, 3006, 3002, 3010];
+    const seen: string[] = [];
+    for (const y of jitter) {
+      await scrollTo({ y, scrollHeight: H, innerHeight: V });
+      seen.push(mode()!);
+    }
+
+    expect(seen.every((value) => value === settled)).toBe(true);
+  });
+
+  it("keeps the line mode reachable", async () => {
+    // C4: the fix must not collapse three modes into two.
+    render(<TurnNotebook {...defaultProps} />);
+    const mode = () =>
+      document.getElementById("refine-openelis")!.getAttribute("data-mode");
+
+    await scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    expect(mode()).toBe("full");
+    // gap 400: inside the middle band, past full's leave threshold.
+    await scrollTo({ y: 2800, scrollHeight: 4000, innerHeight: 800 });
+    expect(mode()).toBe("line");
   });
 
   it("comes back when the page stops being scrollable at all", async () => {
