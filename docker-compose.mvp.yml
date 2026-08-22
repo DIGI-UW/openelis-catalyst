@@ -19,6 +19,11 @@ services:
     image: itechuw/openelis-global-2-fhir@sha256:667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3
 
   analytics-db:
+    # Survives a daemon restart or an OrbStack reboot: these four were the
+    # only long-lived services here without a policy, so a reboot left the
+    # stack half-up (the OpenELIS and Superset services inherit one from
+    # their own compose file). One-shot jobs keep restart: "no" on purpose.
+    restart: unless-stopped
     image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
     environment:
       POSTGRES_DB: catalyst_analytics
@@ -224,6 +229,11 @@ services:
       start_period: 30s
 
   med-agent-hub:
+    # Survives a daemon restart or an OrbStack reboot: these four were the
+    # only long-lived services here without a policy, so a reboot left the
+    # stack half-up (the OpenELIS and Superset services inherit one from
+    # their own compose file). One-shot jobs keep restart: "no" on purpose.
+    restart: unless-stopped
     build:
       context: "${MED_AGENT_HUB_CONTEXT:-./.med-agent-hub}"
       args:
@@ -257,6 +267,11 @@ services:
       start_period: 15s
 
   catalyst-gateway:
+    # Survives a daemon restart or an OrbStack reboot: these four were the
+    # only long-lived services here without a policy, so a reboot left the
+    # stack half-up (the OpenELIS and Superset services inherit one from
+    # their own compose file). One-shot jobs keep restart: "no" on purpose.
+    restart: unless-stopped
     build:
       context: .
       dockerfile: catalyst-gateway/Dockerfile
@@ -304,6 +319,11 @@ services:
       start_period: 10s
 
   catalyst-ui:
+    # Survives a daemon restart or an OrbStack reboot: these four were the
+    # only long-lived services here without a policy, so a reboot left the
+    # stack half-up (the OpenELIS and Superset services inherit one from
+    # their own compose file). One-shot jobs keep restart: "no" on purpose.
+    restart: unless-stopped
     build: ./catalyst-ui
     ports:
       - "127.0.0.1:${CATALYST_UI_PORT:-3000}:8080"

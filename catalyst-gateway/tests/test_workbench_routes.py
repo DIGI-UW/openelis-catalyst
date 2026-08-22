@@ -530,6 +530,7 @@ def _client(
     analytics: FakeAnalytics | None = None,
     hub: FakeHub | None = None,
     catalog: Catalog | None = None,
+    default_query_profile_id: str | None = None,
 ) -> tuple[TestClient, FakeAnalytics]:
     database = tmp_path / "gateway.sqlite3"
     actual_analytics = analytics or FakeAnalytics()
@@ -543,6 +544,7 @@ def _client(
         sql_policy=SqlPolicy(max_rows=2),
         max_rows=2,
         statement_timeout_ms=500,
+        default_query_profile_id=default_query_profile_id,
     )
     return TestClient(gateway.create_app(catalyst_service=service)), actual_analytics
 
@@ -1311,6 +1313,32 @@ def test_ready_candidate_historical_lint_warning_stays_in_generation_history(
         session["currentVersion"]["provenance"]["generationValidation"]
         == (query["validation"])
     )
+
+
+def test_session_without_a_profile_uses_the_configured_default(
+    tmp_path: Path,
+) -> None:
+    # WS4: the demo server sets CATALYST_QUERY_PROFILE_ID to the one profile it
+    # advertises, and a fresh session with no profileId still failed with
+    # profile_unavailable naming the *code* default -- because this path read
+    # the module constant instead of the configured one. A deployment's
+    # configuration has to be what an unspecified request falls back to.
+    # Any profile the hub advertises: the point is that configuration decides,
+    # not that this particular id is special.
+    configured = PROFILE_ID
+    client, _ = _client(tmp_path, _ready_query(), default_query_profile_id=configured)
+
+    response = client.post(
+        "/v1/catalyst/workbench/sessions",
+        json={
+            "contractVersion": "catalyst.workbench.session.request.v1",
+            "deploymentMode": "demo",
+            "question": QUESTION,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["profileId"] == configured
 
 
 def test_failed_turn_names_its_failed_checks_in_the_failure_block(

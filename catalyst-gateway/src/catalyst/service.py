@@ -510,7 +510,10 @@ class CatalystService:
                 payload,
             )
             question = payload["question"]
-            profile_id = payload.get("profileId", QUERY_PROFILE_ID)
+            # The deployment's configured default, not the module constant: a
+            # demo host that advertises one profile sets it, and a request that
+            # names none must land there rather than on a build-time guess.
+            profile_id = payload.get("profileId", self.default_query_profile_id)
             if not question.strip():
                 raise ContractError("Question must contain non-whitespace text.")
         except (ContractError, KeyError, TypeError) as error:
@@ -662,7 +665,7 @@ class CatalystService:
         except (ContractError, KeyError, TypeError) as error:
             return self._workbench_error(400, "invalid_request", str(error))
 
-        profile_id = str(payload.get("profileId") or QUERY_PROFILE_ID)
+        profile_id = str(payload.get("profileId") or self.default_query_profile_id)
         bundle = self._require_bundle(payload.get("dataSourceId"))
         if isinstance(bundle, ServiceResponse):
             return bundle
