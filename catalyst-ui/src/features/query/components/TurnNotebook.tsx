@@ -274,9 +274,33 @@ export const TurnNotebook = ({
     const onScroll = () => {
       if (frame === 0) frame = window.requestAnimationFrame(measure);
     };
+
+    // A page that cannot scroll has no history to be scrolled back into, so
+    // "tucked" and "line" describe a position that no longer exists — and no
+    // scroll gesture can clear them, because a page with nothing to scroll
+    // emits no scroll events. Content shrinking below the viewport is the way
+    // in: the editor stepping aside when a run lands does it routinely, and it
+    // became routine once the editor started presenting SQL laid out.
+    const settleWhenUnscrollable = () => {
+      if (document.documentElement.scrollHeight <= window.innerHeight) {
+        lastY = 0;
+        intent = 0;
+        setScrollMode("full");
+      }
+    };
+
+    settleWhenUnscrollable();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", settleWhenUnscrollable);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(settleWhenUnscrollable);
+    observer?.observe(document.documentElement);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", settleWhenUnscrollable);
+      observer?.disconnect();
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
   }, [composerPinned]);
