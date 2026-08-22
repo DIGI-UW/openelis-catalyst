@@ -14,6 +14,9 @@
 import { HighlightStyle } from "@codemirror/language";
 import { PostgreSQL, sql } from "@codemirror/lang-sql";
 import { highlightTree, tags } from "@lezer/highlight";
+// Imported here rather than by each renderer, so anything that adopts this style
+// gets the colours with it and cannot be styled by only one of the two.
+import "./sqlHighlight.css";
 
 /** Every span this produces, so the stylesheet and tests can enumerate them. */
 export type SqlTokenClass =

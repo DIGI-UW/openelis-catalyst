@@ -521,6 +521,9 @@ describe("Dashboard Builder Ask shell", () => {
       parentVersionId: version.versionId,
       ordinal: 2,
       authorType: "human",
+      // What the server stores is what was typed. Returning the parent's SQL
+      // here would leave the editor looking unsaved after its own save.
+      sql: `${version.sql} AND med_display IS NOT NULL`,
       queryDigest: "f".repeat(64),
       provenance: { editedFromVersionId: version.versionId },
     };
@@ -592,6 +595,11 @@ describe("Dashboard Builder Ask shell", () => {
     render(<QueryWorkspace api={client} />);
 
     await user.click(await screen.findByRole("button", { name: "Edit query" }));
+    // The edit is what makes this a new version to run: an untouched draft
+    // runs the version it came from rather than minting a hand-authored one.
+    await user.click(screen.getByRole("textbox", { name: "SQL query" }));
+    await user.keyboard("{Control>}{End}{/Control}");
+    await user.paste(" AND med_display IS NOT NULL");
     await user.click(screen.getByRole("button", { name: "Run query" }));
 
     // A failure is a result. It gets the attention, in the cell that produced

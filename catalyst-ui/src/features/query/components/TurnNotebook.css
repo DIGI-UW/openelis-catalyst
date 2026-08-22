@@ -771,51 +771,8 @@
 }
 
 /*
- * SQL highlighting for committed cells. Carbon emits 88 --cds-syntax-* tokens
- * and every one is theme-aware, so this needs no dark-mode counterpart.
- * The class names come from sqlHighlight.ts, which the editor uses too.
+ * The SQL token colours used to live here, scoped to .query-turn__sql, which is
+ * why the editor rendered the same spans with no colour at all. They now sit in
+ * sqlHighlight.css, next to the module that emits the class names, and reach
+ * both renderers.
  */
-.query-turn__sql .sql-keyword {
-  color: var(--cds-syntax-keyword);
-}
-
-.query-turn__sql .sql-control {
-  color: var(--cds-syntax-control-keyword);
-}
-
-.query-turn__sql .sql-operator {
-  color: var(--cds-syntax-operator);
-}
-
-.query-turn__sql .sql-string {
-  color: var(--cds-syntax-special-string);
-}
-
-.query-turn__sql .sql-number {
-  color: var(--cds-syntax-number);
-}
-
-.query-turn__sql .sql-comment {
-  color: var(--cds-syntax-comment);
-  font-style: italic;
-}
-
-.query-turn__sql .sql-type {
-  color: var(--cds-syntax-type-name);
-}
-
-.query-turn__sql .sql-function {
-  color: var(--cds-syntax-function);
-}
-
-.query-turn__sql .sql-punctuation {
-  color: var(--cds-syntax-punctuation);
-}
-
-.query-turn__sql .sql-name {
-  color: var(--cds-syntax-variable-name);
-}
-
-.query-turn__sql .sql-invalid {
-  color: var(--cds-syntax-invalid);
-}

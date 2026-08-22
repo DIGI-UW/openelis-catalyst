@@ -140,13 +140,138 @@ const sha256Hex = (source: string) => {
     .join("");
 };
 
+/**
+ * The same SQL, with layout removed and nothing else.
+ *
+ * Two queries that differ only in whitespace or keyword case are the same
+ * query, and treating them as different is what made pressing "Format SQL"
+ * register as authoring a new version by hand. Comparing normalized fixes that
+ * without rewriting a byte of what is stored or executed -- and it holds even
+ * if the editor's formatter and any other formatter disagree, because it never
+ * asks them to agree.
+ *
+ * String literals and dollar-quoted bodies are copied through untouched: the
+ * spaces in 'HIV viral load' and the digits in '990D9%' are data, and
+ * collapsing them would silently change what the query means.
+ */
+export const normalizeSqlLayout = (sql: string): string => {
+  let out = "";
+  let index = 0;
+  let pendingSpace = false;
+  let quote: string | null = null;
+  let dollarTag: string | null = null;
+
+  const pushLiteral = (text: string) => {
+    if (pendingSpace && out.length > 0) out += " ";
+    pendingSpace = false;
+    out += text;
+  };
+
+  while (index < sql.length) {
+    const char = sql.charAt(index);
+
+    if (dollarTag !== null) {
+      if (sql.startsWith(dollarTag, index)) {
+        out += dollarTag;
+        index += dollarTag.length;
+        dollarTag = null;
+      } else {
+        out += char;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote !== null) {
+      out += char;
+      index += 1;
+      if (char === quote) {
+        if (sql.charAt(index) === quote) {
+          out += sql.charAt(index);
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      pushLiteral(char);
+      quote = char;
+      index += 1;
+      continue;
+    }
+
+    if (char === "$") {
+      const end = sql.indexOf("$", index + 1);
+      if (end !== -1) {
+        const tag = sql.slice(index + 1, end);
+        if (tag === "" || /^[A-Za-z_]\w*$/.test(tag)) {
+          dollarTag = sql.slice(index, end + 1);
+          pushLiteral(dollarTag);
+          index = end + 1;
+          continue;
+        }
+      }
+    }
+
+    if (/\s/.test(char)) {
+      pendingSpace = true;
+      index += 1;
+      continue;
+    }
+
+    pushLiteral(char.toLowerCase());
+    index += 1;
+  }
+
+  return out;
+};
+
+/**
+ * Whether two queries are the same query.
+ *
+ * The one place that answers this. Comparing SQL with `===` is the defect this
+ * module exists to remove: it was written out by hand at seven call sites, and
+ * every one of them read a reflow as a rewrite. Call this instead — there is a
+ * test that fails if a new site spells the comparison out again.
+ */
+export const sqlLayoutMatches = (left: string, right: string): boolean =>
+  normalizeSqlLayout(left) === normalizeSqlLayout(right);
+
+/**
+ * The model's declared columns, kept only while they still describe the query.
+ *
+ * Layout-insensitive for the same reason the authorship check is: a reflow of
+ * the query the model wrote still returns the same columns, so dropping them
+ * would present the editor as describing something unverified when nothing
+ * about the query had changed. Lives here, beside the comparison it has to
+ * agree with, because two copies of this rule in two files is how one of them
+ * ends up comparing bytes.
+ */
+export const editorExpectedColumns = (
+  baseVersion: Pick<WorkbenchQueryVersion, "sql" | "expectedColumns"> | null,
+  sql: string,
+): Column[] =>
+  baseVersion !== null && sqlLayoutMatches(sql, baseVersion.sql)
+    ? baseVersion.expectedColumns
+    : [];
+
+const comparableContent = (content: EditorContent) =>
+  canonicalJson({
+    sql: normalizeSqlLayout(content.sql),
+    parameters: content.parameters,
+    expectedColumns: content.expectedColumns,
+  });
+
 export const editorContentMatchesVersion = (
   content: EditorContent,
   version: WorkbenchQueryVersion | null,
 ) =>
   version !== null &&
-  canonicalJson(content) ===
-    canonicalJson({
+  comparableContent(content) ===
+    comparableContent({
       sql: version.sql,
       parameters: version.parameters,
       expectedColumns: version.expectedColumns,

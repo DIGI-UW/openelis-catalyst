@@ -33,8 +33,11 @@ import {
 } from "./components/workbenchRailSupport";
 import {
   editorContentMatchesVersion,
+  editorExpectedColumns,
+  sqlLayoutMatches,
   workbenchEditorDigest,
 } from "./editorDigest";
+import { formatPostgresqlSql } from "./components/sqlEditorSupport";
 import type { ThemePreference } from "./theme";
 import {
   isPreview,
@@ -149,13 +152,27 @@ const writeDataSourceIdToUrl = (dataSourceId: string) => {
 const sessionEditorDraft = (session: WorkbenchSession) =>
   session.currentVersion ?? session.draftSeed ?? null;
 
-const editorExpectedColumns = (
-  baseVersion: WorkbenchQueryVersion | null,
-  sql: string,
-) =>
-  baseVersion !== null && sql === baseVersion.sql
-    ? baseVersion.expectedColumns
-    : [];
+/**
+ * The SQL to put in the editor, laid out for reading.
+ *
+ * A model emits whatever formatting it emits, and it varies between the writer
+ * and a reviewer-repaired version -- which is why the first query in a session
+ * used to arrive dense and later ones tidy. Formatting on the way into the
+ * editor makes them consistent. Nothing else changes: the version keeps the SQL
+ * the model actually produced, that is what executes, and the comparison in
+ * editorDigest ignores layout, so presenting it differently is not an edit.
+ *
+ * If sql-formatter cannot parse it, the original is shown untouched -- an
+ * unreadable query beats a missing one.
+ */
+const editorReadySql = (sql: string): string => {
+  if (sql.trim().length === 0) return sql;
+  try {
+    return formatPostgresqlSql(sql);
+  } catch {
+    return sql;
+  }
+};
 
 const currentQueryProfileId = (session: WorkbenchSession) => {
   const visited = new Set<string>();
@@ -685,7 +702,7 @@ export const QueryWorkspace = ({
     setProfileId(currentQueryProfileId(session));
     if (session.dataSourceId) setDataSourceId(session.dataSourceId);
     const draft = sessionEditorDraft(session);
-    setWorkbenchSql(draft?.sql ?? "");
+    setWorkbenchSql(draft ? editorReadySql(draft.sql) : "");
     setWorkbenchParameters(
       draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
     );
@@ -869,7 +886,7 @@ export const QueryWorkspace = ({
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
         const draft = sessionEditorDraft(session);
-        setWorkbenchSql(draft?.sql ?? "");
+        setWorkbenchSql(draft ? editorReadySql(draft.sql) : "");
         setWorkbenchParameters(
           draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
         );
@@ -982,11 +999,19 @@ export const QueryWorkspace = ({
   const restoreCurrentWorkbenchVersion = () => {
     const current = workbenchSession?.currentVersion;
     if (!current) return;
-    setWorkbenchSql(current.sql);
+    setWorkbenchSql(editorReadySql(current.sql));
     setWorkbenchParameters(
       current.parameters.map((parameter) => ({ ...parameter })),
     );
     setWorkbenchError(null);
+  };
+
+  // Putting the editor away is going back to looking at the result, so the draft
+  // returns to the current version on the way out: the editor stays open while
+  // it differs, and a draft that could not be closed was the whole complaint.
+  const closeWorkbenchEditor = () => {
+    restoreCurrentWorkbenchVersion();
+    setEditorOpen(false);
   };
 
   const persistWorkbenchDraft = async (): Promise<{
@@ -1032,7 +1057,29 @@ export const QueryWorkspace = ({
     setWorkbenchBusy("running");
     setWorkbenchError(null);
     try {
-      const { session, version } = await persistWorkbenchDraft();
+      // Running a query nobody rewrote is not authoring one. Every version the
+      // create endpoint stores is recorded as hand-authored, so persisting the
+      // draft unconditionally labelled the model's own query "Edited by hand"
+      // the moment it was run — the complaint this work exists to answer, and
+      // one the editor now laying SQL out on arrival would have made
+      // unavoidable rather than occasional. An unchanged draft runs the version
+      // it came from; only a real difference earns a version of its own.
+      const current = workbenchSession?.currentVersion ?? null;
+      const unchanged =
+        workbenchSession !== null &&
+        current !== null &&
+        editorContentMatchesVersion(
+          {
+            sql: workbenchSql,
+            parameters: workbenchParameters,
+            expectedColumns: editorExpectedColumns(current, workbenchSql),
+          },
+          current,
+        );
+      const { session, version } =
+        unchanged && workbenchSession
+          ? { session: workbenchSession, version: current! }
+          : await persistWorkbenchDraft();
       const execution = await api.executeWorkbenchVersion(
         version.versionId,
         version.queryDigest,
@@ -1128,7 +1175,7 @@ export const QueryWorkspace = ({
         : workbenchSession;
       setWorkbenchSession(restored);
       const draft = sessionEditorDraft(restored);
-      setWorkbenchSql(draft?.sql ?? workbenchSql);
+      setWorkbenchSql(draft ? editorReadySql(draft.sql) : workbenchSql);
       setWorkbenchParameters(
         draft?.parameters.map((parameter) => ({ ...parameter })) ??
           workbenchParameters,
@@ -1397,13 +1444,21 @@ export const QueryWorkspace = ({
     usesNotebook && workbenchSession && workbenchTimeline,
   );
   const hasQueryDock = hasRefineDock || workbenchSession === null;
+  // Declared here rather than below the panel: whether the notebook is on decides
+  // whether closing the editor has anywhere to go back to.
+  const notebookShowing = Boolean(
+    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
+  );
 
   const currentVersionRan = Boolean(
     workbenchSession?.currentVersionId &&
       executionForVersion(workbenchSession, workbenchSession.currentVersionId),
   );
+  // Layout-insensitive: reformatting the current query is not an edit to it.
+  // Compared the same way editorContentMatchesVersion compares, so the editor
+  // and the authorship check can never disagree about what "changed" means.
   const editorDirty = workbenchSession?.currentVersion
-    ? workbenchSql !== workbenchSession.currentVersion.sql
+    ? !sqlLayoutMatches(workbenchSql, workbenchSession.currentVersion.sql)
     : workbenchSql.trim().length > 0;
   // Open while there is something to do in it: a query not yet run, unsaved
   // edits, or an explicit ask to edit. Otherwise the run's result leads.
@@ -1458,13 +1513,15 @@ export const QueryWorkspace = ({
           onWrapLinesChange={updateWorkbenchWrapLines}
           onClearDraft={clearWorkbenchDraft}
           onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
+          // Only offered when there is a run to return to and a thread holding
+          // it. Without the notebook this panel is the whole surface, so closing
+          // it would leave nothing behind.
+          onCloseEditor={
+            notebookShowing && currentVersionRan ? closeWorkbenchEditor : undefined
+          }
           onRun={runWorkbenchDraft}
         />
   ) : null;
-
-  const notebookShowing = Boolean(
-    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
-  );
 
   return (
     <div

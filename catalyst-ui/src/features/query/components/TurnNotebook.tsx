@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import type {
@@ -273,9 +274,33 @@ export const TurnNotebook = ({
     const onScroll = () => {
       if (frame === 0) frame = window.requestAnimationFrame(measure);
     };
+
+    // A page that cannot scroll has no history to be scrolled back into, so
+    // "tucked" and "line" describe a position that no longer exists — and no
+    // scroll gesture can clear them, because a page with nothing to scroll
+    // emits no scroll events. Content shrinking below the viewport is the way
+    // in: the editor stepping aside when a run lands does it routinely, and it
+    // became routine once the editor started presenting SQL laid out.
+    const settleWhenUnscrollable = () => {
+      if (document.documentElement.scrollHeight <= window.innerHeight) {
+        lastY = 0;
+        intent = 0;
+        setScrollMode("full");
+      }
+    };
+
+    settleWhenUnscrollable();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", settleWhenUnscrollable);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(settleWhenUnscrollable);
+    observer?.observe(document.documentElement);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", settleWhenUnscrollable);
+      observer?.disconnect();
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
   }, [composerPinned]);
@@ -309,6 +334,17 @@ export const TurnNotebook = ({
   };
 
   const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (editorEmpty || busy || noRevisionProfiles) return;
+    onGenerate();
+  };
+
+  // The tucked composer has always shown a ⌘↵ hint; this is what makes it true.
+  // Ctrl is accepted alongside Command so the shortcut works on a keyboard that
+  // has no Command key. Enter on its own still starts a new line: an instruction
+  // is prose, and prose sometimes runs to a second line.
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
     if (editorEmpty || busy || noRevisionProfiles) return;
     onGenerate();
@@ -660,6 +696,7 @@ export const TurnNotebook = ({
             disabled={busy}
             onFocus={() => setComposerFocused(true)}
             onBlur={() => setComposerFocused(false)}
+            onKeyDown={handleComposerKeyDown}
             onChange={(event) => onInstructionChange(event.currentTarget.value)}
             placeholder="Ask a question, or say how you want the current query changed"
           />
