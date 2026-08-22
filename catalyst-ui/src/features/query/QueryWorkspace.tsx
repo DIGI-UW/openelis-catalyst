@@ -33,8 +33,10 @@ import {
 } from "./components/workbenchRailSupport";
 import {
   editorContentMatchesVersion,
+  normalizeSqlLayout,
   workbenchEditorDigest,
 } from "./editorDigest";
+import { formatPostgresqlSql } from "./components/sqlEditorSupport";
 import type { ThemePreference } from "./theme";
 import {
   isPreview,
@@ -149,11 +151,34 @@ const writeDataSourceIdToUrl = (dataSourceId: string) => {
 const sessionEditorDraft = (session: WorkbenchSession) =>
   session.currentVersion ?? session.draftSeed ?? null;
 
+/**
+ * The SQL to put in the editor, laid out for reading.
+ *
+ * A model emits whatever formatting it emits, and it varies between the writer
+ * and a reviewer-repaired version -- which is why the first query in a session
+ * used to arrive dense and later ones tidy. Formatting on the way into the
+ * editor makes them consistent. Nothing else changes: the version keeps the SQL
+ * the model actually produced, that is what executes, and the comparison in
+ * editorDigest ignores layout, so presenting it differently is not an edit.
+ *
+ * If sql-formatter cannot parse it, the original is shown untouched -- an
+ * unreadable query beats a missing one.
+ */
+const editorReadySql = (sql: string): string => {
+  if (sql.trim().length === 0) return sql;
+  try {
+    return formatPostgresqlSql(sql);
+  } catch {
+    return sql;
+  }
+};
+
 const editorExpectedColumns = (
   baseVersion: WorkbenchQueryVersion | null,
   sql: string,
 ) =>
-  baseVersion !== null && sql === baseVersion.sql
+  baseVersion !== null &&
+  normalizeSqlLayout(sql) === normalizeSqlLayout(baseVersion.sql)
     ? baseVersion.expectedColumns
     : [];
 
@@ -685,7 +710,7 @@ export const QueryWorkspace = ({
     setProfileId(currentQueryProfileId(session));
     if (session.dataSourceId) setDataSourceId(session.dataSourceId);
     const draft = sessionEditorDraft(session);
-    setWorkbenchSql(draft?.sql ?? "");
+    setWorkbenchSql(draft ? editorReadySql(draft.sql) : "");
     setWorkbenchParameters(
       draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
     );
@@ -869,7 +894,7 @@ export const QueryWorkspace = ({
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
         const draft = sessionEditorDraft(session);
-        setWorkbenchSql(draft?.sql ?? "");
+        setWorkbenchSql(draft ? editorReadySql(draft.sql) : "");
         setWorkbenchParameters(
           draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
         );
@@ -982,7 +1007,7 @@ export const QueryWorkspace = ({
   const restoreCurrentWorkbenchVersion = () => {
     const current = workbenchSession?.currentVersion;
     if (!current) return;
-    setWorkbenchSql(current.sql);
+    setWorkbenchSql(editorReadySql(current.sql));
     setWorkbenchParameters(
       current.parameters.map((parameter) => ({ ...parameter })),
     );
@@ -1136,7 +1161,7 @@ export const QueryWorkspace = ({
         : workbenchSession;
       setWorkbenchSession(restored);
       const draft = sessionEditorDraft(restored);
-      setWorkbenchSql(draft?.sql ?? workbenchSql);
+      setWorkbenchSql(draft ? editorReadySql(draft.sql) : workbenchSql);
       setWorkbenchParameters(
         draft?.parameters.map((parameter) => ({ ...parameter })) ??
           workbenchParameters,
@@ -1415,8 +1440,12 @@ export const QueryWorkspace = ({
     workbenchSession?.currentVersionId &&
       executionForVersion(workbenchSession, workbenchSession.currentVersionId),
   );
+  // Layout-insensitive: reformatting the current query is not an edit to it.
+  // Compared the same way editorContentMatchesVersion compares, so the editor
+  // and the authorship check can never disagree about what "changed" means.
   const editorDirty = workbenchSession?.currentVersion
-    ? workbenchSql !== workbenchSession.currentVersion.sql
+    ? normalizeSqlLayout(workbenchSql) !==
+      normalizeSqlLayout(workbenchSession.currentVersion.sql)
     : workbenchSql.trim().length > 0;
   // Open while there is something to do in it: a query not yet run, unsaved
   // edits, or an explicit ask to edit. Otherwise the run's result leads.
