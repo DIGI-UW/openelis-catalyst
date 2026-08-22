@@ -308,6 +308,7 @@ def make_service(
     analytics: FakeAnalytics | None = None,
     clock: Clock | None = None,
     execution_lease_seconds: int = 60,
+    catalog_override: Catalog | None = None,
 ) -> tuple[CatalystService, FakeHub, FakeAnalytics, ContractRegistry]:
     registry = ContractRegistry.load(CONTRACTS)
     actual_hub = hub or FakeHub(response or ready_query())
@@ -319,7 +320,7 @@ def make_service(
     )
     service = CatalystService(
         contracts=registry,
-        catalog=catalog(),
+        catalog=catalog_override or catalog(),
         hub=actual_hub,
         analytics=actual_analytics,
         store=store,
@@ -394,9 +395,35 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
             }
 
     hub = RuntimeHub()
+    # This source curates the relation it serves. Discovery re-describes it with
+    # database-derived types; it is curation that makes it queryable, so a
+    # catalog that curates something else would leave nothing to query here.
+    curated = Catalog(
+        data_source="openelis-demo",
+        catalog_version="2026.07",
+        schema_version="analytics-v1",
+        dialect="postgresql",
+        context_source_id="catalog:openelis-demo:2026.07",
+        views=[
+            {
+                "name": "public.patient_flat_v1",
+                "version": "1",
+                "grain": "one row per FHIR Patient",
+                "fields": [
+                    {
+                        "name": "patient_id",
+                        "type": "string",
+                        "description": "FHIR Patient identifier",
+                    }
+                ],
+            }
+        ],
+        freshness={},
+    )
     service, _, _, _ = make_service(
         tmp_path,
         hub=hub,
+        catalog_override=curated,
         analytics=RuntimeAnalytics(
             AnalyticsResult(
                 column_names=["patient_id"],

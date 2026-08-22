@@ -2754,7 +2754,10 @@ class CatalystService:
             "question": question,
             "target": {
                 **catalog.request_target(),
-                "approvedViews": sorted(catalog.relation_names),
+                # The curated allowlist, not every readable relation. Runtime
+                # discovery describes the whole schema for the browser; it must
+                # not widen what a generated query is allowed to reference.
+                "approvedViews": sorted(catalog.approved_view_names),
             },
             "sql": version["sql"],
             "parameters": version["parameters"],
