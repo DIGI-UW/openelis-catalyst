@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import {
   editorContentMatchesVersion,
+  parametersMatch,
   sqlLayoutMatches,
 } from "../editorDigest";
 import { SqlEditor } from "./SqlEditor";
@@ -351,8 +352,7 @@ export const ExecutionResult = ({
             executionVersion,
           )
         : sqlLayoutMatches(sql, execution.query.sql) &&
-          JSON.stringify(parameters) ===
-            JSON.stringify(execution.query.parameters)));
+          parametersMatch(parameters, execution.query.parameters)));
 
   if (execution.status === "failed") {
     const diagnostic = execution.databaseDiagnostic;

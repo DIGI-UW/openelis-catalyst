@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   editorContentMatchesVersion,
   normalizeSqlLayout,
+  parametersMatch,
   sqlLayoutMatches,
   workbenchEditorDigest,
 } from "./editorDigest";
@@ -61,7 +62,12 @@ describe("one owner for 'is this the same query?'", () => {
             return (
               /[\w$?.]*\bsql\b\s*(===|!==)/i.test(code) ||
               /(===|!==)\s*[\w$?.]*\bsql\b/i.test(code) ||
-              /normalizeSqlLayout\s*\(/.test(code)
+              /normalizeSqlLayout\s*\(/.test(code) ||
+              // The parameters flavor of the same defect:
+              // JSON.stringify(a) === JSON.stringify(b) over bound parameters.
+              (/JSON\.stringify/.test(code) &&
+                /(===|!==)/.test(code) &&
+                /parameters/i.test(code))
             );
           }),
       )
@@ -78,6 +84,37 @@ describe("one owner for 'is this the same query?'", () => {
     expect(sources).toContain(
       join(__dirname, "components", "WorkbenchPanel.tsx"),
     );
+  });
+});
+
+describe("parametersMatch", () => {
+  const parameter = {
+    name: "gender",
+    type: "string" as const,
+    source: "question" as const,
+    value: "female",
+  };
+
+  it("ignores how the objects happened to be built", () => {
+    const reordered = {
+      value: "female",
+      source: "question" as const,
+      type: "string" as const,
+      name: "gender",
+    };
+    // JSON.stringify-equality read these as different parameters.
+    expect(JSON.stringify([parameter])).not.toBe(JSON.stringify([reordered]));
+    expect(parametersMatch([parameter], [reordered])).toBe(true);
+  });
+
+  it("sees a changed binding", () => {
+    expect(
+      parametersMatch([parameter], [{ ...parameter, value: "male" }]),
+    ).toBe(false);
+  });
+
+  it("sees a different arity", () => {
+    expect(parametersMatch([parameter], [])).toBe(false);
   });
 });
 
