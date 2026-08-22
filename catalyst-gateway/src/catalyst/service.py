@@ -2627,6 +2627,8 @@ class CatalystService:
             # The request was understood and could not be satisfied: a
             # different thing from output that never became a candidate, and
             # it calls for a different response from whoever reads it.
+            if cls._unanswerable_without_asking(outcome_body):
+                return f"{role}_findings", "needs_clarification"
             return f"{role}_findings", "generation_findings_unresolved"
         if outcome == "contract_failed":
             return f"{role}_output_contract", f"{role}_output_contract_failed"
@@ -2761,12 +2763,58 @@ class CatalystService:
         ]
 
     @classmethod
+    def _unanswerable_without_asking(cls, outcome: dict[str, Any] | None) -> bool:
+        """Every unresolved finding names something the dataset does not have.
+
+        No further attempt can invent the field, so the turn is a question for
+        the person who asked rather than a failure of the run. One finding of
+        any other kind and it is not: that one might still have been fixable,
+        and asking about it would put the loop's work onto the reader.
+        """
+        findings = cls._unresolved_findings(outcome)
+        return bool(findings) and all(
+            str(finding.get("code") or "").startswith("catalog.unknown")
+            for finding in findings
+        )
+
+    @classmethod
+    def _clarifying_question(cls, outcome: dict[str, Any] | None) -> str | None:
+        """The unknown identifiers, put back as a question.
+
+        The finding's own wording instructs a model to obey a catalog. What
+        the reader needs is the name that does not exist and an invitation to
+        supply the one that does.
+        """
+        names = [
+            stripped
+            for finding in cls._unresolved_findings(outcome)
+            for raw in str(finding.get("evidence") or "").split(",")
+            if (stripped := raw.strip())
+        ]
+        if not names:
+            return None
+        subject = (
+            f"“{names[0]}”"
+            if len(names) == 1
+            else ", ".join(f"“{name}”" for name in names)
+        )
+        verb = "is" if len(names) == 1 else "are"
+        return (
+            f"This data has no {subject}. Which field {verb} meant, "
+            "or should the request be worded differently?"
+        )
+
+    @classmethod
     def _failure_summary(cls, outcome: dict[str, Any] | None, fallback: str) -> str:
         """What a person reads when a turn fails.
 
         A finding says which identifier is wrong and how to fix it; the
         pipeline stage says only that a pipeline exists.
         """
+        if cls._unanswerable_without_asking(outcome):
+            question = cls._clarifying_question(outcome)
+            if question is not None:
+                return question
         findings = cls._unresolved_findings(outcome)
         if not findings:
             return fallback
