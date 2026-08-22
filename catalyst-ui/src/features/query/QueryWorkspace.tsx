@@ -1586,6 +1586,7 @@ export const QueryWorkspace = ({
           turns={activeNotebookTurns}
           session={workbenchSession}
           baseVersion={workbenchSession.currentVersion}
+          draftDivergent={editorDirty}
           instruction={followupInstruction}
           profiles={queryOptions?.profiles ?? []}
           selectedProfileId={selectedRevisionProfileId}

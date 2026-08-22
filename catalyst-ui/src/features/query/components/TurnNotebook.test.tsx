@@ -507,6 +507,200 @@ describe("TurnNotebook", () => {
     expect(onGenerate).not.toHaveBeenCalled();
   });
 
+  it("keeps the composer toolbar to instruction, profile, and submit", () => {
+    // Ian: the composer repeated what the thread already says. The execution
+    // summary lives with the results now; the composer is for the next ask.
+    render(<TurnNotebook {...defaultProps} />);
+
+    const composer = document.getElementById("refine-openelis-body")!;
+    expect(composer.querySelector(".turn-composer__grounding")).toBeNull();
+    expect(screen.queryByText(/Execution summary/)).not.toBeInTheDocument();
+    expect(composer.querySelectorAll("textarea")).toHaveLength(1);
+    expect(composer.querySelectorAll("select")).toHaveLength(1);
+    expect(composer.querySelectorAll("button[type='submit']")).toHaveLength(1);
+  });
+
+  it("shows stale grounding as one icon with the explanation on it", () => {
+    const text =
+      "Displayed results are stale for this editor. Run the current SQL to " +
+      "include a matching execution summary; result row values are not included.";
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        grounding={{ kind: "stale", text }}
+      />,
+    );
+
+    const indicator = screen.getByRole("img", { name: text });
+    expect(indicator).toBeVisible();
+    // One icon, not a sentence: the prose lives on the indicator, not beside it.
+    expect(screen.queryByText(text)).not.toBeInTheDocument();
+  });
+
+  it("keeps the model-context note with the current cell's results", () => {
+    const succeeded = {
+      ...failedExecution,
+      status: "succeeded" as const,
+      databaseDiagnostic: undefined,
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "patient_id",
+            databaseType: "text",
+            typeOid: null,
+            logicalType: "string" as const,
+          },
+        ],
+        rows: [[{ type: "string" as const, value: "patient-001" }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+    };
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        turns={[
+          initialTurn,
+          { ...followupTurn, current: true, execution: succeeded },
+        ]}
+      />,
+    );
+
+    const note = screen.getByText(
+      "Result row values are not included in model context.",
+    );
+    expect(note.closest(".query-turn__footer")).not.toBeNull();
+    // Only the cell refinement is grounded in carries it.
+    expect(
+      screen.getAllByText(/Result row values are not included/),
+    ).toHaveLength(1);
+  });
+
+  it("marks a divergent draft provisional inside its cell", () => {
+    const view = render(
+      <TurnNotebook
+        {...defaultProps}
+        activeCell={<div data-testid="editor" />}
+        draftDivergent
+      />,
+    );
+    const active = document.querySelector(".query-turn--active")!;
+    expect(active.textContent).toMatch(/Provisional draft — differs from \[3\]/);
+
+    view.rerender(
+      <TurnNotebook
+        {...defaultProps}
+        activeCell={<div data-testid="editor" />}
+      />,
+    );
+    expect(screen.queryByText(/Provisional draft/)).not.toBeInTheDocument();
+  });
+
+  it("gives a hand-edited cell a compact diff line against its parent", () => {
+    const humanVersion = {
+      ...reviewerVersion,
+      versionId: "44444444-4444-4444-8444-444444444444",
+      ordinal: 4,
+      authorType: "human" as const,
+      queryDigest: "d".repeat(64),
+      provenance: { editedFromVersionId: reviewerVersion.versionId },
+      sql: reviewerVersion.sql + "\nLIMIT 5",
+    };
+    const humanTurn = {
+      ...followupTurn,
+      turnId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ordinal: 3,
+      instruction: "Edited by hand",
+      selectedVersionId: humanVersion.versionId,
+      outputVersions: [
+        {
+          selected: true,
+          role: "writer" as const,
+          contractValid: true,
+          version: humanVersion,
+        },
+      ],
+      current: true,
+    };
+    const sessionWithHuman = {
+      ...session,
+      versions: [
+        ...session.versions,
+        { ...humanVersion, parentVersionId: reviewerVersion.versionId },
+      ],
+    } as typeof session;
+
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        session={sessionWithHuman}
+        turns={[initialTurn, followupTurn, humanTurn]}
+      />,
+    );
+
+    // The formatter renders LIMIT and its value as two lines; the
+    // reflow itself contributes zero.
+    expect(screen.getByText("+2 −0 vs [3]")).toBeVisible();
+  });
+
+  it("does not let a reflow inflate the diff line", () => {
+    // The parent is stored as the model's dense one-liner; the hand edit was
+    // made on the formatted text. The diff reports the edit, not the reflow.
+    const denseParent = {
+      ...reviewerVersion,
+      sql: "SELECT patient_id FROM analytics.lab_result_fact_v1 WHERE released",
+    };
+    const humanVersion = {
+      ...reviewerVersion,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      ordinal: 4,
+      authorType: "human" as const,
+      queryDigest: "e".repeat(64),
+      provenance: { editedFromVersionId: reviewerVersion.versionId },
+      sql:
+        "SELECT\n  patient_id\nFROM\n  analytics.lab_result_fact_v1\n" +
+        "WHERE\n  released\nLIMIT 3",
+    };
+    const humanTurn = {
+      ...followupTurn,
+      turnId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      ordinal: 3,
+      instruction: "Edited by hand",
+      selectedVersionId: humanVersion.versionId,
+      outputVersions: [
+        {
+          selected: true,
+          role: "writer" as const,
+          contractValid: true,
+          version: humanVersion,
+        },
+      ],
+    };
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        session={
+          {
+            ...session,
+            versions: [
+              ...session.versions.map((item) =>
+                item.versionId === denseParent.versionId
+                  ? { ...item, sql: denseParent.sql }
+                  : item,
+              ),
+              { ...humanVersion, parentVersionId: reviewerVersion.versionId },
+            ],
+          } as typeof session
+        }
+        turns={[initialTurn, followupTurn, humanTurn]}
+      />,
+    );
+
+    // The formatter renders LIMIT and its value as two lines; the
+    // reflow itself contributes zero.
+    expect(screen.getByText("+2 −0 vs [3]")).toBeVisible();
+  });
+
   it("collapses as you scroll up into history and returns as you scroll back", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
@@ -517,7 +711,6 @@ describe("TurnNotebook", () => {
       name: "Follow-up instruction",
     });
     expect(composerMode()).toBe("full");
-    expect(screen.getByText(/Execution summary: this query ran.*49 rows/i)).toBeVisible();
 
     // Land at the end of the thread, then scroll up into history: the
     // composer tucks to a lip and offers a way back rather than stranding you.

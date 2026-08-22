@@ -907,9 +907,12 @@ describe("Catalyst query workflow", () => {
     ).toBeVisible();
     expect(screen.queryByLabelText("Question")).not.toBeInTheDocument();
     expect(document.querySelectorAll("textarea:not([disabled])")).toHaveLength(1);
+    // The composer no longer narrates grounding; the thread carries run state
+    // and the only composer indicator is the stale icon, absent here.
     expect(
-      screen.getByText(/This query has not been executed.*without an execution summary/i),
-    ).toBeVisible();
+      screen.queryByText(/This query has not been executed/i),
+    ).not.toBeInTheDocument();
+    expect(document.querySelector(".turn-composer__stale")).toBeNull();
     await user.type(
       screen.getByRole("textbox", { name: "Follow-up instruction" }),
       "Only include released results",
