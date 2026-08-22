@@ -248,6 +248,32 @@ const scrollTo = async ({
   });
 };
 
+/**
+ * The page becomes shorter than the viewport, with no scroll event — because
+ * there is nothing left to scroll. A resize is the only signal a browser gives
+ * for this, so it is the only one the component can act on.
+ */
+const shrinkBelowViewport = async ({
+  scrollHeight,
+  innerHeight,
+}: {
+  scrollHeight: number;
+  innerHeight: number;
+}) => {
+  Object.defineProperty(document.documentElement, "scrollHeight", {
+    configurable: true,
+    value: scrollHeight,
+  });
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: innerHeight,
+  });
+  await act(async () => {
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+};
+
 afterEach(() => {
   document.documentElement.style.fontSize = "";
   Object.defineProperty(window, "innerWidth", {
@@ -515,6 +541,24 @@ describe("TurnNotebook", () => {
     await scrollTo({ y: 3100, scrollHeight: 4000, innerHeight: 800 });
     expect(composerMode()).toBe("line");
     await user.click(screen.getByRole("button", { name: /Refine \[2\]/ }));
+    expect(composerMode()).toBe("full");
+  });
+
+  it("comes back when the page stops being scrollable at all", async () => {
+    render(<TurnNotebook {...defaultProps} />);
+    const composerMode = () =>
+      document.getElementById("refine-openelis")!.getAttribute("data-mode");
+
+    // Scroll up into history, so the composer is tucked away.
+    await scrollTo({ y: 3200, scrollHeight: 4000, innerHeight: 800 });
+    await scrollTo({ y: 0, scrollHeight: 4000, innerHeight: 800 });
+    expect(composerMode()).toBe("tucked");
+
+    // Now the content shrinks below the viewport — the editor closing after a
+    // run does exactly this. The mode only ever moved on a scroll event, and a
+    // page that cannot scroll produces none, so the composer stayed tucked
+    // with no gesture able to bring it back.
+    await shrinkBelowViewport({ scrollHeight: 500, innerHeight: 800 });
     expect(composerMode()).toBe("full");
   });
 
