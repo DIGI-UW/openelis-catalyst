@@ -1,15 +1,27 @@
+import { DataBase } from "@carbon/icons-react";
 import { Button, Tag } from "@carbon/react";
-import { useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import type {
   QueryProfile,
-  WorkbenchGenerationEvidence,
+  WorkbenchExecution,
   WorkbenchQueryVersion,
+  WorkbenchSession,
 } from "../types";
+import type { DetailsTab } from "./DetailsPanel";
+import { highlightSql } from "./sqlHighlight";
+import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
 
 type NotebookVersion = Pick<
   WorkbenchQueryVersion,
-  "versionId" | "ordinal" | "authorType" | "queryDigest" | "provenance"
+  "versionId" | "ordinal" | "authorType" | "queryDigest" | "provenance" | "sql"
 >;
 
 export interface NotebookOutputVersion {
@@ -25,7 +37,6 @@ export interface NotebookTurn {
   ordinal: number;
   kind: "initial" | "followup";
   instruction: string;
-  dataSourceLabel?: string | null;
   status: "requested" | "completed" | "failed";
   selectedVersionId: string | null;
   outputVersions: NotebookOutputVersion[];
@@ -35,6 +46,14 @@ export interface NotebookTurn {
     reviewer: { modelId: string } | null;
   };
   failure: { message: string } | null;
+  /** Run recorded against this turn's selected version, if it has been run. */
+  execution?: WorkbenchExecution | null;
+  /** Advisory validation status for this turn's selected version. */
+  validationStatus?: "invalid" | "warning" | "valid" | null;
+  /** True for the turn whose selected version is the session's current one. */
+  current?: boolean;
+  /** When this happened. The clock both kinds of cell share. */
+  createdAt: string;
 }
 
 export interface NotebookGrounding {
@@ -44,6 +63,7 @@ export interface NotebookGrounding {
 
 interface TurnNotebookProps {
   turns: NotebookTurn[];
+  session: WorkbenchSession;
   baseVersion: NotebookVersion | null;
   instruction: string;
   profiles: QueryProfile[];
@@ -53,13 +73,21 @@ interface TurnNotebookProps {
   editorState?: "ready" | "empty" | "unresolved";
   busy: boolean;
   generating?: boolean;
-  evidence?: WorkbenchGenerationEvidence | null;
-  evidenceLoadingTurnId?: string | null;
-  evidenceError?: string | null;
+  /** The last run failed, which pins the composer open on its error state. */
+  lastRunFailed?: boolean;
   onInstructionChange: (instruction: string) => void;
   onProfileChange: (profileId: string) => void;
   onGenerate: () => void;
-  onShowEvidence: (turnId: string) => void;
+  /** Open the Details panel scoped to this turn, on a chosen tab. */
+  onOpenDetails: (turnId: string, tab?: DetailsTab) => void;
+  /** Promote this turn's result into the Datasets library. */
+  onSaveDataset?: () => void;
+  /**
+   * The editable current query, rendered as the last cell in the stack: the
+   * work in progress sits where the next committed turn will, rather than in
+   * a panel detached from the thread it belongs to.
+   */
+  activeCell?: ReactNode;
 }
 
 const textAt = (source: Record<string, unknown>, key: string) => {
@@ -92,144 +120,68 @@ const versionAuthor = (version: NotebookVersion | null) => {
 const versionModel = (version: NotebookVersion | null) =>
   version ? textAt(version.provenance, "model") : null;
 
-const EvidenceDetail = ({
-  evidence,
-}: {
-  evidence: WorkbenchGenerationEvidence;
-}) => {
-  const profile = evidence.profile?.detail;
-  const includedHistory = evidence.history?.included?.length ?? 0;
-  const omittedHistory = evidence.history?.omitted?.length ?? 0;
+const selectedVersionOf = (turn: NotebookTurn): NotebookVersion | null =>
+  turn.outputVersions.find((output) => output.selected)?.version ??
+  turn.outputVersions.find(
+    (output) => output.versionId === turn.selectedVersionId,
+  )?.version ??
+  null;
 
-  return (
-    <section
-      className="turn-evidence"
-      aria-labelledby="turn-evidence-title"
-    >
-      <div className="turn-evidence__heading">
-        <div>
-          <h3 id="turn-evidence-title">
-            Generation evidence for Query turn {evidence.turnId}
-          </h3>
-          <p>
-            Recorded model calls and artifacts. This does not expose hidden
-            reasoning.
-          </p>
-        </div>
-        {evidence.status && <Tag type="purple">{evidence.status}</Tag>}
-      </div>
+/**
+ * Status is what the analyst reads from the gutter at a glance: whether this
+ * turn produced a query that ran, and whether that run came back clean. A turn
+ * whose generation failed never reaches a run, so it reports the same red as a
+ * failed run rather than an absent one.
+ */
+type CellStatus = "succeeded" | "failed" | "not-run";
 
-      <dl className="turn-evidence__summary">
-        <div>
-          <dt>Profile</dt>
-          <dd>{profile?.profileName ?? evidence.profile?.profileId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Writer</dt>
-          <dd>{profile?.writer?.modelId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Reviewer</dt>
-          <dd>{profile?.reviewer?.modelId ?? "Unavailable"}</dd>
-        </div>
-        <div>
-          <dt>Model time</dt>
-          <dd>
-            {evidence.totalInvocationDurationMs === null ||
-            evidence.totalInvocationDurationMs === undefined
-              ? "Unavailable"
-              : `${evidence.totalInvocationDurationMs} ms`}
-          </dd>
-        </div>
-        <div>
-          <dt>Included history</dt>
-          <dd>{includedHistory}</dd>
-        </div>
-        <div>
-          <dt>Omitted history</dt>
-          <dd>{omittedHistory}</dd>
-        </div>
-      </dl>
+const cellStatus = (turn: NotebookTurn): CellStatus => {
+  if (turn.status === "failed") return "failed";
+  if (turn.execution?.status === "failed") return "failed";
+  if (turn.execution?.status === "succeeded") return "succeeded";
+  return "not-run";
+};
 
-      <div className="turn-evidence__columns">
-        <section>
-          <h4>Model invocations</h4>
-          {evidence.invocations.length === 0 ? (
-            <p>No model invocation was recorded.</p>
-          ) : (
-            <ol>
-              {evidence.invocations.map((invocation) => (
-                <li key={invocation.invocationId}>
-                  <strong>
-                    {invocation.role} — {invocation.modelId}
-                  </strong>
-                  <span>
-                    {invocation.stage}; attempt {invocation.attempt}; {invocation.outcome}
-                    {invocation.durationMs === null
-                      ? ""
-                      : `; ${invocation.durationMs} ms`}
-                  </span>
-                  <code>{invocation.requestDigest}</code>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-        <section>
-          <h4>Candidate disposition</h4>
-          {!evidence.candidates || evidence.candidates.length === 0 ? (
-            <p>No candidate artifact was recorded.</p>
-          ) : (
-            <ol>
-              {evidence.candidates.map((candidate) => (
-                <li key={candidate.candidateId}>
-                  <strong>{candidate.role}</strong>
-                  <span>{candidate.disposition.replaceAll("_", " ")}</span>
-                  <span>
-                    {candidate.versionRef
-                      ? `Query ${candidate.versionRef.versionId}`
-                      : "No immutable query version"}
-                  </span>
-                  {candidate.rawEvidence.inspectable &&
-                    candidate.rawEvidence.exactPayload !== null && (
-                      <details className="turn-evidence__payload">
-                        <summary>
-                          {candidate.role === "writer" ? "Writer" : "Reviewer"}{" "}
-                          attempt {candidate.attemptOrdinal} raw evidence —{" "}
-                          {candidate.disposition.replaceAll("_", " ")}
-                        </summary>
-                        <pre>
-                          {JSON.stringify(
-                            candidate.rawEvidence.exactPayload,
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </details>
-                    )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
+const rowLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
 
-      {[evidence.hubRequest, evidence.hubResponse].map((artifact, index) => {
-        if (!artifact?.inspectable || artifact.exactPayload === null) return null;
-        const label = index === 0 ? "Recorded Hub request" : "Recorded Hub response";
-        return (
-          <details key={label} className="turn-evidence__payload">
-            <summary>{label}</summary>
-            <pre>{JSON.stringify(artifact.exactPayload, null, 2)}</pre>
-          </details>
-        );
-      })}
-    </section>
-  );
+/**
+ * Who wrote this cell's query, as its own channel.
+ *
+ * Outcome and authorship are different questions and cannot share one
+ * attribute: a hand-edited cell that succeeded is both, and a collapsed header
+ * showed neither. §10 gives purple to the model, so the gutter carries it.
+ */
+const cellAuthor = (turn: NotebookTurn): "model" | "human" | "reviewer" => {
+  const version = selectedVersionOf(turn);
+  if (!version) return "model";
+  const collaborationRole = textAt(version.provenance, "collaborationRole");
+  if (version.authorType === "model_repair" || collaborationRole === "reviewer") {
+    return "reviewer";
+  }
+  return version.authorType === "human" ? "human" : "model";
+};
+
+/** The right-hand summary in a collapsed header: `v3 · 12 rows`. */
+const cellOutcome = (turn: NotebookTurn) => {
+  if (turn.status === "failed") return "generation failed";
+  if (turn.status === "requested") return "generating…";
+  const execution = turn.execution;
+  if (!execution) return "not run";
+  if (execution.status === "failed") return "run failed";
+  const returned = execution.result?.rowCount.returned;
+  return returned === undefined ? "ran" : rowLabel(returned);
+};
+
+const validationWord = (status: NotebookTurn["validationStatus"]) => {
+  if (status === "valid") return "✓ valid";
+  if (status === "warning") return "checked with warnings";
+  if (status === "invalid") return "findings raised";
+  return null;
 };
 
 export const TurnNotebook = ({
   turns,
+  session,
   baseVersion,
   instruction,
   profiles,
@@ -239,18 +191,101 @@ export const TurnNotebook = ({
   editorState = editorEmpty ? "empty" : "ready",
   busy,
   generating = false,
-  evidence = null,
-  evidenceLoadingTurnId = null,
-  evidenceError = null,
+  lastRunFailed = false,
   onInstructionChange,
   onProfileChange,
   onGenerate,
-  onShowEvidence,
+  onOpenDetails,
+  onSaveDataset,
+  activeCell = null,
 }: TurnNotebookProps) => {
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
     Record<string, boolean>
   >({});
-  const [composerMinimized, setComposerMinimized] = useState(false);
+  // Borrowed from a browser's URL bar with the direction inverted: the newest
+  // turn is at the bottom, so scrolling up into history hides the composer and
+  // scrolling back down toward now returns it.
+  const [scrollMode, setScrollMode] = useState<"full" | "line" | "tucked">(
+    "full",
+  );
+  const [composerFocused, setComposerFocused] = useState(false);
+  // Each executed turn shows its own result. Minimising is per cell, because
+  // "I have seen this one" is a judgement about that turn, not the thread.
+  const [minimisedResults, setMinimisedResults] = useState<
+    Record<string, boolean>
+  >({});
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // An action bar that disappears at the wrong moment costs more than the
+  // space it saves, so these states hold it open regardless of scrolling.
+  const composerPinned =
+    instruction.trim().length > 0 ||
+    composerFocused ||
+    busy ||
+    lastRunFailed;
+
+  useEffect(() => {
+    if (composerPinned) return;
+
+    // Two things caused flicker before: the mode was recomputed from the sign
+    // of every individual scroll event, so any jitter near a threshold flipped
+    // it; and the thresholds were single values, so hovering on one oscillated.
+    // Intent is now accumulated until it is unambiguous, each state has to be
+    // clearly left before it changes, and at most one decision is made per
+    // frame.
+    const INTENT = 24; // px of consistent travel before the mode may change
+    const NEAR_END = 200; // scrolling down within this: full
+    const LEAVE_END = 320; // once full, only leave beyond this
+    const FAR_BACK = 560; // scrolling up beyond this: tucked
+    const LEAVE_FAR = 440; // once tucked, only leave inside this
+
+    let lastY = window.scrollY;
+    let intent = 0;
+    let frame = 0;
+
+    const measure = () => {
+      frame = 0;
+      const y = window.scrollY;
+      const delta = y - lastY;
+      lastY = y;
+      // Reverse of travel abandons the intent that was building.
+      intent = Math.sign(intent) === Math.sign(delta) ? intent + delta : delta;
+      if (Math.abs(intent) < INTENT) return;
+
+      const gap =
+        document.documentElement.scrollHeight - (y + window.innerHeight);
+
+      // Read out of the mutable accumulator before handing React an updater:
+      // the updater runs later, by which time `intent` has been reset.
+      const towardNow = intent > 0;
+      intent = 0;
+
+      setScrollMode((current) => {
+        if (towardNow) {
+          if (gap < NEAR_END) return "full";
+          return current === "full" && gap < LEAVE_END ? "full" : "line";
+        }
+        if (gap > FAR_BACK) return "tucked";
+        return current === "tucked" && gap > LEAVE_FAR ? "tucked" : "line";
+      });
+    };
+
+    const onScroll = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, [composerPinned]);
+
+  const composerMode = composerPinned ? "full" : scrollMode;
+
+  const restoreComposer = () => {
+    setScrollMode("full");
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  };
   const revisionProfiles = useMemo(
     () => profiles.filter(
       (profile) => profile.available && profile.revisionCapable === true,
@@ -258,14 +293,18 @@ export const TurnNotebook = ({
     [profiles],
   );
   const noRevisionProfiles = revisionProfiles.length === 0;
-  const composerTitle = baseVersion
-    ? `Refine Query v${baseVersion.ordinal}`
-    : "Refine unresolved editor";
+  const latestOrdinal = turns.at(-1)?.ordinal;
+  const composerTitle = lastRunFailed
+    ? "Last run failed"
+    : baseVersion
+      ? `Refine ${latestOrdinal ? `[${latestOrdinal}]` : "the current query"}`
+      : "Refine unresolved editor";
+  const latestTurnId = turns.at(-1)?.turnId ?? null;
 
-  const toggleTurn = (turnId: string) => {
+  const toggleTurn = (turnId: string, expanded: boolean) => {
     setTurnVisibilityOverrides((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? false),
+      [turnId]: !expanded,
     }));
   };
 
@@ -275,130 +314,313 @@ export const TurnNotebook = ({
     onGenerate();
   };
 
-  const renderTurn = (turn: NotebookTurn) => {
-    const expanded = turnVisibilityOverrides[turn.turnId] ?? false;
+  const renderCell = (turn: NotebookTurn) => {
+    // Only the newest turn is open on arrival; everything earlier collapses to
+    // its header so the thread stays scannable. An explicit toggle always wins.
+    const expanded =
+      turnVisibilityOverrides[turn.turnId] ?? turn.turnId === latestTurnId;
     const regionId = `query-turn-${turn.turnId}`;
+    const status = cellStatus(turn);
+    const version = selectedVersionOf(turn);
+    const execution = turn.execution ?? null;
+    const validation = validationWord(turn.validationStatus);
+    const outcome = cellOutcome(turn);
+    // The version this one succeeded, so the footer can offer the comparison
+    // the analyst actually wants: what this turn changed.
+    const previousVersionOrdinal = (() => {
+      const parentId = version
+        ? session.versions.find((item) => item.versionId === version.versionId)
+            ?.parentVersionId
+        : null;
+      if (!parentId) return null;
+      return (
+        session.versions.find((item) => item.versionId === parentId)?.ordinal ??
+        null
+      );
+    })();
+    // The visible header truncates the instruction to one line, so the
+    // accessible name carries it in full alongside the run counter it is cited
+    // by and the outcome the status dot encodes visually.
+    const headerLabel =
+      `Query turn ${turn.ordinal}: ${turn.instruction} — ${outcome}`;
+
     return (
-      <article className="query-turn" key={turn.turnId}>
-        <button
-          type="button"
-          className="query-turn__disclosure"
-          aria-expanded={expanded}
-          aria-controls={regionId}
-          onClick={() => toggleTurn(turn.turnId)}
-        >
-          <span className="query-turn__summary">
-            <strong>Query turn {turn.ordinal}</strong>
-            <span>{turn.instruction}</span>
-          </span>
-          {turn.dataSourceLabel && (
-            <span className="query-turn__source">{turn.dataSourceLabel}</span>
-          )}
-          <span>{turn.status}</span>
-        </button>
-        {expanded && (
-          <section
-            id={regionId}
-            className="query-turn__detail"
-            aria-label={`Query turn ${turn.ordinal}`}
+      <article
+        className="query-turn"
+        id={`turn-${turn.ordinal}`}
+        key={turn.turnId}
+        data-status={status}
+        data-author={cellAuthor(turn)}
+        data-current={turn.current ? "true" : undefined}
+      >
+        <div className="query-turn__gutter" aria-hidden="true">
+          [{turn.ordinal}]
+        </div>
+        <div className="query-turn__body">
+          <button
+            type="button"
+            className="query-turn__disclosure"
+            aria-expanded={expanded}
+            aria-controls={regionId}
+            aria-label={headerLabel}
+            onClick={() => toggleTurn(turn.turnId, expanded)}
           >
-            <p className="query-turn__instruction">{turn.instruction}</p>
-            <p className="query-turn__profile">
-              {turn.profileSnapshot.profileName ?? "Profile unavailable"}
-            </p>
-            {turn.outputVersions.map((output, index) => {
-              const version = output.version;
-              if (!version) return null;
-              let summary: string;
-              if (turn.status === "failed" && output.role === "writer") {
-                summary = `Structured writer output — Query v${version.ordinal} — not selected`;
-              } else if (output.selected) {
-                summary = `Query v${version.ordinal} — selected ${output.role} output`;
-              } else {
-                summary = `Query v${version.ordinal} — ${output.role} output — superseded`;
-              }
-              return <p key={`${version.versionId}-${index}`}>{summary}</p>;
-            })}
-            {turn.status === "failed" && (
-              <div className="query-turn__failure" role="status">
-                <strong>Generation failed</strong>
-                <p>{turn.failure?.message ?? "The generation did not complete."}</p>
-              </div>
-            )}
-            <Button
-              type="button"
-              kind="ghost"
-              size="sm"
-              disabled={evidenceLoadingTurnId === turn.turnId}
-              onClick={() => onShowEvidence(turn.turnId)}
+            <span className="query-turn__dot" aria-hidden="true" />
+            <span className="query-turn__summary">{turn.instruction}</span>
+            <span className="query-turn__outcome">{outcome}</span>
+            <span className="query-turn__caret" aria-hidden="true">
+              {expanded ? "▾" : "▸"}
+            </span>
+          </button>
+
+          {expanded && (
+            <section
+              id={regionId}
+              className="query-turn__detail"
+              aria-label={`Query turn ${turn.ordinal}`}
             >
-              {evidenceLoadingTurnId === turn.turnId
-                ? "Loading generation evidence…"
-                : "View generation evidence"}
-            </Button>
-          </section>
-        )}
+              {version && (
+                <div
+                  className="query-turn__sql"
+                  data-author={
+                    version.authorType === "human" ? "human" : undefined
+                  }
+                >
+                  <p className="query-turn__sql-label">
+                    {versionAuthor(version)}
+                    {versionModel(version) ? ` · ${versionModel(version)}` : ""}
+                  </p>
+                  {/*
+                    Highlighted by parsing, not by mounting an editor: a long
+                    thread would otherwise pay for one CodeMirror view per
+                    cell to render text nobody can type into.
+                  */}
+                  <pre>
+                    {highlightSql(version.sql).map((span, index) => (
+                      <span
+                        className={span.className}
+                        key={`${index}-${span.text.length}`}
+                      >
+                        {span.text}
+                      </span>
+                    ))}
+                  </pre>
+                </div>
+              )}
+
+              {turn.profileSnapshot.profileName && (
+                <p className="query-turn__profile">
+                  Generated by {turn.profileSnapshot.profileName}
+                  {turn.profileSnapshot.writer
+                    ? ` · ${turn.profileSnapshot.writer.modelId} writer`
+                    : ""}
+                  {turn.profileSnapshot.reviewer
+                    ? ` · ${turn.profileSnapshot.reviewer.modelId} reviewer`
+                    : ""}
+                </p>
+              )}
+
+              {turn.outputVersions
+                .filter((output) => !output.selected && output.version)
+                .map((output, index) => (
+                  <p
+                    className="query-turn__superseded"
+                    key={`${output.version!.versionId}-${index}`}
+                  >
+                    {turn.status === "failed" && output.role === "writer"
+                      ? "Structured writer output — not selected"
+                      : `${output.role} output — superseded`}
+                  </p>
+                ))}
+
+              {turn.status === "failed" && (
+                <div className="query-turn__failure" role="status">
+                  <strong>Generation failed</strong>
+                  <p>
+                    {turn.failure?.message ?? "The generation did not complete."}
+                  </p>
+                </div>
+              )}
+
+              {/*
+                A run is what the turn produced, so its result is presented as
+                this turn's dataset rather than as a table repeated by a
+                separate card. Saving promotes it to the Datasets library.
+              */}
+              {execution?.status === "succeeded" && version && (
+                <div className="query-turn__dataset">
+                  <div className="query-turn__dataset-heading">
+                    <DataBase size={16} aria-hidden="true" />
+                    <strong>Dataset from [{turn.ordinal}]</strong>
+                    <Tag type="blue" size="sm">Draft</Tag>
+                    <button
+                      type="button"
+                      className="query-turn__footer-link"
+                      aria-expanded={!minimisedResults[turn.turnId]}
+                      onClick={() =>
+                        setMinimisedResults((current) => ({
+                          ...current,
+                          [turn.turnId]: !current[turn.turnId],
+                        }))
+                      }
+                    >
+                      {minimisedResults[turn.turnId] ? "Expand" : "Minimize"}
+                    </button>
+                    {turn.current && onSaveDataset && (
+                      <Button
+                        type="button"
+                        kind="tertiary"
+                        size="sm"
+                        onClick={onSaveDataset}
+                      >
+                        Save to datasets
+                      </Button>
+                    )}
+                  </div>
+                  {!minimisedResults[turn.turnId] && (
+                    <ExecutionResult
+                      session={session}
+                      sql={version.sql}
+                      parameters={execution.query.parameters}
+                      executionOverride={execution}
+                      immutableSnapshot
+                      compact
+                      pageSize={10}
+                    />
+                  )}
+                </div>
+              )}
+              {execution?.status === "failed" && (
+                <ExecutionResult
+                  session={session}
+                  sql={version?.sql ?? execution.query.sql}
+                  parameters={execution.query.parameters}
+                  executionOverride={execution}
+                  immutableSnapshot
+                  compact
+                  pageSize={10}
+                />
+              )}
+
+              <div className="query-turn__footer">
+                {validation && (
+                  <span className="query-turn__footer-item">{validation}</span>
+                )}
+                {execution?.status === "succeeded" &&
+                  execution.result !== undefined && (
+                    <span className="query-turn__footer-item">
+                      {rowLabel(execution.result.rowCount.returned)}
+                    </span>
+                  )}
+                {execution && (
+                  <span className="query-turn__footer-item">
+                    {execution.durationMs} ms
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="query-turn__footer-link"
+                  onClick={() => onOpenDetails(turn.turnId)}
+                >
+                  details
+                </button>
+                {previousVersionOrdinal !== null && version && (
+                  <button
+                    type="button"
+                    className="query-turn__footer-link"
+                    onClick={() => onOpenDetails(turn.turnId, "versions")}
+                  >
+                    what changed
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
       </article>
     );
   };
 
-  const earlierTurns = turns.slice(0, -1);
-  const latestTurn = turns.at(-1);
-
   return (
     <section className="turn-notebook" aria-label="Iterative query notebook">
-      <div className="turn-notebook__timeline">
-        {earlierTurns.length > 0 && (
-          <details className="turn-notebook__history">
-            <summary>Earlier turns ({earlierTurns.length}) · read-only summaries</summary>
-            <div>{earlierTurns.map(renderTurn)}</div>
-          </details>
+      <ol className="turn-notebook__timeline">
+        {turns.map((turn) => (
+          <li key={turn.turnId}>{renderCell(turn)}</li>
+        ))}
+        {activeCell && (
+          <li>
+            <article className="query-turn query-turn--active">
+              <div className="query-turn__gutter" aria-hidden="true">
+                [{turns.length + 1}]
+              </div>
+              <div className="query-turn__body">{activeCell}</div>
+            </article>
+          </li>
         )}
-        {latestTurn && (
-          <div className="query-turn__message">{latestTurn.instruction}</div>
+        {!activeCell && !generating && (
+          <li className="turn-notebook__composing" aria-hidden="true">
+            <span className="query-turn__gutter">[{turns.length + 1}]</span>
+            <span>composing…</span>
+          </li>
         )}
-        {latestTurn?.status === "completed" && (
-          <div className="query-turn__latest-meta">
-            <p>
-              {baseVersion ? `Query v${baseVersion.ordinal}` : "Latest query"}
-              {latestTurn.profileSnapshot.profileName
-                ? ` · Generated by ${latestTurn.profileSnapshot.profileName}`
-                : ""}
-              {latestTurn.profileSnapshot.writer?.modelId
-                ? ` · ${latestTurn.profileSnapshot.writer.modelId} writer`
-                : ""}
-              {latestTurn.profileSnapshot.reviewer?.modelId
-                ? ` · ${latestTurn.profileSnapshot.reviewer.modelId} reviewer`
-                : ""}
-            </p>
-            <Button
-              type="button"
-              kind="ghost"
-              size="sm"
-              disabled={evidenceLoadingTurnId === latestTurn.turnId}
-              onClick={() => onShowEvidence(latestTurn.turnId)}
-            >
-              {evidenceLoadingTurnId === latestTurn.turnId
-                ? "Loading generation evidence…"
-                : "View latest generation evidence"}
-            </Button>
-          </div>
+        {/*
+          Where the answer will appear, from the moment it is asked for. The
+          composer's busy label is the only other signal and it can be
+          scrolled out of sight, which reads as nothing happening at all.
+        */}
+        {generating && (
+          <li>
+            <article className="query-turn query-turn--pending">
+              <div className="query-turn__gutter" aria-hidden="true">
+                [{turns.length + (activeCell ? 2 : 1)}]
+              </div>
+              <div className="query-turn__body">
+                <p className="query-turn__pending" role="status">
+                  <span className="query-turn__pending-dot" aria-hidden="true" />
+                  Generating the next query…
+                </p>
+              </div>
+            </article>
+          </li>
         )}
-        {latestTurn?.status === "failed" && renderTurn(latestTurn)}
+      </ol>
+
+      {/*
+        A stable slot: rendering the pill as a bare sibling shifted every
+        following child's position, so React remounted the composer each time
+        it appeared or vanished — losing focus and flickering mid-scroll.
+      */}
+      <div className="turn-composer__jump-slot">
+        {composerMode === "tucked" && (
+        <button
+          type="button"
+          className="turn-composer__jump"
+          onClick={() => {
+            setScrollMode("full");
+            window.scrollTo({
+              top: document.documentElement.scrollHeight,
+              behavior: "smooth",
+            });
+          }}
+        >
+          ↓ back to [{turns.length}] · ask
+        </button>
+        )}
       </div>
 
       <section
         id="refine-openelis"
         className="turn-composer"
         aria-labelledby="refine-query-title"
-        data-minimized={composerMinimized}
+        data-mode={composerMode}
+        data-failed={lastRunFailed ? "true" : undefined}
       >
         <div className="turn-composer__heading">
           <div className="turn-composer__title">
             <h2 id="refine-query-title">{composerTitle}</h2>
             {baseVersion ? (
               <p>
-                Based on Query v{baseVersion.ordinal} — {versionAuthor(baseVersion)}
+                {versionAuthor(baseVersion)}
                 {versionModel(baseVersion) ? ` — ${versionModel(baseVersion)}` : ""}
               </p>
             ) : (
@@ -408,22 +630,23 @@ export const TurnNotebook = ({
           {editorState === "unresolved" && (
             <Tag type="warm-gray">Unresolved editor input</Tag>
           )}
-          <Button
-            id="refine-openelis-toggle"
-            type="button"
-            kind="ghost"
-            size="sm"
-            aria-expanded={!composerMinimized}
-            aria-controls="refine-openelis-body"
-            onClick={() => setComposerMinimized((current) => !current)}
-          >
-            {composerMinimized ? "Expand" : "Minimize"}
-          </Button>
         </div>
+        <button
+          type="button"
+          id="refine-openelis-toggle"
+          className="turn-composer__restore"
+          aria-expanded={composerMode === "full"}
+          aria-controls="refine-openelis-body"
+          onClick={restoreComposer}
+        >
+          <span>{composerTitle}</span>
+          <span aria-hidden="true">⌘↵</span>
+          <span aria-hidden="true">▴</span>
+        </button>
         <form
           id="refine-openelis-body"
           className="turn-composer__form"
-          hidden={composerMinimized}
+          hidden={composerMode !== "full"}
           onSubmit={handleSubmit}
         >
           <label className="visually-hidden" htmlFor="catalyst-followup">
@@ -431,9 +654,12 @@ export const TurnNotebook = ({
           </label>
           <textarea
             id="catalyst-followup"
-            rows={composerMinimized ? 1 : 2}
+            ref={composerRef}
+            rows={2}
             value={instruction}
             disabled={busy}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             onChange={(event) => onInstructionChange(event.currentTarget.value)}
             placeholder="Ask a question, or say how you want the current query changed"
           />
@@ -489,10 +715,6 @@ export const TurnNotebook = ({
         </form>
       </section>
 
-      {evidenceError && (
-        <p className="turn-evidence__error" role="alert">{evidenceError}</p>
-      )}
-      {evidence && <EvidenceDetail evidence={evidence} />}
     </section>
   );
 };

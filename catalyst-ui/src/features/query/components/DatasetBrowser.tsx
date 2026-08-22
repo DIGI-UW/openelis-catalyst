@@ -1,4 +1,4 @@
-import { Accordion, AccordionItem, Button, InlineLoading, Tag } from "@carbon/react";
+import { Button, InlineLoading } from "@carbon/react";
 import { useEffect, useMemo, useState } from "react";
 import type { CatalystApi } from "../api";
 import type {
@@ -6,13 +6,15 @@ import type {
   DatasetRows,
   WorkbenchEditorCatalog,
 } from "../types";
+import "./DatasetBrowser.css";
 
 interface DatasetBrowserProps {
   api: CatalystApi;
   catalog?: WorkbenchEditorCatalog | null;
   catalogLoadingFailed?: boolean;
   dataSourceId?: string;
-  compact?: boolean;
+  /** Insert a column name at the cursor in the SQL editor. */
+  onInsertColumn?: (columnName: string) => void;
 }
 
 const displayDate = (value: string | null) => {
@@ -39,12 +41,23 @@ const shortPatient = (value: string) => value.length > 12 ? value.slice(0, 12) :
 const stableCompare = (left: string, right: string) =>
   left < right ? -1 : left > right ? 1 : 0;
 
+/**
+ * A three-character glyph standing in for the column's type, so the shape of a
+ * relation is readable at rail width where the type name would not fit.
+ */
+const typeGlyph = (logicalType: string) => {
+  if (/^(date|time)/.test(logicalType)) return "cal";
+  if (/(int|decimal|number|numeric|float|double)/.test(logicalType)) return "123";
+  if (/bool/.test(logicalType)) return "t/f";
+  return "abc";
+};
+
 export const DatasetBrowser = ({
   api,
   catalog = null,
   catalogLoadingFailed = false,
   dataSourceId,
-  compact = false,
+  onInsertColumn,
 }: DatasetBrowserProps) => {
   const [overview, setOverview] = useState<DatasetOverview | null>(null);
   const [rows, setRows] = useState<DatasetRows | null>(null);
@@ -52,6 +65,9 @@ export const DatasetBrowser = ({
   const [patientId, setPatientId] = useState("");
   const [loading, setLoading] = useState(Boolean(api.getDatasetOverview));
   const [message, setMessage] = useState<string | null>(null);
+  const [columnFilter, setColumnFilter] = useState("");
+  const [relationName, setRelationName] = useState("");
+
   const catalogRelations = useMemo(
     () => (catalog?.schemas ?? [])
       .flatMap((schema) => schema.views.map((view) => ({ schema, view })))
@@ -60,6 +76,19 @@ export const DatasetBrowser = ({
       ),
     [catalog],
   );
+
+  const selectedRelation =
+    catalogRelations.find(
+      ({ view }) => view.qualifiedName === relationName,
+    ) ?? catalogRelations[0] ?? null;
+
+  const filter = columnFilter.trim().toLowerCase();
+  const visibleColumns = useMemo(() => {
+    const columns = selectedRelation?.view.columns ?? [];
+    return filter
+      ? columns.filter((column) => column.name.toLowerCase().includes(filter))
+      : columns;
+  }, [filter, selectedRelation]);
 
   const loadRows = async (offset = 0) => {
     if (!api.getDatasetRows) return;
@@ -109,37 +138,124 @@ export const DatasetBrowser = ({
 
   if (!api.getDatasetOverview && !catalog) return null;
 
-  const Container = compact ? "details" : "section";
+  const totalColumns = selectedRelation?.view.columns.length ?? 0;
 
   return (
-    <Container
-      className={`query-card dataset-browser${compact ? " dataset-browser--compact" : ""}`}
-      aria-labelledby="dataset-title"
-    >
-      {compact && (
-        <summary>
-          Available data · {catalog?.schemas.length ?? 0} schemas · {catalogRelations.length} relations
-        </summary>
-      )}
-      <div className={compact ? "dataset-browser__compact-content" : undefined}>
-      <div className="section-heading section-heading--row">
-        <div>
-          <p className="eyebrow">Know what to ask</p>
-          <h1 id="dataset-title">Available OpenELIS laboratory data</h1>
-          <p>
-            Explore the laboratory records currently available to Catalyst from
-            OpenELIS through FHIR before forming a question.
+    <div className="dataset-browser" aria-label="Available data">
+      <div className="dataset-browser__controls">
+        <label className="visually-hidden" htmlFor="catalyst-column-filter">
+          Filter columns
+        </label>
+        <input
+          id="catalyst-column-filter"
+          value={columnFilter}
+          placeholder="Filter columns"
+          onChange={(event) => setColumnFilter(event.currentTarget.value)}
+        />
+        {catalogRelations.length > 1 && (
+          <>
+            <label className="visually-hidden" htmlFor="catalyst-relation">
+              Relation
+            </label>
+            <select
+              id="catalyst-relation"
+              value={selectedRelation?.view.qualifiedName ?? ""}
+              onChange={(event) => setRelationName(event.currentTarget.value)}
+            >
+              {catalogRelations.map(({ view }) => (
+                <option key={view.qualifiedName} value={view.qualifiedName}>
+                  {view.qualifiedName}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        {selectedRelation && (
+          <p className="dataset-browser__count">
+            {filter
+              ? `${visibleColumns.length} of ${totalColumns} columns`
+              : `${totalColumns} ${totalColumns === 1 ? "column" : "columns"}`}
+            {catalog?.dialect ? ` · ${catalog.dialect}` : ""}
           </p>
-        </div>
-        <Tag type="purple">OpenELIS → FHIR</Tag>
+        )}
       </div>
 
-      {loading && !overview && <InlineLoading description="Loading dataset…" />}
-      {message && <p className="dataset-browser__message">{message}</p>}
+      {catalogLoadingFailed && (
+        <p className="dataset-browser__message" role="status">
+          The queryable database schema is unavailable. Record preview may still
+          work.
+        </p>
+      )}
+      {!catalog && !catalogLoadingFailed && (
+        <InlineLoading description="Loading queryable database schema…" />
+      )}
+      {catalog && catalogRelations.length === 0 && (
+        <p className="dataset-browser__message" role="status">
+          No queryable relations were returned by the catalog.
+        </p>
+      )}
+
+      {selectedRelation && (
+        <div className="dataset-browser__columns">
+          <table>
+            <caption className="visually-hidden">
+              Columns in {selectedRelation.view.qualifiedName}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" className="dataset-browser__col-type">Type</th>
+                <th scope="col">Column</th>
+                <th scope="col" className="dataset-browser__col-wide">Nullable</th>
+                <th scope="col" className="dataset-browser__col-wide">Unit relationship</th>
+                <th scope="col" className="dataset-browser__col-wide">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleColumns.map((column) => (
+                <tr key={column.name}>
+                  <td className="dataset-browser__col-type">
+                    <span
+                      className="dataset-browser__glyph"
+                      title={column.logicalType}
+                    >
+                      {typeGlyph(column.logicalType)}
+                    </span>
+                  </td>
+                  <td>
+                    {onInsertColumn ? (
+                      <button
+                        type="button"
+                        className="dataset-browser__insert"
+                        aria-label={`Insert ${column.name} into the SQL editor`}
+                        title={`Insert ${column.name} into the SQL editor`}
+                        onClick={() => onInsertColumn(column.name)}
+                      >
+                        <code>{column.name}</code>
+                      </button>
+                    ) : (
+                      <code>{column.name}</code>
+                    )}
+                  </td>
+                  <td className="dataset-browser__col-wide">
+                    {column.nullable ? "Yes" : "No"}
+                  </td>
+                  <td className="dataset-browser__col-wide">
+                    {column.unitColumn ? (
+                      <>Unit from <code>{column.unitColumn}</code></>
+                    ) : "—"}
+                  </td>
+                  <td className="dataset-browser__col-wide">{column.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {overview && (
-        <>
-          <dl className="dataset-metrics">
+        <details className="dataset-browser__records">
+          <summary>Preview available laboratory records</summary>
+          <dl className="dataset-browser__metrics">
             <div><dt>Patients</dt><dd>{overview.patients.toLocaleString()}</dd></div>
             <div><dt>Results</dt><dd>{overview.results.toLocaleString()}</dd></div>
             <div><dt>Test types</dt><dd>{overview.testTypes}</dd></div>
@@ -148,145 +264,61 @@ export const DatasetBrowser = ({
               <dd>{displayDateRange(overview.firstObservedAt, overview.lastObservedAt)}</dd>
             </div>
           </dl>
-
-        </>
+          <div className="dataset-filters">
+            <label>
+              Test type
+              <select value={testName} onChange={(event) => setTestName(event.currentTarget.value)}>
+                <option value="">All tests</option>
+                {overview.tests.map((test) => <option key={test.testName}>{test.testName}</option>)}
+              </select>
+            </label>
+            <label>
+              Patient FHIR ID
+              <input value={patientId} onChange={(event) => setPatientId(event.currentTarget.value)} placeholder="Optional exact ID" />
+            </label>
+            <Button kind="secondary" size="sm" disabled={loading} onClick={() => void loadRows(0)}>
+              Apply filters
+            </Button>
+          </div>
+          {message && <p className="dataset-browser__message">{message}</p>}
+          {rows && (
+            rows.total === 0 ? (
+              <p className="dataset-browser__empty">
+                No laboratory records match these filters.
+              </p>
+            ) : <>
+              <div className="dataset-browser__rows">
+                <table>
+                  <caption>{rows.total.toLocaleString()} matching laboratory results; showing {rows.offset + 1}–{Math.min(rows.offset + rows.rows.length, rows.total)}</caption>
+                  <thead><tr>
+                    <th scope="col">Patient</th><th scope="col">Test</th><th scope="col">Value</th>
+                    <th scope="col">Observed</th><th scope="col">Turnaround</th>
+                  </tr></thead>
+                  <tbody>
+                    {rows.rows.map((row) => (
+                      <tr key={row.observationId}>
+                        <td title={row.patientId}>{shortPatient(row.patientId)}</td>
+                        <td>{row.testName}</td><td>{row.value ?? "—"} {row.unit ?? ""}</td>
+                        <td>{displayDate(row.observedAt)}</td><td>{row.turnaroundMinutes !== null ? `${Math.round(Number(row.turnaroundMinutes))} min` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="dataset-pagination">
+                <Button kind="ghost" size="sm" disabled={loading || rows.offset === 0} onClick={() => void loadRows(Math.max(0, rows.offset - rows.limit))}>Previous</Button>
+                <Button kind="ghost" size="sm" disabled={loading || rows.offset + rows.limit >= rows.total} onClick={() => void loadRows(rows.offset + rows.limit)}>Next</Button>
+              </div>
+            </>
+          )}
+        </details>
       )}
 
-      <section
-        className="dataset-schema"
-        aria-labelledby="dataset-schema-title"
-      >
-        <div className="dataset-schema__heading">
-          <h2 id="dataset-schema-title">Supported query schema</h2>
-          <p>
-            {catalogRelations.length > 0
-              ? `${catalogRelations.length.toLocaleString()} ${catalogRelations.length === 1 ? "relation" : "relations"} available. Expand a relation to see its columns.`
-              : "Tables and columns available to generated and manually edited SQL."}
-          </p>
-        </div>
-        {catalogLoadingFailed && (
-          <p className="dataset-browser__message" role="status">
-            The queryable database schema is unavailable. Record preview may still work.
-          </p>
-        )}
-        {!catalog && !catalogLoadingFailed && (
-          <InlineLoading description="Loading queryable database schema…" />
-        )}
-        {catalog && catalogRelations.length === 0 && (
-          <p className="dataset-browser__message" role="status">
-            No queryable relations were returned by the catalog.
-          </p>
-        )}
-        {catalogRelations.length > 0 && (
-          <Accordion className="dataset-schema__relations">
-            {catalogRelations.map(({ schema, view }) => (
-              <AccordionItem
-                key={`${schema.name}.${view.name}`}
-                title={(
-                  <span className="dataset-schema__relation-title">
-                    <code>{view.qualifiedName}</code>
-                    {" "}
-                    <span>{view.columns.length.toLocaleString()} {view.columns.length === 1 ? "column" : "columns"}</span>
-                  </span>
-                )}
-              >
-                <div className="dataset-schema__relation-details">
-                  <div className="dataset-schema__relation-meta">
-                    <p className="dataset-schema__grain">
-                      <strong>Grain:</strong> {view.grain}
-                    </p>
-                    <Tag type="cool-gray">{catalog?.dialect}</Tag>
-                  </div>
-                  <div className="dataset-schema__table-wrap">
-                    <table>
-                      <caption>Columns in {view.qualifiedName}</caption>
-                      <thead>
-                        <tr>
-                          <th scope="col">Column</th>
-                          <th scope="col">Type</th>
-                          <th scope="col">Nullable</th>
-                          <th scope="col">Unit relationship</th>
-                          <th scope="col">Description</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {view.columns.map((column) => (
-                          <tr key={column.name}>
-                            <td><code>{column.name}</code></td>
-                            <td>{column.logicalType}</td>
-                            <td>{column.nullable ? "Yes" : "No"}</td>
-                            <td>
-                              {column.unitColumn ? (
-                                <>Unit from <code>{column.unitColumn}</code></>
-                              ) : "—"}
-                            </td>
-                            <td>{column.description}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        )}
-      </section>
-
-      {overview && (
-        <Accordion className="dataset-browser__details">
-          <AccordionItem title="Preview available laboratory records">
-            <div className="dataset-filters">
-              <label>
-                Test type
-                <select value={testName} onChange={(event) => setTestName(event.currentTarget.value)}>
-                  <option value="">All tests</option>
-                  {overview.tests.map((test) => <option key={test.testName}>{test.testName}</option>)}
-                </select>
-              </label>
-              <label>
-                Patient FHIR ID
-                <input value={patientId} onChange={(event) => setPatientId(event.currentTarget.value)} placeholder="Optional exact ID" />
-              </label>
-              <Button kind="secondary" size="sm" disabled={loading} onClick={() => void loadRows(0)}>
-                Apply filters
-              </Button>
-            </div>
-
-            {rows && (
-              rows.total === 0 ? (
-                <p className="dataset-browser__empty">
-                  No laboratory records match these filters.
-                </p>
-              ) : <>
-                <div className="dataset-browser__rows">
-                  <table>
-                    <caption>{rows.total.toLocaleString()} matching laboratory results; showing {rows.offset + 1}–{Math.min(rows.offset + rows.rows.length, rows.total)}</caption>
-                    <thead><tr>
-                      <th scope="col">Patient</th><th scope="col">Test</th><th scope="col">Value</th>
-                      <th scope="col">Observed</th><th scope="col">Turnaround</th>
-                    </tr></thead>
-                    <tbody>
-                      {rows.rows.map((row) => (
-                        <tr key={row.observationId}>
-                          <td title={row.patientId}>{shortPatient(row.patientId)}</td>
-                          <td>{row.testName}</td><td>{row.value ?? "—"} {row.unit ?? ""}</td>
-                          <td>{displayDate(row.observedAt)}</td><td>{row.turnaroundMinutes !== null ? `${Math.round(Number(row.turnaroundMinutes))} min` : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="dataset-pagination">
-                  <Button kind="ghost" size="sm" disabled={loading || rows.offset === 0} onClick={() => void loadRows(Math.max(0, rows.offset - rows.limit))}>Previous</Button>
-                  <Button kind="ghost" size="sm" disabled={loading || rows.offset + rows.limit >= rows.total} onClick={() => void loadRows(rows.offset + rows.limit)}>Next</Button>
-                </div>
-              </>
-            )}
-          </AccordionItem>
-        </Accordion>
+      {selectedRelation && (
+        <p className="dataset-browser__grain">
+          <strong>Grain</strong> — {selectedRelation.view.grain}
+        </p>
       )}
-      </div>
-    </Container>
+    </div>
   );
 };

@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "lint": "eslint .",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "baseline": "playwright test --project=baseline"
   },
   "license": "MPL-2.0",
   "dependencies": {
@@ -20,6 +21,9 @@
     "@carbon/react": "^1.112.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/state": "^6.7.1",
+    "@ibm/plex-mono": "^2.5.0",
+    "@ibm/plex-sans": "^1.1.0",
+    "@lezer/highlight": "^1.2.3",
     "codemirror": "^6.0.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

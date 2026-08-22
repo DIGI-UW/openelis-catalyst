@@ -4,23 +4,59 @@
   "title": "Catalyst manual workbench session request",
   "type": "object",
   "additionalProperties": false,
-  "required": ["contractVersion", "deploymentMode", "question"],
+  "required": [
+    "contractVersion",
+    "deploymentMode"
+  ],
   "properties": {
-    "contractVersion": {"const": "catalyst.workbench.session.request.v1"},
-    "deploymentMode": {"const": "demo"},
-    "question": {"type": "string", "minLength": 1},
-    "profileId": {"type": "string", "pattern": "^catalyst-query-", "minLength": 1},
-    "dataSourceId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "contractVersion": {
+      "const": "catalyst.workbench.session.request.v1"
+    },
+    "deploymentMode": {
+      "const": "demo"
+    },
+    "question": {
+      "type": "string",
+      "description": "Omit to open an empty session: named and grounded in a data source, with nothing asked of a model yet."
+    },
+    "profileId": {
+      "type": "string",
+      "pattern": "^catalyst-query-",
+      "minLength": 1
+    },
+    "dataSourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "browserState": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "expanded": {"type": "boolean"},
-        "testName": {"type": "string"},
-        "patientId": {"type": "string"},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-        "offset": {"type": "integer", "minimum": 0}
+        "expanded": {
+          "type": "boolean"
+        },
+        "testName": {
+          "type": "string"
+        },
+        "patientId": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
     }
   }
 }

@@ -1,11 +1,18 @@
-import { Chat, ChartLine, ChevronLeft, Dashboard, DataBase, Renew } from "@carbon/icons-react";
+import { Renew } from "@carbon/icons-react";
 import { Button, CodeSnippet, Tag } from "@carbon/react";
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { CatalystApi } from "./api";
 import { catalystApi } from "./api";
 import { ExecutionState } from "./components/ExecutionState";
 import { DatasetBrowser } from "./components/DatasetBrowser";
 import { DashboardPublishPanel } from "./components/DashboardPublishPanel";
+import { DetailsPanel, type DetailsTab } from "./components/DetailsPanel";
 import { ProvenancePanel } from "./components/ProvenancePanel";
 import { QueryPreview } from "./components/QueryPreview";
 import { QuestionForm } from "./components/QuestionForm";
@@ -16,10 +23,19 @@ import {
   type NotebookTurn,
 } from "./components/TurnNotebook";
 import { WorkbenchPanel } from "./components/WorkbenchPanel";
+import { WorkbenchRail } from "./components/WorkbenchRail";
+import {
+  clampRailWidth,
+  RAIL_DEFAULT_WIDTH,
+  RAIL_STACK_BREAKPOINT,
+  type RailSection,
+  type RailTurn,
+} from "./components/workbenchRailSupport";
 import {
   editorContentMatchesVersion,
   workbenchEditorDigest,
 } from "./editorDigest";
+import type { ThemePreference } from "./theme";
 import {
   isPreview,
   isTable,
@@ -36,6 +52,7 @@ import {
   type WorkbenchGenerationEvidence,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
+  type WorkbenchSessionSummary,
   type WorkbenchTurnRequest,
   type WorkbenchTurnTimeline,
 } from "./types";
@@ -59,18 +76,10 @@ type WorkflowState =
 interface QueryWorkspaceProps {
   api?: CatalystApi;
   pollIntervalMs?: number;
+  themePreference?: ThemePreference;
+  onThemePreferenceChange?: (preference: ThemePreference) => void;
 }
 
-const dashboardSections: Array<{
-  id: DashboardBuilderSection;
-  label: string;
-  icon: typeof Chat;
-}> = [
-  { id: "ask", label: "Workbench", icon: Chat },
-  { id: "datasets", label: "Datasets", icon: DataBase },
-  { id: "widgets", label: "Widgets", icon: ChartLine },
-  { id: "dashboards", label: "Dashboards", icon: Dashboard },
-];
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : "An unexpected request error occurred.";
@@ -174,20 +183,107 @@ const currentQueryProfileId = (session: WorkbenchSession) => {
   return session.profileId;
 };
 
+// The run recorded against a turn's own query version. A version can be run
+// more than once (re-run after a timeout), so the newest execution wins.
+const executionForVersion = (
+  session: WorkbenchSession | null,
+  versionId: string | null,
+) =>
+  versionId === null
+    ? null
+    : ([...(session?.executions ?? [])]
+        .sort((left, right) => right.ordinal - left.ordinal)
+        .find((execution) => execution.versionId === versionId) ?? null);
+
+const validationStatusForVersion = (
+  session: WorkbenchSession | null,
+  versionId: string | null,
+) =>
+  versionId === null
+    ? null
+    : ([...(session?.validations ?? [])]
+        .sort((left, right) => right.ordinal - left.ordinal)
+        .find((validation) => validation.versionId === versionId)?.status ??
+      null);
+
+/**
+ * Cells for query versions a person wrote and ran by hand.
+ *
+ * The thread is built from turns, and a turn is a model generation — so a
+ * hand-edited version that has been run produces a result with nowhere to go,
+ * and the thread appears to stop at the last thing a model wrote. These carry
+ * that work into the thread it belongs to.
+ */
+const manualNotebookTurns = (
+  session: WorkbenchSession | null,
+  timeline: WorkbenchTurnTimeline | null,
+): NotebookTurn[] => {
+  if (!session) return [];
+  const owned = new Set(
+    (timeline?.turns ?? []).flatMap((turn) =>
+      turn.outputVersions.map((output) => output.versionId),
+    ),
+  );
+  const seen = new Set<string>();
+  return session.versions
+    .filter((version) => {
+      if (owned.has(version.versionId) || version.authorType !== "human") {
+        return false;
+      }
+      if (seen.has(version.versionId)) return false;
+      seen.add(version.versionId);
+      return true;
+    })
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .flatMap((version) => {
+      const execution = executionForVersion(session, version.versionId);
+      // Not yet run: it is still the draft in the editor, not a cell.
+      if (!execution) return [];
+      return [
+        {
+          turnId: `manual:${version.versionId}`,
+          // Position in the thread is assigned by threadCells, which is the
+          // only place that can see both kinds of cell at once.
+          ordinal: 0,
+          kind: "followup" as const,
+          instruction: "Edited by hand",
+          status: "completed" as const,
+          selectedVersionId: version.versionId,
+          outputVersions: [
+            {
+              selected: true,
+              role: "writer" as const,
+              contractValid: true,
+              versionId: version.versionId,
+              version,
+            },
+          ],
+          profileSnapshot: { profileName: null, writer: null, reviewer: null },
+          failure: null,
+          execution,
+          validationStatus: validationStatusForVersion(
+            session,
+            version.versionId,
+          ),
+          current: version.versionId === session.currentVersionId,
+          createdAt: version.createdAt,
+        },
+      ];
+    });
+};
+
+/** A cell with no model generation behind it has no evidence to fetch. */
+const isManualCell = (turnId: string) => turnId.startsWith("manual:");
+
 const notebookTurns = (
   timeline: WorkbenchTurnTimeline | null,
   session: WorkbenchSession | null,
-  sources?: DataSourcesResponse | null,
 ): NotebookTurn[] =>
   (timeline?.turns ?? []).map((turn) => ({
     turnId: turn.turnId,
     ordinal: turn.ordinal,
     kind: turn.kind,
     instruction: turn.instruction,
-    dataSourceLabel: turn.dataSourceId
-      ? (sources?.dataSources.find((s) => s.id === turn.dataSourceId)?.label ??
-        turn.dataSourceId)
-      : null,
     status: turn.status,
     selectedVersionId: turn.selectedVersionId,
     profileSnapshot: {
@@ -209,7 +305,39 @@ const notebookTurns = (
       ),
     })),
     failure: turn.failure ? { message: turn.failure.message } : null,
+    execution: executionForVersion(session, turn.selectedVersionId),
+    validationStatus: validationStatusForVersion(session, turn.selectedVersionId),
+    current:
+      turn.selectedVersionId !== null &&
+      turn.selectedVersionId === session?.currentVersionId,
+    createdAt: turn.createdAt,
   }));
+
+/**
+ * The thread, in the order the work happened.
+ *
+ * The two kinds of cell are recorded in different places — generations in the
+ * turn timeline, hand-edited runs among the session's versions — so appending
+ * one list to the other filed every hand edit after model turns that came
+ * later. Query versions are numbered in the order they were appended, which is
+ * the one clock both kinds share; the cell number is then simply a position in
+ * the thread.
+ */
+const threadCells = (
+  timeline: WorkbenchTurnTimeline | null,
+  session: WorkbenchSession | null,
+): NotebookTurn[] =>
+  [
+    ...notebookTurns(timeline, session),
+    ...manualNotebookTurns(session, timeline),
+  ]
+    // When it happened, which both kinds of cell record. An earlier version
+    // keyed off the selected version's ordinal, which a failed generation
+    // does not have -- so it inherited a position just after the turn before
+    // it and sorted ahead of every hand edit made since. A turn that produced
+    // nothing still happened at a time.
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .map((turn, index) => ({ ...turn, ordinal: index + 1 }));
 
 const notebookGrounding = (
   session: WorkbenchSession,
@@ -229,16 +357,15 @@ const notebookGrounding = (
     .sort((left, right) => right.ordinal - left.ordinal)
     .find((candidate) => candidate.queryDigest === editorDigest);
 
+  // What this says is what the model will be told. Which version and which run
+  // produced it is bookkeeping the thread already carries, so it is left out:
+  // the only thing that matters here is that the summary matches the editor.
   if (execution) {
-    const version = session.versions.find(
-      (candidate) => candidate.versionId === execution.versionId,
-    );
-    const queryLabel = version ? `Query v${version.ordinal}` : "the current query";
     if (execution.status === "failed") {
       return {
         kind: "matching",
         text:
-          `Execution summary: ${queryLabel} · Run ${execution.ordinal} failed. ` +
+          "Execution summary: this query failed. " +
           "The database diagnostic is available to the model; result row values are not.",
       };
     }
@@ -246,7 +373,7 @@ const notebookGrounding = (
     return {
       kind: "matching",
       text:
-        `Execution summary: ${queryLabel} · Run ${execution.ordinal}` +
+        "Execution summary: this query ran" +
         (returned === undefined
           ? ". "
           : ` · ${returned} ${returned === 1 ? "row" : "rows"}. `) +
@@ -268,6 +395,23 @@ const notebookGrounding = (
     text:
       "This query has not been executed. Refinement uses the current SQL without " +
       "an execution summary or result row values.",
+  };
+};
+
+// The composer pins open on a failed run, so the error state is never one
+// scroll away from being invisible.
+const latestExecutionFailed = (session: WorkbenchSession) =>
+  [...session.executions].sort((left, right) => right.ordinal - left.ordinal)[0]
+    ?.status === "failed";
+
+const railLayoutFromBrowserState = (
+  browserState: Record<string, unknown>,
+): { width: number | null; section: RailSection | null } => {
+  const width = browserState.railWidth;
+  const section = browserState.railSection;
+  return {
+    width: typeof width === "number" && Number.isFinite(width) ? width : null,
+    section: section === "data" || section === "turns" ? section : null,
   };
 };
 
@@ -423,9 +567,44 @@ const QueryOutcomeState = ({ outcome }: { outcome: CatalystQueryOutcome }) => {
 export const QueryWorkspace = ({
   api = catalystApi,
   pollIntervalMs = 1000,
+  themePreference = "system",
+  onThemePreferenceChange,
 }: QueryWorkspaceProps) => {
   const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
-  const [navigationExpanded, setNavigationExpanded] = useState(true);
+  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
+  const [railSection, setRailSection] = useState<RailSection>("turns");
+  const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<
+    "closed" | "list" | "new" | "rename"
+  >("closed");
+  const [recentSessions, setRecentSessions] = useState<WorkbenchSessionSummary[]>(
+    [],
+  );
+  const [draftSessionName, setDraftSessionName] = useState("");
+  const [detailsTurnId, setDetailsTurnId] = useState<string | null>(null);
+  // Details can be scoped to the session rather than a turn: a gateway that
+  // serves no per-turn evidence still records validation, provenance and
+  // versions, and they must stay reachable.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  // A run asks for the cell that will carry its result; the cell is only in
+  // the document a render later, so the request waits here until it exists.
+  const revealVersionId = useRef<string | null>(null);
+  const revealTurnId = useRef<string | null>(null);
+  // The dashboard panel owns the review dialog; the cell that produced the
+  // result asks it to open.
+  const openDatasetReview = useRef<(() => void) | null>(null);
+  const registerDatasetOpener = useCallback(
+    (open: (() => void) | null) => {
+      openDatasetReview.current = open;
+    },
+    [],
+  );
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
   const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
@@ -433,6 +612,8 @@ export const QueryWorkspace = ({
   const [dataSources, setDataSources] = useState<DataSourcesResponse | null>(
     null,
   );
+  // What the picker holds before a session exists. Once a session exists its
+  // own source wins — see effectiveDataSourceId.
   const [dataSourceId, setDataSourceId] = useState(readDataSourceIdFromUrl);
   const [workbenchSession, setWorkbenchSession] =
     useState<WorkbenchSession | null>(null);
@@ -444,9 +625,7 @@ export const QueryWorkspace = ({
     useState<WorkbenchEditorCatalog | null>(null);
   const [workbenchCatalogFailed, setWorkbenchCatalogFailed] = useState(false);
   const [workbenchWrapLines, setWorkbenchWrapLines] = useState(true);
-  const [workbenchBusy, setWorkbenchBusy] = useState<
-    "validating" | "running" | null
-  >(null);
+  const [workbenchBusy, setWorkbenchBusy] = useState<"running" | null>(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
   const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
   const [sqlEditorFocusRequestId, setSqlEditorFocusRequestId] = useState(0);
@@ -496,6 +675,41 @@ export const QueryWorkspace = ({
     ? profileId
     : fallbackRevisionProfileId;
 
+  // Everything it takes to make a stored session the one on screen. Restore
+  // on load and picking one from the rail menu are the same operation.
+  // Stable across renders: the restore effect depends on it, and useState
+  // setters are already stable, so `api` is its only real dependency.
+  const adoptWorkbenchSession = useCallback((session: WorkbenchSession) => {
+    setWorkbenchSession(session);
+    setQuestion(session.question);
+    setProfileId(currentQueryProfileId(session));
+    if (session.dataSourceId) setDataSourceId(session.dataSourceId);
+    const draft = sessionEditorDraft(session);
+    setWorkbenchSql(draft?.sql ?? "");
+    setWorkbenchParameters(
+      draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
+    );
+    setWorkbenchWrapLines(
+      typeof session.browserState.sqlWrapLines === "boolean"
+        ? session.browserState.sqlWrapLines
+        : true,
+    );
+    const layout = railLayoutFromBrowserState(session.browserState);
+    if (layout.width !== null) {
+      setRailWidth(clampRailWidth(layout.width, window.innerWidth));
+    }
+    if (layout.section !== null) setRailSection(layout.section);
+    setWorkbenchTimeline(null);
+    setDetailsOpen(false);
+    setDetailsTurnId(null);
+    setWorkbenchError(null);
+    if (api.getWorkbenchTurns) {
+      void api.getWorkbenchTurns(session.sessionId)
+        .then(setWorkbenchTimeline)
+        .catch(() => setWorkbenchTimeline(null));
+    }
+  }, [api]);
+
   useEffect(() => {
     if (!api.getQueryOptions) return;
     const controller = new AbortController();
@@ -535,14 +749,27 @@ export const QueryWorkspace = ({
     return () => controller.abort();
   }, [api]);
 
+  // A session is grounded in one catalog, so once one is open its recorded
+  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
+  // Reading it from the session rather than mirroring it into state keeps that
+  // structural: the Gateway still accepts a turn that targets another source
+  // (see tests/test_multi_source.py), so this UI should never send one.
+  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
+
   useEffect(() => {
-    writeDataSourceIdToUrl(dataSourceId);
-  }, [dataSourceId]);
+    writeDataSourceIdToUrl(effectiveDataSourceId);
+  }, [effectiveDataSourceId]);
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (!api.getWorkbenchCatalog) return;
     const controller = new AbortController();
-    api.getWorkbenchCatalog(dataSourceId || undefined, controller.signal)
+    api.getWorkbenchCatalog(effectiveDataSourceId || undefined, controller.signal)
       .then((catalog) => {
         setWorkbenchCatalog(catalog);
         setWorkbenchCatalogFailed(false);
@@ -554,7 +781,7 @@ export const QueryWorkspace = ({
         }
       });
     return () => controller.abort();
-  }, [api, dataSourceId]);
+  }, [api, effectiveDataSourceId]);
 
   useEffect(() => {
     if (!api.getWorkbenchSession) return;
@@ -563,22 +790,7 @@ export const QueryWorkspace = ({
     const controller = new AbortController();
     api.getWorkbenchSession(sessionId, controller.signal)
       .then((session) => {
-        setWorkbenchSession(session);
-        setQuestion(session.question);
-        setProfileId(currentQueryProfileId(session));
-        if (session.dataSourceId) {
-          setDataSourceId(session.dataSourceId);
-        }
-        const draft = sessionEditorDraft(session);
-        setWorkbenchSql(draft?.sql ?? "");
-        setWorkbenchParameters(
-          draft?.parameters.map((parameter) => ({ ...parameter })) ?? [],
-        );
-        setWorkbenchWrapLines(
-          typeof session.browserState.sqlWrapLines === "boolean"
-            ? session.browserState.sqlWrapLines
-            : true,
-        );
+        adoptWorkbenchSession(session);
         if (api.getWorkbenchTurns) {
           void api.getWorkbenchTurns(sessionId, controller.signal)
             .then((timeline) => {
@@ -593,7 +805,7 @@ export const QueryWorkspace = ({
         if (!controller.signal.aborted) forgetActiveWorkbenchSession();
       });
     return () => controller.abort();
-  }, [api]);
+  }, [api, adoptWorkbenchSession]);
 
   useEffect(() => {
     if (state.kind !== "polling") return;
@@ -630,12 +842,29 @@ export const QueryWorkspace = ({
     setState({ kind: "submitting" });
     setWorkbenchError(null);
     try {
+      if (
+        workbenchSession &&
+        !sessionHasWork &&
+        api.askWorkbenchSessionQuestion
+      ) {
+        adoptWorkbenchSession(
+          await api.askWorkbenchSessionQuestion(
+            workbenchSession.sessionId,
+            normalizedQuestion,
+            (queryOptions && selectedAvailableProfileId) || undefined,
+          ),
+        );
+        setState({ kind: "idle" });
+        return;
+      }
       if (usesWorkbench) {
         const session = await api.createWorkbenchSession!(
           normalizedQuestion,
           (queryOptions && selectedAvailableProfileId) || undefined,
           undefined,
           dataSourceId || undefined,
+          undefined,
+          draftSessionName.trim() || undefined,
         );
         setWorkbenchSession(session);
         rememberActiveWorkbenchSession(session.sessionId);
@@ -696,8 +925,12 @@ export const QueryWorkspace = ({
     }
   };
 
-  const startNewSession = () => {
-    if (followupBusy) return;
+  // Opening a session is a real act: it is created, named and grounded in a
+  // source before any question exists, so the source you are targeting is
+  // settled before you decide what to ask.
+  const startNewSession = async () => {
+    if (followupBusy || !api.createWorkbenchSession) return;
+    setSessionMenu("closed");
     if (selectedAvailableProfileId) {
       setProfileId(selectedAvailableProfileId);
     }
@@ -718,6 +951,22 @@ export const QueryWorkspace = ({
     setGenerationEvidenceError(null);
     forgetActiveWorkbenchSession();
     setActiveSection("ask");
+    try {
+      const session = await api.createWorkbenchSession(
+        "",
+        (queryOptions && selectedAvailableProfileId) || undefined,
+        undefined,
+        dataSourceId || undefined,
+        undefined,
+        draftSessionName.trim() || undefined,
+      );
+      rememberActiveWorkbenchSession(session.sessionId);
+      adoptWorkbenchSession(session);
+      setDraftSessionName("");
+      setRailSection("data");
+    } catch (error) {
+      setWorkbenchError(messageFromError(error));
+    }
     window.setTimeout(() => {
       document.getElementById("catalyst-question")?.focus();
     }, 0);
@@ -758,7 +1007,7 @@ export const QueryWorkspace = ({
       sql: workbenchSql,
       parameters: workbenchParameters,
       expectedColumns: editorExpectedColumns(parent, workbenchSql),
-      ...(dataSourceId ? { dataSourceId } : {}),
+      ...(effectiveDataSourceId ? { dataSourceId: effectiveDataSourceId } : {}),
     });
     if (!session.currentVersion) {
       throw new Error("Catalyst did not return the saved query version.");
@@ -778,19 +1027,6 @@ export const QueryWorkspace = ({
     return { session, version: session.currentVersion };
   };
 
-  const validateWorkbenchDraft = async () => {
-    if (workbenchBusy || followupBusy) return;
-    setWorkbenchBusy("validating");
-    setWorkbenchError(null);
-    try {
-      await persistWorkbenchDraft();
-    } catch (error) {
-      setWorkbenchError(messageFromError(error));
-    } finally {
-      setWorkbenchBusy(null);
-    }
-  };
-
   const runWorkbenchDraft = async () => {
     if (workbenchBusy || followupBusy || !api.executeWorkbenchVersion) return;
     setWorkbenchBusy("running");
@@ -806,7 +1042,14 @@ export const QueryWorkspace = ({
         ...session,
         executions: [...session.executions, execution],
       });
+      // Whatever the database said is now the thing to look at — a failure is
+      // a result too, and reading its diagnostic is the next step. Editing
+      // again is a choice made from there, not the state left behind.
+      setEditorOpen(false);
+      revealVersionId.current = version.versionId;
     } catch (error) {
+      // The action itself failed, so there is no result cell to move to and
+      // the editor stays open with the error above it.
       setWorkbenchError(messageFromError(error));
     } finally {
       setWorkbenchBusy(null);
@@ -846,7 +1089,7 @@ export const QueryWorkspace = ({
       contractVersion: "catalyst.workbench.turn.request.v1",
       instruction: followupInstruction,
       profileId: selectedRevisionProfileId,
-      ...(dataSourceId ? { dataSourceId } : {}),
+      ...(effectiveDataSourceId ? { dataSourceId: effectiveDataSourceId } : {}),
       observedBase: baseVersion
         ? {
             versionId: baseVersion.versionId,
@@ -902,12 +1145,25 @@ export const QueryWorkspace = ({
           turn.resultingCurrentVersion.versionId
       ) {
         setWorkbenchAnnouncement(
-          `Query v${restored.currentVersion.ordinal} generated. ` +
-            "The SQL editor now contains the successor query.",
+          "The next query is ready. The SQL editor now contains it.",
         );
         setSqlEditorFocusRequestId((requestId) => requestId + 1);
       }
-      setFollowupInstruction("");
+      if (turn.status === "failed") {
+        // A turn that comes back failed is not an error to throw, so it used
+        // to be treated as success: nothing was said, the instruction was
+        // cleared, and the failed cell was filed wherever the ordering put
+        // it. From the composer that is indistinguishable from nothing
+        // happening. Say what went wrong, keep what was asked so it can be
+        // tried again, and move to the cell that carries the diagnosis.
+        setWorkbenchError(
+          turn.failure?.message ??
+            "The next query could not be generated. The turn records why.",
+        );
+        revealTurnId.current = turn.turnId;
+      } else {
+        setFollowupInstruction("");
+      }
     } catch (error) {
       setWorkbenchError(messageFromError(error));
     } finally {
@@ -936,14 +1192,13 @@ export const QueryWorkspace = ({
     }
   };
 
-  const updateWorkbenchWrapLines = (wrapLines: boolean) => {
-    setWorkbenchWrapLines(wrapLines);
+  // Layout the analyst chose — rail width, which rail section is open, whether
+  // SQL wraps — is theirs, not the browser's, so it rides on the session
+  // rather than on this tab.
+  const persistBrowserState = (patch: Record<string, unknown>) => {
     if (!workbenchSession || !api.updateWorkbenchBrowserState) return;
     const sessionId = workbenchSession.sessionId;
-    const browserState = {
-      ...workbenchSession.browserState,
-      sqlWrapLines: wrapLines,
-    };
+    const browserState = { ...workbenchSession.browserState, ...patch };
     void api.updateWorkbenchBrowserState(sessionId, browserState)
       .then((restored) => {
         setWorkbenchSession((current) =>
@@ -955,16 +1210,185 @@ export const QueryWorkspace = ({
       .catch(() => undefined);
   };
 
-  const questionIsLocked =
-    state.kind === "preview" ||
-    state.kind === "polling" ||
-    workbenchSession !== null;
+  const updateWorkbenchWrapLines = (wrapLines: boolean) => {
+    setWorkbenchWrapLines(wrapLines);
+    persistBrowserState({ sqlWrapLines: wrapLines });
+  };
 
-  const activeNotebookTurns = notebookTurns(
-    workbenchTimeline,
-    workbenchSession,
-    dataSources,
+
+  // A draft seed counts as work: the model produced something, even if it is
+  // not yet an immutable version.
+  const sessionHasWork = Boolean(
+    workbenchSession &&
+      (workbenchSession.currentVersion !== null ||
+        workbenchSession.draftSeed != null ||
+        (workbenchTimeline?.turns.length ?? 0) > 0),
   );
+
+  // The question is asked once per session. A session opened empty has not
+  // been asked yet, so its question box stays live until it is.
+  const questionIsLocked =
+    state.kind === "preview" || state.kind === "polling" || sessionHasWork;
+
+  const activeNotebookTurns = threadCells(workbenchTimeline, workbenchSession);
+
+  // A run asked to be shown its result. The cell carrying it exists now, so
+  // move to it: the outcome leads, whether the database returned rows or a
+  // diagnostic, and editing again is a choice made from there.
+  useEffect(() => {
+    const turnId = revealTurnId.current;
+    if (turnId !== null) {
+      const failed = activeNotebookTurns.find((turn) => turn.turnId === turnId);
+      if (failed) {
+        revealTurnId.current = null;
+        document
+          .getElementById(`turn-${failed.ordinal}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+    const versionId = revealVersionId.current;
+    if (versionId === null) return;
+    const cell = activeNotebookTurns.find(
+      (turn) => turn.selectedVersionId === versionId,
+    );
+    if (!cell) return;
+    revealVersionId.current = null;
+    document
+      .getElementById(`turn-${cell.ordinal}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  const railStacked = viewportWidth < RAIL_STACK_BREAKPOINT;
+
+  const activeDataSourceLabel =
+    dataSources?.dataSources.find(
+      (source) => source.id === effectiveDataSourceId,
+    )?.label ??
+    (effectiveDataSourceId || null);
+
+  // Enough of the catalog to know what can be asked about, with the rail as
+  // the way to the rest of it.
+  // Every relation, biggest first: the empty screen's job is to show what can
+  // be asked about, and a single summary line could not do that.
+  const catalogRelations = (workbenchCatalog?.schemas ?? [])
+    .flatMap((schema) => schema.views)
+    .slice()
+    .sort((left, right) => right.columns.length - left.columns.length);
+
+  const catalogRelationCount = (workbenchCatalog?.schemas ?? []).reduce(
+    (total, schema) => total + schema.views.length,
+    0,
+  );
+
+  const railTurns: RailTurn[] = activeNotebookTurns.map((turn) => ({
+    ordinal: turn.ordinal,
+    instruction: turn.instruction,
+    status:
+      turn.status === "failed" || turn.execution?.status === "failed"
+        ? "failed"
+        : turn.execution?.status === "succeeded"
+          ? "succeeded"
+          : "not-run",
+    current: Boolean(turn.current),
+  }));
+
+  const changeRailSection = (section: RailSection) => {
+    // The two sections are mutually exclusive, and closing the open one leaves
+    // the rail with nothing but its headers, so a second click on the open
+    // section falls back to the thread rather than to an empty rail.
+    const next: RailSection = section === railSection ? "turns" : section;
+    setRailSection(next);
+    persistBrowserState({ railSection: next });
+  };
+
+  const persistRailWidth = (width: number) => {
+    persistBrowserState({ railWidth: width });
+  };
+
+  const openDetails = (turnId: string | null, tab: DetailsTab = "validation") => {
+    setDetailsTurnId(turnId);
+    setDetailsOpen(true);
+    setDetailsTab(tab);
+    if (turnId === null) return;
+    const turn = activeNotebookTurns.find((item) => item.turnId === turnId);
+    if (turn) setActiveTurnOrdinal(turn.ordinal);
+    if (isManualCell(turnId)) return;
+    if (generationEvidence?.turnId !== turnId) {
+      void showWorkbenchGenerationEvidence(turnId);
+    }
+  };
+
+  const detailsTurn =
+    activeNotebookTurns.find((turn) => turn.turnId === detailsTurnId) ?? null;
+  const detailsVersion =
+    (detailsTurn
+      ? workbenchSession?.versions.find(
+          (version) => version.versionId === detailsTurn.selectedVersionId,
+        )
+      : workbenchSession?.currentVersion) ?? null;
+  const detailsValidation =
+    [...(workbenchSession?.validations ?? [])]
+      .sort((left, right) => right.ordinal - left.ordinal)
+      .find((validation) => validation.versionId === detailsVersion?.versionId) ??
+    null;
+
+  const refreshRecentSessions = () => {
+    if (!api.listWorkbenchSessions) return;
+    void api.listWorkbenchSessions()
+      .then((response) => setRecentSessions(response.sessions))
+      .catch(() => undefined);
+  };
+
+  const openSessionMenu = (menu: "closed" | "list" | "new" | "rename") => {
+    setSessionMenu(menu);
+    if (menu === "list") refreshRecentSessions();
+    if (menu === "new") setDraftSessionName("");
+    // Renaming starts from the name it already has.
+    if (menu === "rename") setDraftSessionName(workbenchSession?.name ?? "");
+
+  };
+
+  const renameSession = (name: string) => {
+    setSessionMenu("closed");
+    const trimmed = name.trim();
+    if (
+      !workbenchSession ||
+      !api.renameWorkbenchSession ||
+      !trimmed ||
+      trimmed === (workbenchSession.name ?? "")
+    ) {
+      return;
+    }
+    void api.renameWorkbenchSession(workbenchSession.sessionId, trimmed)
+      .then((renamed) =>
+        setWorkbenchSession((current) =>
+          current?.sessionId === renamed.sessionId
+            ? { ...current, name: renamed.name }
+            : current,
+        ),
+      )
+      .catch((error: unknown) => setWorkbenchError(messageFromError(error)));
+  };
+
+  const openRecentSession = (sessionId: string) => {
+    setSessionMenu("closed");
+    if (sessionId === workbenchSession?.sessionId || !api.getWorkbenchSession) {
+      return;
+    }
+    void api.getWorkbenchSession(sessionId)
+      .then((session) => {
+        rememberActiveWorkbenchSession(session.sessionId);
+        adoptWorkbenchSession(session);
+      })
+      .catch((error: unknown) => setWorkbenchError(messageFromError(error)));
+  };
+
+  const selectTurn = (ordinal: number) => {
+    setActiveTurnOrdinal(ordinal);
+    document
+      .getElementById(`turn-${ordinal}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const activeGrounding = workbenchSession
     ? notebookGrounding(workbenchSession, workbenchSql, workbenchParameters)
@@ -974,115 +1398,244 @@ export const QueryWorkspace = ({
   );
   const hasQueryDock = hasRefineDock || workbenchSession === null;
 
+  const currentVersionRan = Boolean(
+    workbenchSession?.currentVersionId &&
+      executionForVersion(workbenchSession, workbenchSession.currentVersionId),
+  );
+  const editorDirty = workbenchSession?.currentVersion
+    ? workbenchSql !== workbenchSession.currentVersion.sql
+    : workbenchSql.trim().length > 0;
+  // Open while there is something to do in it: a query not yet run, unsaved
+  // edits, or an explicit ask to edit. Otherwise the run's result leads.
+  const showEditor = editorOpen || editorDirty || !currentVersionRan;
+
+  // The editable current query. It rides at the foot of the turn stack when
+  // there is a thread to sit in, and stands alone when there is not.
+  const workbenchPanel = sessionHasWork && workbenchSession ? (
+<WorkbenchPanel
+          session={workbenchSession}
+          sql={workbenchSql}
+          parameters={workbenchParameters}
+          editorCatalog={workbenchCatalog}
+          catalogLoadingFailed={workbenchCatalogFailed}
+          wrapLines={workbenchWrapLines}
+          busy={followupBusy ? "generating" : workbenchBusy}
+          error={workbenchError}
+          announcement={workbenchAnnouncement}
+          checkOutcome={
+            workbenchSession.latestValidation &&
+            workbenchSession.latestValidation.versionId ===
+              workbenchSession.currentVersionId
+              ? {
+                  status: workbenchSession.latestValidation.status,
+                  findings: workbenchSession.latestValidation.findings.length,
+                }
+              : null
+          }
+          onOpenValidationDetails={() => {
+            const latest = activeNotebookTurns.at(-1);
+            openDetails(latest?.turnId ?? null, "validation");
+          }}
+          sqlEditorFocusRequestId={sqlEditorFocusRequestId}
+          // Each notebook cell renders the run recorded against its own query
+          // version, so repeating the latest one here would show the same
+          // result twice. Without the notebook this panel is the only surface
+          // a failed run can appear on.
+          showExecutionResult={
+            !usesNotebook &&
+            workbenchSession.executions.some(
+              (execution) =>
+                execution.status === "failed" &&
+                execution.ordinal === Math.max(
+                  ...workbenchSession.executions.map(
+                    (candidate) => candidate.ordinal,
+                  ),
+                ),
+            )
+          }
+          onSqlChange={setWorkbenchSql}
+          onParametersChange={setWorkbenchParameters}
+          onWrapLinesChange={updateWorkbenchWrapLines}
+          onClearDraft={clearWorkbenchDraft}
+          onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
+          onRun={runWorkbenchDraft}
+        />
+  ) : null;
+
+  const notebookShowing = Boolean(
+    usesNotebook && sessionHasWork && workbenchSession && workbenchTimeline,
+  );
+
   return (
-    <div className={`dashboard-builder-shell${navigationExpanded ? "" : " dashboard-builder-shell--nav-collapsed"}`}>
-      <nav className="dashboard-navigation" aria-label="Catalyst">
-        <div className="dashboard-navigation__header">
-          <div className="dashboard-navigation__brand">
-            <span aria-hidden="true">C</span>
-            <div>
-              <strong>Catalyst</strong>
-              <small>Dashboard builder</small>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="dashboard-navigation__toggle"
-            aria-label="Toggle navigation"
-            aria-expanded={navigationExpanded}
-            onClick={() => setNavigationExpanded((current) => !current)}
-          >
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
-        </div>
-        <div className="dashboard-navigation__items">
-          {dashboardSections.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className="dashboard-navigation__item"
-              aria-label={label}
-              aria-current={activeSection === id ? "page" : undefined}
-              title={navigationExpanded ? undefined : label}
-              onClick={() => setActiveSection(id)}
-            >
-              <Icon size={20} aria-hidden="true" />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="dashboard-navigation__source">
-          {dataSources && dataSources.dataSources.some((source) => source.available) ? (
-            <label htmlFor="catalyst-data-source">
-              <span>Data source</span>
-              <select
-                id="catalyst-data-source"
-                value={dataSourceId}
-                disabled={followupBusy || state.kind === "submitting"}
-                onChange={(event) => setDataSourceId(event.currentTarget.value)}
-              >
-                {dataSources.dataSources
-                  .filter((source) => source.available)
-                  .map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ) : (
-            <span>OpenELIS</span>
-          )}
-        </div>
-      </nav>
+    <div
+      className={`dashboard-builder-shell${railStacked ? " dashboard-builder-shell--stacked" : ""}`}
+      style={
+        railStacked
+          ? undefined
+          : ({ "--dashboard-nav-width": `${railWidth}px` } as CSSProperties)
+      }
+    >
+      <WorkbenchRail
+        width={railWidth}
+        stacked={railStacked}
+        onWidthChange={setRailWidth}
+        onWidthCommit={persistRailWidth}
+        sessionName={
+          workbenchSession
+            ? (workbenchSession.name ?? "").trim() ||
+              workbenchSession.question.trim() ||
+              "New session"
+            : null
+        }
+        sessionSourceLabel={activeDataSourceLabel}
+        sessionMenu={sessionMenu}
+        onSessionMenuChange={openSessionMenu}
+        onRenameSession={renameSession}
+        recentSessions={recentSessions}
+        onOpenSession={openRecentSession}
+        activeSessionId={workbenchSession?.sessionId ?? null}
+        dataSources={dataSources?.dataSources ?? []}
+        draftSessionName={draftSessionName}
+        draftDataSourceId={dataSourceId}
+        onDraftSessionNameChange={setDraftSessionName}
+        onDraftDataSourceChange={setDataSourceId}
+        onStartSession={startNewSession}
+        newSessionDisabled={followupBusy || workbenchBusy !== null}
+        openSection={railSection}
+        onOpenSectionChange={changeRailSection}
+        relationCount={catalogRelationCount}
+        turns={railTurns}
+        activeTurnOrdinal={activeTurnOrdinal}
+        onSelectTurn={selectTurn}
+        onOpenDetails={
+          workbenchSession
+            ? () =>
+                openDetails(
+                  (activeNotebookTurns.find(
+                    (turn) => turn.ordinal === activeTurnOrdinal,
+                  ) ?? activeNotebookTurns.at(-1))?.turnId ?? null,
+                )
+            : undefined
+        }
+        detailsOpen={detailsOpen}
+        themePreference={themePreference}
+        onThemePreferenceChange={onThemePreferenceChange ?? (() => undefined)}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+      >
+        <DatasetBrowser
+          api={api}
+          catalog={workbenchCatalog}
+          catalogLoadingFailed={workbenchCatalogFailed}
+          dataSourceId={effectiveDataSourceId || undefined}
+        />
+      </WorkbenchRail>
 
       <main
         className={`app-shell${hasQueryDock && activeSection === "ask" ? " app-shell--with-query-dock" : ""}`}
       >
         <section hidden={activeSection !== "ask"} aria-labelledby="question-title">
-          <header className="dashboard-page-header">
-            <div>
-              <p className="eyebrow">Ask OpenELIS</p>
-              <h1 id="question-title" tabIndex={-1}>
-                {workbenchSession ? workbenchSession.question : "Ask OpenELIS"}
-              </h1>
-              <p>
-                Nothing is saved until you review it. Drafts stay in this thread.
-              </p>
+          {/*
+            Datasets, Widgets and Dashboards each state where you are; this
+            screen said nothing, so the one you spend the most time in was the
+            one that never named itself. The eyebrow names the section — the
+            same word the nav uses — and the heading names the session, which
+            is the thing on screen.
+          */}
+          <header className="workbench-header">
+            <div className="workbench-header__label">
+              {workbenchSession && <p className="eyebrow">Workbench</p>}
+              {workbenchSession && (
+                // Beside the heading that names the same session, rather than
+                // floating in a strip that no longer exists.
+                <span className="dashboard-session-meta">
+                  Session {workbenchSession.sessionId.slice(0, 8)}
+                  {workbenchTimeline
+                    ? ` · ${workbenchTimeline.turns.length} turn${
+                        workbenchTimeline.turns.length === 1 ? "" : "s"
+                      }`
+                    : ""}
+                </span>
+              )}
             </div>
-            {workbenchSession && (
-              <Button
-                type="button"
-                kind="tertiary"
-                size="sm"
-                disabled={followupBusy || workbenchBusy !== null}
-                onClick={startNewSession}
-              >
-                New session
-              </Button>
-            )}
+            <h1 id="question-title" tabIndex={-1}>
+              {workbenchSession
+                ? (workbenchSession.name ?? "").trim() ||
+                  workbenchSession.question.trim() ||
+                  "New session"
+                : "Workbench"}
+            </h1>
           </header>
 
-          {workbenchSession && (
-            <div className="dashboard-session-meta">
-              Session {workbenchSession.sessionId.slice(0, 8)}
-              {workbenchTimeline
-                ? ` · ${workbenchTimeline.turns.length} turn${
-                    workbenchTimeline.turns.length === 1 ? "" : "s"
-                  }`
-                : ""}
-            </div>
+      {!sessionHasWork && state.kind !== "submitting" && (
+        /*
+          The rail names the product and the composer holds the question, so
+          this says only what neither can: what a session is for, and that
+          nothing leaves it without review.
+        */
+        <div className="workbench-empty">
+          <p className="workbench-empty__lead">
+            Ask a question about {activeDataSourceLabel ?? "the connected data"}.
+          </p>
+          <p className="workbench-empty__note">
+            Catalyst writes SQL you can read and edit, runs it, and keeps every
+            version. Nothing is saved until you review it.
+          </p>
+
+          {catalogRelations.length > 0 && (
+            <section
+              className="workbench-catalog"
+              aria-labelledby="workbench-catalog-title"
+            >
+              <header className="workbench-catalog__heading">
+                <h2 id="workbench-catalog-title">
+                  {catalogRelations.length} relations you can query
+                </h2>
+                <button
+                  type="button"
+                  className="workbench-catalog__all"
+                  onClick={() => changeRailSection("data")}
+                >
+                  Browse columns in DATA →
+                </button>
+              </header>
+              <ul className="workbench-catalog__grid">
+                {catalogRelations.map((view) => (
+                  <li key={view.qualifiedName}>
+                    <button
+                      type="button"
+                      className="workbench-catalog__relation"
+                      onClick={() => changeRailSection("data")}
+                    >
+                      <span className="workbench-catalog__name">
+                        <code>{view.qualifiedName}</code>
+                      </span>
+                      <span className="workbench-catalog__count">
+                        {view.columns.length} columns
+                      </span>
+                      {view.grain && (
+                        <span className="workbench-catalog__grain">
+                          {view.grain}
+                        </span>
+                      )}
+                      <span className="workbench-catalog__columns">
+                        {view.columns.slice(0, 6).map((column) => (
+                          <code key={column.name}>{column.name}</code>
+                        ))}
+                        {view.columns.length > 6 && (
+                          <em>+{view.columns.length - 6} more</em>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
+        </div>
+      )}
 
-          <DatasetBrowser
-            api={api}
-            catalog={workbenchCatalog}
-            catalogLoadingFailed={workbenchCatalogFailed}
-            dataSourceId={dataSourceId || undefined}
-            compact
-          />
-
-      {!workbenchSession && (
+      {!sessionHasWork && (
         <QuestionForm
           question={question}
           busy={state.kind === "submitting"}
@@ -1110,9 +1663,10 @@ export const QueryWorkspace = ({
         />
       )}
 
-      {usesNotebook && workbenchSession && workbenchTimeline && (
+      {notebookShowing && workbenchSession && workbenchTimeline && (
         <TurnNotebook
           turns={activeNotebookTurns}
+          session={workbenchSession}
           baseVersion={workbenchSession.currentVersion}
           instruction={followupInstruction}
           profiles={queryOptions?.profiles ?? []}
@@ -1128,45 +1682,38 @@ export const QueryWorkspace = ({
           }
           busy={followupBusy || workbenchBusy !== null}
           generating={followupBusy}
-          evidence={generationEvidence}
-          evidenceLoadingTurnId={generationEvidenceLoadingTurnId}
-          evidenceError={generationEvidenceError}
+          lastRunFailed={latestExecutionFailed(workbenchSession)}
           onInstructionChange={setFollowupInstruction}
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}
-          onShowEvidence={showWorkbenchGenerationEvidence}
+          onOpenDetails={openDetails}
+          onSaveDataset={() => openDatasetReview.current?.()}
+          activeCell={
+            showEditor ? (
+              workbenchPanel
+            ) : (
+              <div className="query-turn__next">
+                <p>
+                  {latestExecutionFailed(workbenchSession)
+                    ? "That run failed. The diagnostic is above — fix the query by hand, or say what to change below."
+                    : "Ask for the next query below, or edit this one by hand."}
+                </p>
+                <Button
+                  type="button"
+                  kind="tertiary"
+                  size="sm"
+                  onClick={() => setEditorOpen(true)}
+                >
+                  Edit query
+                </Button>
+              </div>
+            )
+          }
         />
       )}
 
-      {workbenchSession && (
-        <WorkbenchPanel
-          session={workbenchSession}
-          sql={workbenchSql}
-          parameters={workbenchParameters}
-          editorCatalog={workbenchCatalog}
-          catalogLoadingFailed={workbenchCatalogFailed}
-          wrapLines={workbenchWrapLines}
-          busy={followupBusy ? "generating" : workbenchBusy}
-          error={workbenchError}
-          announcement={workbenchAnnouncement}
-          sqlEditorFocusRequestId={sqlEditorFocusRequestId}
-          showExecutionResult={workbenchSession.executions.some(
-            (execution) =>
-              execution.status === "failed" &&
-              execution.ordinal === Math.max(
-                ...workbenchSession.executions.map((candidate) => candidate.ordinal),
-              ),
-          )}
-          showInitialGenerationEvidence={!usesNotebook}
-          onSqlChange={setWorkbenchSql}
-          onParametersChange={setWorkbenchParameters}
-          onWrapLinesChange={updateWorkbenchWrapLines}
-          onClearDraft={clearWorkbenchDraft}
-          onRestoreCurrentVersion={restoreCurrentWorkbenchVersion}
-          onValidate={validateWorkbenchDraft}
-          onRun={runWorkbenchDraft}
-        />
-      )}
+
+      {!notebookShowing && workbenchPanel}
 
       {state.kind === "preview" && (
         <QueryPreview
@@ -1241,8 +1788,39 @@ export const QueryWorkspace = ({
       )}
         </section>
 
+        {workbenchSession && detailsOpen && (
+          <DetailsPanel
+            session={workbenchSession}
+            turnOrdinal={detailsTurn?.ordinal ?? null}
+            version={detailsVersion}
+            validation={detailsValidation}
+            evidence={
+              detailsTurn && generationEvidence?.turnId === detailsTurn.turnId
+                ? generationEvidence
+                : null
+            }
+            evidenceLoading={
+              detailsTurn !== null &&
+              generationEvidenceLoadingTurnId === detailsTurn.turnId
+            }
+            evidenceError={generationEvidenceError}
+            tab={detailsTab}
+            developerMode={developerMode}
+            stacked={railStacked}
+            railWidth={railWidth}
+            onTabChange={setDetailsTab}
+            onDeveloperModeChange={setDeveloperMode}
+            onClose={() => {
+              setDetailsOpen(false);
+              setDetailsTurnId(null);
+            }}
+          />
+        )}
+
         <DashboardPublishPanel
           api={api}
+          hostedInThread={notebookShowing || !sessionHasWork}
+          registerDatasetOpener={registerDatasetOpener}
           session={workbenchSession}
           sql={workbenchSql}
           parameters={workbenchParameters}

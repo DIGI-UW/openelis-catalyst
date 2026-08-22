@@ -21,6 +21,14 @@ interface DashboardPublishPanelProps {
   parameters: BoundParameter[];
   activeSection: DashboardBuilderSection;
   disabled?: boolean;
+  /**
+   * The thread hosts each turn's dataset now, so the standalone tile would
+   * repeat a table already on screen, and a session with nothing asked of it
+   * has no result to offer. The panel registers its opener here so the cell
+   * that owns the result can raise the review dialog.
+   */
+  hostedInThread?: boolean;
+  registerDatasetOpener?: (open: (() => void) | null) => void;
   onNavigate: (section: DashboardBuilderSection) => void;
 }
 
@@ -232,6 +240,8 @@ export const DashboardPublishPanel = ({
   sql,
   parameters,
   activeSection,
+  hostedInThread = false,
+  registerDatasetOpener,
   disabled = false,
   onNavigate,
 }: DashboardPublishPanelProps) => {
@@ -264,6 +274,9 @@ export const DashboardPublishPanel = ({
   >({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
+  // The result is the artifact; showing it is the default, minimising is
+  // the choice.
+  const [datasetExpanded, setDatasetExpanded] = useState(true);
   const [returnFocusTarget, setReturnFocusTarget] = useState<HTMLElement | null>(null);
 
   const execution = newestSuccessfulExecution(session);
@@ -515,7 +528,8 @@ export const DashboardPublishPanel = ({
       }
     }
     if (next === "widget") {
-      const datasetVersionId = currentDataset?.versionId ?? datasets[0]?.versionId ?? "";
+      const datasetVersionId =
+        entityVersionId ?? currentDataset?.versionId ?? datasets[0]?.versionId ?? "";
       const dataset =
         datasets.find((candidate) => candidate.versionId === datasetVersionId) ?? null;
       setSelectedDatasetVersionId(datasetVersionId);
@@ -552,7 +566,11 @@ export const DashboardPublishPanel = ({
       setDatasets((current) => [saved, ...current.filter((item) => item.versionId !== saved.versionId)]);
       setSelectedDatasetVersionId(saved.versionId);
       setToast(`“${entityTitle(saved, "Dataset")}” saved to Datasets.`);
-      closePanel();
+      // Stay open. Saving used to close onto the thread, and the next step —
+      // a Widget — lived in a nav section you had to already know about, so
+      // the chain ended at the moment it should have continued. Re-pointing
+      // the panel at the saved entity turns its footer into that next step.
+      setReviewedDatasetVersionId(saved.versionId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Catalyst could not save this Dataset.");
     } finally {
@@ -630,8 +648,21 @@ export const DashboardPublishPanel = ({
     }
   };
 
+  const currentDatasetVersionId = currentDataset?.versionId;
+
+  useEffect(() => {
+    registerDatasetOpener?.(() => openPanel("dataset", currentDatasetVersionId));
+    return () => registerDatasetOpener?.(null);
+    // openPanel is recreated each render; the dataset it targets is what
+    // actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerDatasetOpener, currentDatasetVersionId]);
+
   const renderAskArtifacts = () => {
     if (!session) return null;
+    // The thread owns each turn's dataset, and a session with nothing asked of
+    // it has no result to promote.
+    if (hostedInThread) return null;
     if (!supported) {
       return (
         <InlineNotification
@@ -649,17 +680,80 @@ export const DashboardPublishPanel = ({
         </p>
       );
     }
+    const datasetTitle = currentDataset
+      ? entityTitle(currentDataset, "Saved Dataset")
+      : `Dataset from Query v${executionVersionOrdinal}`;
+    const datasetState = resultIsStale
+      ? "Stale"
+      : currentDataset
+        ? "Saved"
+        : "Draft";
+
     return (
       <section className="builder-artifacts" aria-label="Dashboard artifacts">
+        {hostedInThread ? null : datasetExpanded ? (
+          <div className="builder-dataset">
+            <div className="builder-dataset__heading">
+              <DataBase size={20} aria-hidden="true" />
+              <div>
+                <strong>{datasetTitle}</strong>
+                <small>
+                  {resultIsStale
+                    ? "Stale · rerun the visible query before saving"
+                    : currentDataset
+                      ? "Saved · review exact execution evidence"
+                      : "Draft · review and save the current result"}
+                </small>
+              </div>
+              <Tag
+                type={
+                  resultIsStale ? "warm-gray" : currentDataset ? "green" : "blue"
+                }
+              >
+                {datasetState}
+              </Tag>
+              <Button
+                type="button"
+                kind="ghost"
+                size="sm"
+                aria-expanded
+                onClick={() => setDatasetExpanded(false)}
+              >
+                Minimize
+              </Button>
+              <Button
+                type="button"
+                kind="tertiary"
+                size="sm"
+                disabled={disabled}
+                aria-label="Review dataset draft"
+                onClick={(event) => {
+                  setReturnFocusTarget(event.currentTarget as HTMLElement);
+                  openPanel("dataset", currentDataset?.versionId);
+                }}
+              >
+                {currentDataset ? "Review" : "Save as dataset"}
+              </Button>
+            </div>
+            <ExecutionResult
+              session={session}
+              sql={sql}
+              parameters={parameters}
+              compact
+              pageSize={10}
+            />
+          </div>
+        ) : (
         <button
           type="button"
           className="builder-artifact-tile"
           disabled={disabled}
           onClick={(event) => {
             setReturnFocusTarget(event.currentTarget);
-            openPanel("dataset", currentDataset?.versionId);
+            setDatasetExpanded(true);
           }}
           aria-label="Review dataset draft"
+          aria-expanded={false}
         >
           <DataBase size={20} aria-hidden="true" />
           <span>
@@ -673,9 +767,10 @@ export const DashboardPublishPanel = ({
             </small>
           </span>
           <Tag type={resultIsStale ? "warm-gray" : currentDataset ? "green" : "blue"}>
-            {resultIsStale ? "Stale" : currentDataset ? "Saved" : "Draft"}
+            {datasetState}
           </Tag>
         </button>
+        )}
         {currentDataset && (
           <button
             type="button"
@@ -1161,15 +1256,29 @@ export const DashboardPublishPanel = ({
             </div>
 
             <footer className="builder-review__footer">
-              {panel === "dataset" && (
-                <Button
-                  type="button"
-                  disabled={busy || resultIsStale || Boolean(reviewedDataset) || !reviewedExecution || datasetEvidenceLoading}
-                  onClick={() => void saveDataset()}
-                >
-                  {reviewedDataset ? "Dataset saved" : busy ? "Saving…" : "Save Dataset"}
-                </Button>
-              )}
+              {panel === "dataset" &&
+                (reviewedDataset ? (
+                  <Button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => openPanel("widget", reviewedDataset.versionId)}
+                  >
+                    Build a widget from this Dataset
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    disabled={
+                      busy ||
+                      resultIsStale ||
+                      !reviewedExecution ||
+                      datasetEvidenceLoading
+                    }
+                    onClick={() => void saveDataset()}
+                  >
+                    {busy ? "Saving…" : "Save Dataset"}
+                  </Button>
+                ))}
               {panel === "widget" && (
                 <Button
                   type="button"

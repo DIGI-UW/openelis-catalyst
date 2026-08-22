@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, not only those targeting main. Stacked PRs are based
+  # on each other, so a `branches: [main]` filter here silently exempts every
+  # PR above the bottom of a stack from ever being checked.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

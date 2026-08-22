@@ -13,6 +13,34 @@ state in `Catalyst Dashboard Builder 4c.dc.html` is the visual reference. When a
 static mock detail and this written contract disagree, this written contract and
 the current query-workbench behavior win.
 
+## Amendments after the v2 build (2026-08-08)
+
+The reconciliation below records what was approved from the handoff. Five of
+its statements have since been superseded by decisions made while building the
+v2 experience and walking it by hand. Where the two disagree, this list wins;
+the reasoning is recorded in `specs/008-catalyst-query-workbench/spec.md`,
+clarifications session 2026-08-08.
+
+- **The "Ask shell" is the Workbench.** The section nav names the place rather
+  than the gesture, in visible text rather than an icon's `aria-label`, and
+  the section repeats that word in a heading above the session's name.
+- **Advisory Validate is no longer its own control.** Running saves the editor
+  as an immutable version and checks it on the way, so a separate "save and
+  check" could only ever add a version with no result to show for it — and,
+  pressed before Run, added two. One Run action; the check reports beside it
+  and still never blocks. ASK-02's "Format, Validate, explicit Run" now reads
+  "Format, explicit Run".
+- **The Dataset tile lives in the cell that produced it,** expanded by default
+  and spanning the thread's width, rather than as a single standalone tile
+  owned by the panel. It is still the sole bounded typed-result presentation,
+  and a run is still never rendered twice on one page.
+- **A run's outcome leads, including a failure.** A completed run closes the
+  editor and moves to the cell carrying the result; only a failure of the
+  action itself, which records no execution, leaves the editor open.
+- **Version numbers leave the thread.** Cells are numbered `[n]` by position;
+  query-version and execution ordinals appear only in the details and
+  dataset-review surfaces, which are the provenance views.
+
 ## Approved MVP reconciliation
 
 The prototype's Ask shell, fixed composer, chronological thread, Dataset tile,

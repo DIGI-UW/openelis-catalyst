@@ -2,10 +2,12 @@
   "width": 1280,
   "height": 720,
   "fps": 25,
+  "font": "Helvetica Neue",
+  "footer": "openclinai.org",
   "segments": [
     {
       "type": "card",
-      "duration": 3.5,
+      "duration": 4.0,
       "kicker": "CATALYST DEMO",
       "heading": "OpenELIS laboratory data",
       "lines": [
@@ -13,27 +15,39 @@
         "with patient, value, and observed date.\""
       ]
     },
-    { "type": "clip", "start": 0.0, "end": 1.2, "speed": 1.0 },
     {
       "type": "clip",
-      "start": 1.2,
-      "end": 37.8,
-      "speed": 6.5,
-      "caption": "A writer model drafts SQL; a reviewer model checks it against the approved data catalog."
+      "start": 0.52,
+      "end": 4.92,
+      "speed": 1.0,
+      "caption": "A question about laboratory data, in plain language."
     },
     {
       "type": "clip",
-      "start": 37.8,
-      "end": 38.03,
-      "speed": 0.3,
-      "hold": 2.3,
-      "caption": "Validated, then executed — results return with patient, value, and date."
+      "start": 4.98,
+      "end": 54.6,
+      "speed": 8.27,
+      "caption": "A writer model drafts SQL; a reviewer checks it against the approved catalog."
+    },
+    {
+      "type": "clip",
+      "start": 54.6,
+      "end": 59.61,
+      "speed": 1.0,
+      "caption": "The draft is SQL you can read and edit — not a black box."
+    },
+    {
+      "type": "clip",
+      "start": 59.73,
+      "end": 64.74,
+      "speed": 1.0,
+      "caption": "Executed read-only. Results return as a typed table."
     },
     {
       "type": "card",
-      "duration": 3.0,
-      "kicker": "CATALYST DEMO",
-      "heading": "Turn 2 · refine the exact query",
+      "duration": 3.5,
+      "kicker": "TURN 2",
+      "heading": "Refine the exact query",
       "lines": [
         "\"Also include the result unit and how many minutes",
         "elapsed between specimen receipt and result release.\""
@@ -41,27 +55,40 @@
     },
     {
       "type": "clip",
-      "start": 38.03,
-      "end": 81.79,
-      "speed": 7.0,
-      "caption": "The model extends the same query — no need to start over."
+      "start": 64.74,
+      "end": 69.03,
+      "speed": 1.0,
+      "caption": "A follow-up refines the current query rather than starting over."
     },
     {
       "type": "clip",
-      "start": 81.79,
-      "end": 81.98,
-      "speed": 0.3,
-      "hold": 2.5,
-      "caption": "Result unit and specimen turnaround time added to the same result set."
+      "start": 69.06,
+      "end": 129.31,
+      "speed": 10.04,
+      "caption": "The model extends the query it already wrote."
+    },
+    {
+      "type": "clip",
+      "start": 129.31,
+      "end": 134.32,
+      "speed": 1.0,
+      "caption": "Same query, extended — every version is kept."
+    },
+    {
+      "type": "clip",
+      "start": 134.43,
+      "end": 140.43,
+      "speed": 1.0,
+      "caption": "Result unit and specimen turnaround, added to the same query."
     },
     {
       "type": "card",
-      "duration": 3.0,
-      "kicker": "CATALYST DEMO",
+      "duration": 4.0,
+      "kicker": "CATALYST",
       "heading": "Checked at every step",
       "lines": [
-        "Every query is generated, reviewed, and validated before it runs —",
-        "see the full acceptance run in the published report."
+        "Generated, reviewed, and validated before it runs.",
+        "Read-only execution. Every version kept."
       ]
     }
   ]

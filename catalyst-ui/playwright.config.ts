@@ -26,16 +26,40 @@ export default defineConfig({
   projects: [
     {
       name: "deterministic",
+      // The visual baseline is a review instrument, not a gate: font
+      // rasterization differs between operating systems, so grading CI
+      // against snapshots taken on a laptop reports differences that are
+      // not changes. It runs on request instead.
+      testIgnore: /visual-baseline\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         video: "off",
       },
     },
     {
-      name: "demo-video",
+      name: "baseline",
+      testMatch: /visual-baseline\.spec\.ts/,
+      // One at a time. These share a dev server, and a screenshot taken while
+      // a neighbour is mid-navigation records the neighbour's screen.
+      fullyParallel: false,
       use: {
         ...devices["Desktop Chrome"],
-        video: "on",
+        video: "off",
+        // A baseline that moves because a caret blinked is worthless.
+        launchOptions: { args: ["--force-prefers-reduced-motion"] },
+      },
+    },
+    {
+      name: "demo-video",
+      testIgnore: /visual-baseline\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        // Record at the viewport's own size. Playwright otherwise fits the
+        // recording into an 800x800 box, so a 1280x720 viewport comes back as
+        // 800x450 and the published 1280x720 cut is an upscale of that. These
+        // demos exist to show SQL the viewer is meant to read, so the capture
+        // has to carry the pixels rather than have ffmpeg invent them later.
+        video: { mode: "on", size: { width: 1280, height: 720 } },
         trace: "on",
         screenshot: "on",
       },

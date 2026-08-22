@@ -10,6 +10,7 @@ import type {
   WorkbenchExecution,
   WorkbenchGenerationEvidence,
   WorkbenchSession,
+  WorkbenchSessionList,
   WorkbenchTurn,
   WorkbenchTurnRequest,
   WorkbenchTurnTimeline,
@@ -58,6 +59,20 @@ export interface CatalystApi {
     profileId?: string,
     browserState?: Record<string, unknown>,
     dataSourceId?: string,
+    signal?: AbortSignal,
+    name?: string,
+  ): Promise<WorkbenchSession>;
+  listWorkbenchSessions?(signal?: AbortSignal): Promise<WorkbenchSessionList>;
+  renameWorkbenchSession?(
+    sessionId: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<WorkbenchSession>;
+  /** Ask the first question of a session that was opened empty. */
+  askWorkbenchSessionQuestion?(
+    sessionId: string,
+    question: string,
+    profileId?: string,
     signal?: AbortSignal,
   ): Promise<WorkbenchSession>;
   getWorkbenchSession?(
@@ -343,7 +358,7 @@ export const createCatalystApi = ({
       return body as unknown as DatasetRows;
     },
 
-    async createWorkbenchSession(question, profileId, browserState, dataSourceId, signal) {
+    async createWorkbenchSession(question, profileId, browserState, dataSourceId, signal, name) {
       const response = await fetcher(`${root}/workbench/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -351,6 +366,7 @@ export const createCatalystApi = ({
           contractVersion: "catalyst.workbench.session.request.v1",
           deploymentMode: "demo",
           question,
+          ...(name ? { name } : {}),
           ...(profileId ? { profileId } : {}),
           ...(dataSourceId ? { dataSourceId } : {}),
           ...(browserState ? { browserState } : {}),
@@ -362,6 +378,56 @@ export const createCatalystApi = ({
         throw new CatalystApiError(errorMessage(body, response.status), response.status);
       }
       return body as unknown as WorkbenchSession;
+    },
+
+    async askWorkbenchSessionQuestion(sessionId, question, profileId, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/question`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            ...(profileId ? { profileId } : {}),
+          }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async renameWorkbenchSession(sessionId, name, signal) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/name`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+          signal,
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+
+    async listWorkbenchSessions(signal) {
+      // The menu is for resuming recent work, not browsing an archive.
+      const response = await fetcher(`${root}/workbench/sessions?limit=10`, {
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session-list.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSessionList;
     },
 
     async getWorkbenchSession(sessionId, signal) {

@@ -83,6 +83,7 @@ const makeSession = (
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: "session-1",
   question: "How many viral load results are above 1000 copies/ml?",
+  name: "How many viral load results are above 1000 copies/ml?",
   profileId: "catalyst-query-gemma-e4b",
   datasetId: "openelis-fhir",
   datasetVersion: "pipeline-run-7",
@@ -195,7 +196,6 @@ const defaultProps = {
   onWrapLinesChange: vi.fn(),
   onClearDraft: vi.fn(),
   onRestoreCurrentVersion: vi.fn(),
-  onValidate: vi.fn(),
   onRun: vi.fn(),
 };
 
@@ -219,64 +219,29 @@ const ControlledParameterPanel = ({
 };
 
 describe("WorkbenchPanel", () => {
-  it("keeps invalid SQL runnable and identifies validation as advisory", async () => {
-    const user = userEvent.setup();
-    const onValidate = vi.fn();
-    const onRun = vi.fn();
-    render(
-      <WorkbenchPanel
-        {...defaultProps}
-        session={makeSession()}
-        onValidate={onValidate}
-        onRun={onRun}
-      />,
-    );
-
-    expect(
-      screen.getByRole("heading", { name: "Query workbench" }),
-    ).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
-    expect(screen.getByText("Invalid", { selector: ".workbench-validation__status" })).toBeVisible();
-    expect(screen.getByText(/advisory/i)).toBeVisible();
-    expect(screen.getByText(/placeholder :minimum_value/i)).toBeVisible();
-
-    const validate = screen.getByRole("button", { name: "Validate query" });
-    const run = screen.getByRole("button", { name: "Run query" });
-    const editor = screen.getByRole("textbox", { name: "SQL query" })
-      .closest(".workbench-editor")!;
-    const actions = screen.getByLabelText("Workbench actions");
-    const parameters = screen.getByRole("heading", { name: "Parameters" })
-      .closest(".workbench-parameters")!;
-    expect(
-      editor.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      actions.compareDocumentPosition(parameters) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(validate).toBeEnabled();
-    expect(run).toBeEnabled();
-    await user.click(validate);
-    await user.click(run);
-    expect(onValidate).toHaveBeenCalledOnce();
-    expect(onRun).toHaveBeenCalledOnce();
-  });
-
   it("disables actions only while busy or when SQL is empty", () => {
     const { rerender } = render(
-      <WorkbenchPanel
-        {...defaultProps}
-        session={makeSession()}
-        busy="validating"
-      />,
+      <WorkbenchPanel {...defaultProps} session={makeSession()} busy="running" />,
     );
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Running…" })).toBeDisabled();
 
     rerender(
       <WorkbenchPanel {...defaultProps} session={makeSession()} sql="   " />,
     );
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
+  });
+
+  it("offers running as the only way to commit the draft", () => {
+    render(<WorkbenchPanel {...defaultProps} session={makeSession()} />);
+    const actions = screen.getByLabelText("Workbench actions");
+    // Saving without running only ever produced a version with no result to
+    // show for it, so there is one button and it says what it does.
+    expect(
+      within(actions).getByText(/Running saves this as a version and checks it/),
+    ).toBeVisible();
+    expect(
+      within(actions).queryByRole("button", { name: /Sav(e|ing)/ }),
+    ).toBeNull();
   });
 
   it("freezes the editor and every session mutation while a successor is generating", () => {
@@ -302,7 +267,6 @@ describe("WorkbenchPanel", () => {
       screen.getByRole("button", { name: "Remove parameter 1" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Clear draft" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
   });
 
@@ -319,9 +283,8 @@ describe("WorkbenchPanel", () => {
       />,
     );
 
-    const restore = screen.getByRole("button", { name: "Restore Query v1" });
+    const restore = screen.getByRole("button", { name: "Restore the current query" });
     expect(restore).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Validate query" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run query" })).toBeDisabled();
     await user.click(restore);
     expect(onRestoreCurrentVersion).toHaveBeenCalledOnce();
@@ -374,18 +337,6 @@ describe("WorkbenchPanel", () => {
     expect(screen.getByText("patient-7")).toBeVisible();
   });
 
-  it("shows the retained candidate and raw model output independently with diagnostics", () => {
-    render(<WorkbenchPanel {...defaultProps} session={makeSession()} />);
-
-    const candidate = screen.getByRole("region", { name: "Model candidate" });
-    expect(within(candidate).getByText(SQL)).toBeVisible();
-    const raw = screen.getByRole("region", { name: "Raw model output" });
-    expect(within(raw).getByText(/RAW MODEL OUTPUT/)).toBeVisible();
-    expect(screen.getByText("Attempt 2 — failed")).toBeVisible();
-    expect(screen.getByText("$.parameters[1]")).toBeVisible();
-    expect(screen.getByText("'name' is a required property")).toBeVisible();
-  });
-
   it("edits typed parameters, marks model values human, and supports add/remove", async () => {
     const user = userEvent.setup();
     const onParametersChange = vi.fn();
@@ -419,158 +370,6 @@ describe("WorkbenchPanel", () => {
       parameter,
       expect.objectContaining({ type: "string", source: "human" }),
     ]);
-  });
-
-  it("renders provenance and version history without a reasoning trace", () => {
-    render(<WorkbenchPanel {...defaultProps} session={makeSession()} />);
-
-    expect(screen.getByText("Catalyst Gemma E4B")).toBeVisible();
-    expect(screen.getAllByText("google/gemma-3-e4b-it")).toHaveLength(2);
-    expect(screen.getByText("session-1")).toBeVisible();
-    expect(screen.getAllByText("version-1").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("sha256:query-v1").length).toBeGreaterThan(0);
-    expect(screen.getByText("Version 1")).toBeVisible();
-    expect(screen.queryByText(/chain.of.thought/i)).not.toBeInTheDocument();
-  });
-
-  it("shows the profile that produced the current query lineage after switching", () => {
-    const switchedVersion = {
-      ...version!,
-      versionId: "version-2",
-      parentVersionId: version!.versionId,
-      ordinal: 2,
-      queryDigest: "sha256:query-v2",
-      provenance: {
-        profileId: "catalyst-query-split-models",
-        profileLabel: "Gemma writer + Qwen reviewer",
-        roleModels: {
-          query_generate: "gemma-4-12b",
-          query_review: "qwen2.5-14b",
-        },
-      },
-    };
-    const manualVersion = {
-      ...switchedVersion,
-      versionId: "version-3",
-      parentVersionId: switchedVersion.versionId,
-      ordinal: 3,
-      authorType: "human" as const,
-      queryDigest: "sha256:query-v3",
-      provenance: { editedFromVersionId: switchedVersion.versionId },
-    };
-    const switched = makeSession({
-      currentVersionId: manualVersion.versionId,
-      currentVersion: manualVersion,
-      versions: [version!, switchedVersion, manualVersion],
-    });
-
-    render(<WorkbenchPanel {...defaultProps} session={switched} />);
-
-    const provenance = screen.getByRole("region", { name: "Run provenance" });
-    expect(within(provenance).getByText("Gemma writer + Qwen reviewer"))
-      .toBeVisible();
-    expect(within(provenance).getByText("catalyst-query-split-models"))
-      .toBeVisible();
-    expect(within(provenance).getByText("gemma-4-12b")).toBeVisible();
-    expect(within(provenance).getByText("qwen2.5-14b")).toBeVisible();
-    expect(within(provenance).queryByText("Catalyst Gemma E4B"))
-      .not.toBeInTheDocument();
-  });
-
-  it("shows writer and reviewer candidates, models, findings, and linked SQL versions", () => {
-    const writerSql = "SELECT COUNT(*) FROM analytics.lab_results";
-    const reviewerSql = "SELECT COUNT(*) AS count FROM analytics.lab_results";
-    const writerVersion = {
-      ...version!,
-      versionId: "version-writer",
-      ordinal: 1,
-      sql: writerSql,
-      queryDigest: "sha256:writer",
-      provenance: { collaborationRole: "writer", model: "gemma-4-12b" },
-    };
-    const reviewerVersion = {
-      ...version!,
-      versionId: "version-reviewer",
-      parentVersionId: writerVersion.versionId,
-      ordinal: 2,
-      authorType: "model_repair" as const,
-      sql: reviewerSql,
-      queryDigest: "sha256:reviewer",
-      provenance: { collaborationRole: "reviewer", model: "qwen2.5-14b" },
-    };
-    const session = makeSession({
-      currentVersionId: reviewerVersion.versionId,
-      currentVersion: reviewerVersion,
-      versions: [writerVersion, reviewerVersion],
-      provenance: {
-        profileSnapshot: {
-          profileLabel: "Gemma writer + Qwen reviewer",
-          roleModels: {
-            query_generate: "gemma-4-12b",
-            query_review: "qwen2.5-14b",
-          },
-        },
-        generationOutcome: {
-          modelCollaboration: {
-            writer: {
-              model: "gemma-4-12b",
-              candidate: { sql: writerSql, parameters: [] },
-              lintFindings: [
-                {
-                  code: "output.projection_mismatch",
-                  message: "The aggregate needs the declared count alias.",
-                },
-              ],
-            },
-            reviewer: {
-              model: "qwen2.5-14b",
-              decision: "repair",
-              candidate: { sql: reviewerSql, parameters: [] },
-              checks: [{ name: "projection", status: "passed" }],
-            },
-            finalLintFindings: [],
-          },
-        },
-      },
-    });
-
-    render(<WorkbenchPanel {...defaultProps} session={session} />);
-
-    expect(screen.getByRole("heading", { name: "Writer candidate" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Reviewer correction" })).toBeVisible();
-    expect(screen.getAllByText("gemma-4-12b").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("qwen2.5-14b").length).toBeGreaterThan(0);
-    expect(screen.getByText("The aggregate needs the declared count alias.")).toBeVisible();
-    expect(screen.getAllByText(writerSql).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(reviewerSql).length).toBeGreaterThan(0);
-    expect(screen.getByText("model repair")).toBeVisible();
-  });
-
-  it("can hide initial generation evidence when notebook turns own that evidence", () => {
-    const session = makeSession({
-      provenance: {
-        generationOutcome: {
-          modelCollaboration: {
-            writer: {
-              model: "gemma-4-12b",
-              candidate: { sql: SQL, parameters: [] },
-            },
-          },
-        },
-      },
-    });
-
-    render(
-      <WorkbenchPanel
-        {...defaultProps}
-        session={session}
-        showInitialGenerationEvidence={false}
-      />,
-    );
-
-    expect(
-      screen.queryByRole("heading", { name: "Generation evidence" }),
-    ).not.toBeInTheDocument();
   });
 
   it("renders a successful dynamic execution table", () => {

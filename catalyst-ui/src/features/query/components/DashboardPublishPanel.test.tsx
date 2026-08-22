@@ -283,7 +283,10 @@ describe("Dashboard Builder supervised promotion", () => {
     await user.click(screen.getByRole("button", { name: "Review Count result" }));
     expect(screen.getByRole("heading", { name: "Review saved Dataset" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Results from Query v1" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Dataset saved" })).toBeDisabled();
+    // A saved Dataset's footer is the next step, not a spent button.
+    expect(
+      screen.getByRole("button", { name: "Build a widget from this Dataset" }),
+    ).toBeEnabled();
   });
 
   it("hydrates an older saved Dataset from its recorded source session", async () => {
@@ -383,10 +386,13 @@ describe("Dashboard Builder supervised promotion", () => {
     await user.click(screen.getByRole("button", { name: "Review dataset draft" }));
     expect(screen.getByText("Showing 1–25 of 26 returned rows")).toBeVisible();
     expect(screen.queryByRole("cell", { name: "26" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next result page" }));
+    const review = screen.getByRole("dialog");
+    await user.click(
+      within(review).getByRole("button", { name: "Next result page" }),
+    );
     expect(screen.getByText("Showing 26–26 of 26 returned rows")).toBeVisible();
     expect(screen.getByRole("cell", { name: "26" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Previous result page" })).toBeEnabled();
+    expect(within(review).getByRole("button", { name: "Previous result page" })).toBeEnabled();
   });
 
   it("does not duplicate a Dataset save while persistence is pending and retains failures", async () => {

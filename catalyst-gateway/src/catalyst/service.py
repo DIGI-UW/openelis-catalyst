@@ -264,13 +264,12 @@ class CatalystService:
         self,
         version: dict[str, Any],
         session: dict[str, Any],
-        prior_turns: list[dict[str, Any]],
     ) -> DataSourceBundle | ServiceResponse:
         """The bundle a stored version targets: its recorded source, else the
-        session's current source."""
+        session's."""
         source_id = str(
             (version.get("provenance") or {}).get("dataSourceId")
-            or self._session_data_source_id(session, prior_turns)
+            or self._session_data_source_id(session)
         )
         return self._require_bundle(source_id)
 
@@ -656,9 +655,9 @@ class CatalystService:
                 "catalyst-workbench-session-request-v1.schema.json",
                 payload,
             )
-            question = str(payload["question"])
-            if not question.strip():
-                raise ContractError("Question must contain non-whitespace text.")
+            # A session may be opened before there is a question: choosing
+            # where to work should not require already knowing what to ask.
+            question = str(payload.get("question") or "")
         except (ContractError, KeyError, TypeError) as error:
             return self._workbench_error(400, "invalid_request", str(error))
 
@@ -696,18 +695,6 @@ class CatalystService:
                 str(error),
             )
 
-        initial_request = build_query_request(
-            question,
-            runtime_catalog,
-            max_rows=self.max_rows,
-            statement_timeout_ms=self.statement_timeout_ms,
-            request_id=str(uuid.uuid4()),
-            trace_id=catalyst_trace_id,
-            profile_id=profile_id,
-        )
-        self.contracts.validate(
-            "catalyst-query-request-v1.schema.json", initial_request
-        )
         assert bundle.analytics is not None  # _resolve_data_source guards this
         try:
             overview = await bundle.analytics.dataset_overview()
@@ -740,8 +727,172 @@ class CatalystService:
                 or runtime_catalog.catalog_version
             ),
             catalog_version=runtime_catalog.catalog_version,
+            name=(
+                str(payload["name"]).strip()
+                if isinstance(payload.get("name"), str) and payload["name"].strip()
+                else None
+            ),
             browser_state=dict(payload.get("browserState") or {}),
             provenance=provenance,
+        )
+        if not question.strip():
+            # An empty session: named, grounded in a source, nothing asked
+            # of a model yet.
+            restored = store.get_session(session["sessionId"])
+            assert restored is not None
+            return ServiceResponse(201, self._present_workbench_session(restored))
+
+        return await self._seed_workbench_session(
+            store,
+            session,
+            question=question,
+            profile_id=profile_id,
+            bundle=bundle,
+            runtime_catalog=runtime_catalog,
+            catalyst_trace_id=catalyst_trace_id,
+            selected_profile=selected_profile,
+            profile_evidence=profile_evidence,
+            initial_profile_snapshot=initial_profile_snapshot,
+        )
+
+    def rename_workbench_session(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> ServiceResponse:
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual query workbench is not configured.",
+            )
+        if store.get_session(session_id) is None:
+            return self._workbench_error(
+                404, "workbench_session_not_found", "Workbench session was not found."
+            )
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return self._workbench_error(
+                400, "invalid_request", "Session name must contain text."
+            )
+        store.rename_session(session_id, name)
+        renamed = store.get_session(session_id)
+        assert renamed is not None
+        return ServiceResponse(200, self._present_workbench_session(renamed))
+
+    async def ask_workbench_session_question(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> ServiceResponse:
+        """Ask the first question of a session that was opened empty."""
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual query workbench is not configured.",
+            )
+        session = store.get_session(session_id)
+        if session is None:
+            return self._workbench_error(
+                404, "workbench_session_not_found", "Workbench session was not found."
+            )
+        question = str(payload.get("question") or "")
+        if not question.strip():
+            return self._workbench_error(
+                400, "invalid_request", "Question must contain non-whitespace text."
+            )
+        if store.list_turns(session_id)["turns"]:
+            # A session's first question is asked once. Later questions are
+            # turns, which carry a base and a revision context this does not.
+            return self._workbench_error(
+                409,
+                "session_already_started",
+                "This session already has a turn. Refine it with a follow-up "
+                "instead.",
+            )
+
+        profile_id = str(payload.get("profileId") or session["profileId"])
+        # The session is grounded in one source; a question cannot move it.
+        bundle = self._require_bundle(self._session_data_source_id(session))
+        if isinstance(bundle, ServiceResponse):
+            return bundle
+        try:
+            profiles = await self.hub.list_query_profiles()
+            selected_profile = next(
+                (profile for profile in profiles if profile.get("id") == profile_id),
+                None,
+            )
+            if (
+                selected_profile is None
+                or selected_profile.get("available") is not True
+            ):
+                return self._workbench_error(
+                    422,
+                    "profile_unavailable",
+                    f"Gateway does not advertise available profile {profile_id}.",
+                )
+            profile_evidence = self._require_profile_evidence(selected_profile)
+            initial_profile_snapshot = self._turn_profile_snapshot(selected_profile)
+            runtime_catalog = await self._runtime_catalog(bundle)
+        except HubError as error:
+            return self._workbench_error(502, error.code, str(error))
+        except AnalyticsError as error:
+            return self._workbench_error(502, "catalog_unavailable", str(error))
+        except ContractError as error:
+            return self._workbench_error(
+                422, "profile_evidence_unavailable", str(error)
+            )
+
+        catalog_conflict = self._workbench_catalog_conflict(session, runtime_catalog)
+        if catalog_conflict is not None:
+            return catalog_conflict
+
+        store.set_session_question(session_id, question)
+        session = store.get_session(session_id)
+        assert session is not None
+        return await self._seed_workbench_session(
+            store,
+            session,
+            question=question,
+            profile_id=profile_id,
+            bundle=bundle,
+            runtime_catalog=runtime_catalog,
+            catalyst_trace_id=str(uuid.uuid4()),
+            selected_profile=selected_profile,
+            profile_evidence=profile_evidence,
+            initial_profile_snapshot=initial_profile_snapshot,
+        )
+
+    async def _seed_workbench_session(
+        self,
+        store: Any,
+        session: dict[str, Any],
+        *,
+        question: str,
+        profile_id: str,
+        bundle: DataSourceBundle,
+        runtime_catalog: Catalog,
+        catalyst_trace_id: str,
+        selected_profile: dict[str, Any],
+        profile_evidence: dict[str, Any],
+        initial_profile_snapshot: dict[str, Any],
+    ) -> ServiceResponse:
+        """Generate a session's first query and record it as the initial turn.
+
+        Addressed by session id alone, so it serves both a session created
+        with a question and the first question asked of one opened empty.
+        """
+
+        initial_request = build_query_request(
+            question,
+            runtime_catalog,
+            max_rows=self.max_rows,
+            statement_timeout_ms=self.statement_timeout_ms,
+            request_id=str(uuid.uuid4()),
+            trace_id=catalyst_trace_id,
+            profile_id=profile_id,
+        )
+        self.contracts.validate(
+            "catalyst-query-request-v1.schema.json", initial_request
         )
         initial_turn = store.claim_initial_turn(
             session["sessionId"],
@@ -794,6 +945,9 @@ class CatalystService:
         except (ContractError, QueryInvariantError) as error:
             generation = self._error(502, "hub_invalid_response", str(error))
 
+        # The session already carries the provenance it was created with;
+        # this records what the generation added to it.
+        provenance = dict(session["provenance"])
         provenance.update(
             {
                 "generationHttpStatus": generation.status_code,
@@ -1047,6 +1201,22 @@ class CatalystService:
             )
         return ServiceResponse(200, self._present_workbench_session(session))
 
+    def list_workbench_sessions(self, limit: int = 20) -> ServiceResponse:
+        store = self.workbench_store
+        if store is None:
+            return self._workbench_error(
+                503,
+                "workbench_unavailable",
+                "The manual workbench is not configured.",
+            )
+        return ServiceResponse(
+            200,
+            {
+                "contractVersion": "catalyst.workbench.session-list.v1",
+                "sessions": store.list_sessions(limit=limit),
+            },
+        )
+
     def get_workbench_turns(self, session_id: str) -> ServiceResponse:
         store = self.workbench_store
         if store is None:
@@ -1133,12 +1303,19 @@ class CatalystService:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
             prior_turns = store.list_turns(session_id)["turns"]
             requested_source = payload.get("dataSourceId")
-            resolved_source_id = (
-                str(requested_source)
-                if requested_source
-                else self._session_data_source_id(session, prior_turns)
-            )
-            bundle = self._require_bundle(resolved_source_id)
+            session_source_id = self._session_data_source_id(session)
+            if requested_source and str(requested_source) != session_source_id:
+                return self._workbench_error(
+                    409,
+                    "data_source_immutable",
+                    "This workbench session is grounded in one data source. "
+                    "Start a new session to query another source.",
+                    details={
+                        "sessionDataSourceId": session_source_id,
+                        "requestedDataSourceId": str(requested_source),
+                    },
+                )
+            bundle = self._require_bundle(session_source_id)
             if isinstance(bundle, ServiceResponse):
                 return bundle
             profiles = await self.hub.list_query_profiles()
@@ -1168,8 +1345,6 @@ class CatalystService:
             catalog_conflict = self._workbench_catalog_conflict(
                 session,
                 runtime_catalog,
-                data_source_id=bundle.source_id,
-                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1513,22 +1688,26 @@ class CatalystService:
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
-            prior_turns = store.list_turns(session_id)["turns"]
             requested_source = payload.get("dataSourceId")
-            source_id = (
-                str(requested_source)
-                if requested_source
-                else self._session_data_source_id(session, prior_turns)
-            )
-            bundle = self._require_bundle(source_id)
+            session_source_id = self._session_data_source_id(session)
+            if requested_source and str(requested_source) != session_source_id:
+                return self._workbench_error(
+                    409,
+                    "data_source_immutable",
+                    "This workbench session is grounded in one data source. "
+                    "Start a new session to query another source.",
+                    details={
+                        "sessionDataSourceId": session_source_id,
+                        "requestedDataSourceId": str(requested_source),
+                    },
+                )
+            bundle = self._require_bundle(session_source_id)
             if isinstance(bundle, ServiceResponse):
                 return bundle
             runtime_catalog = await self._runtime_catalog(bundle)
             catalog_conflict = self._workbench_catalog_conflict(
                 session,
                 runtime_catalog,
-                data_source_id=bundle.source_id,
-                prior_turns=prior_turns,
             )
             if catalog_conflict is not None:
                 return catalog_conflict
@@ -1636,8 +1815,7 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
-        prior_turns = store.list_turns(version["sessionId"])["turns"]
-        bundle = self._version_bundle(version, session, prior_turns)
+        bundle = self._version_bundle(version, session)
         if isinstance(bundle, ServiceResponse):
             return bundle
         try:
@@ -1647,8 +1825,6 @@ class CatalystService:
         catalog_conflict = self._workbench_catalog_conflict(
             session,
             runtime_catalog,
-            data_source_id=bundle.source_id,
-            prior_turns=prior_turns,
         )
         if catalog_conflict is not None:
             return catalog_conflict
@@ -1696,8 +1872,7 @@ class CatalystService:
             )
         session = store.get_session(version["sessionId"])
         assert session is not None
-        prior_turns = store.list_turns(version["sessionId"])["turns"]
-        bundle = self._version_bundle(version, session, prior_turns)
+        bundle = self._version_bundle(version, session)
         if isinstance(bundle, ServiceResponse):
             return bundle
         try:
@@ -1707,8 +1882,6 @@ class CatalystService:
         catalog_conflict = self._workbench_catalog_conflict(
             session,
             runtime_catalog,
-            data_source_id=bundle.source_id,
-            prior_turns=prior_turns,
         )
         if catalog_conflict is not None:
             return catalog_conflict
@@ -2154,16 +2327,15 @@ class CatalystService:
         assert session is not None
         return str(session["question"])
 
-    def _session_data_source_id(
-        self,
-        session: dict[str, Any],
-        prior_turns: list[dict[str, Any]],
-    ) -> str:
-        """The session's current source: last targeted, else initial, else default."""
-        for turn in reversed(prior_turns):
-            source_id = turn.get("dataSourceId")
-            if source_id:
-                return str(source_id)
+    def _session_data_source_id(self, session: dict[str, Any]) -> str:
+        """The source this session was created against.
+
+        A session is grounded in one catalog: its query versions chain through
+        parentVersionId and its follow-ups are written relative to the previous
+        query, so a version whose parent was written against a different schema
+        would describe a lineage that never existed. The source is therefore
+        fixed at creation and never moves.
+        """
         source_id = (session.get("provenance") or {}).get("dataSourceId")
         return str(source_id) if source_id else self._default_data_source_id
 
@@ -2171,27 +2343,11 @@ class CatalystService:
         self,
         session: dict[str, Any],
         runtime_catalog: Catalog,
-        *,
-        data_source_id: str,
-        prior_turns: list[dict[str, Any]],
     ) -> ServiceResponse | None:
-        # Staleness is judged per data source: the baseline is the catalog this
-        # session last saw ON THAT SOURCE. First use of a new source in a session
-        # has no baseline, so switching sources never trips a false conflict.
-        baseline: str | None = None
-        for turn in reversed(prior_turns):
-            if turn.get("dataSourceId") == data_source_id and turn.get(
-                "catalogVersion"
-            ):
-                baseline = str(turn["catalogVersion"])
-                break
-        if baseline is None:
-            initial_source = (session.get("provenance") or {}).get(
-                "dataSourceId"
-            ) or self._default_data_source_id
-            if data_source_id == initial_source:
-                baseline = str(session["catalogVersion"])
-        if baseline is None or runtime_catalog.catalog_version == baseline:
+        # One session, one source, one baseline: the catalog this session was
+        # created against.
+        baseline = str(session["catalogVersion"])
+        if runtime_catalog.catalog_version == baseline:
             return None
         return self._workbench_error(
             409,
@@ -2707,11 +2863,7 @@ class CatalystService:
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)
         # Last-turn-wins, matching turn targeting: a reload must land on the
-        # session's CURRENT source, not the one it was created with.
-        turns: list[dict[str, Any]] = []
-        if self.workbench_store is not None:
-            turns = self.workbench_store.list_turns(session["sessionId"])["turns"]
-        presented["dataSourceId"] = self._session_data_source_id(session, turns)
+        presented["dataSourceId"] = self._session_data_source_id(session)
         presented["draftSeed"] = None
         if presented.get("currentVersion") is not None:
             return presented

@@ -1,0 +1,725 @@
+.workbench-rail {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+}
+
+/*
+ * Below the stacking breakpoint the rail becomes a full-width block above the
+ * notebook. Authoring SQL wants a laptop; this layout is for reading a thread.
+ */
+.workbench-rail[data-stacked="true"] {
+  position: relative;
+  top: 0;
+  width: 100%;
+  /* The body carries its own cap now; the bar itself is content-sized. */
+  max-height: none;
+  border-right: 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.workbench-rail__resize {
+  position: absolute;
+  z-index: 105;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.workbench-rail__resize:hover,
+.workbench-rail__resize:focus-visible {
+  background: rgb(15 98 254 / 24%);
+  outline: none;
+}
+
+.workbench-rail__brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  gap: 0.625rem;
+}
+
+/*
+ * The mark, in Carbon's AI treatment. A grey square said nothing about what
+ * this product is; the aura and border tokens are the vocabulary Carbon
+ * designed for content a model produced, which is the whole claim here. Both
+ * are theme-aware, so this holds in dark with no second definition.
+ */
+/*
+ * The mark: one flat shade, circular, no frame.
+ *
+ * Purple rather than the interactive blue, which everything else already
+ * spends -- links, focus rings, the current section, the active cell. A blue
+ * circle here would read as one more control. §10 gives purple to the model,
+ * which is what this product is for, and it is used sparingly enough
+ * elsewhere to still read as identity. Theme-aware, so it holds in both.
+ */
+.workbench-rail__mark {
+  display: flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cds-status-purple);
+  color: var(--cds-text-on-color);
+}
+
+.workbench-rail__mark svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.workbench-rail__wordmark {
+  min-width: 0;
+  flex: 1;
+}
+
+.workbench-rail__theme {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-icon-secondary, var(--cds-text-secondary));
+  cursor: pointer;
+}
+
+.workbench-rail__theme:hover {
+  background: var(--cds-layer-hover-01);
+  color: var(--cds-text-primary);
+}
+
+.workbench-rail__theme:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__brand strong {
+  display: block;
+  color: var(--cds-text-primary);
+  /* Carbon's scale, now that the type custom properties are emitted. */
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
+  font-weight: var(--cds-heading-compact-01-font-weight, 600);
+  letter-spacing: var(--cds-heading-compact-01-letter-spacing, 0.16px);
+  line-height: var(--cds-heading-compact-01-line-height, 1.28572);
+}
+
+.workbench-rail__brand small {
+  display: block;
+  overflow: hidden;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  padding: 0.5rem 0.75rem 0.625rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  gap: 0.375rem;
+}
+
+.workbench-rail__session-name {
+  min-width: 0;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--cds-border-subtle-02);
+}
+
+.workbench-rail__session-name strong {
+  display: block;
+  overflow: hidden;
+  font-size: var(--cds-heading-compact-02-font-size, 1rem);
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-name small {
+  display: block;
+  overflow: hidden;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__new-session {
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--cds-link-primary);
+  font-family: inherit;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__new-session:disabled {
+  color: var(--catalyst-text-muted);
+  cursor: not-allowed;
+}
+
+.workbench-rail__section {
+  display: flex;
+  min-height: 0;
+  flex: none;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.workbench-rail__section[data-open="true"] {
+  flex: 1 1 auto;
+}
+
+.workbench-rail__section h2 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.workbench-rail__section h2 > button {
+  display: flex;
+  width: 100%;
+  min-height: 2rem;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border: 0;
+  background: none;
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: var(--cds-heading-compact-01-font-size, 0.875rem);
+  font-weight: 600;
+  gap: 0.5rem;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__section h2 > button:hover {
+  background: var(--cds-background);
+}
+
+.workbench-rail__section h2 > button:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__section h2 > button > span:first-child {
+  color: var(--cds-text-secondary);
+}
+
+.workbench-rail__count {
+  margin-left: auto;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-label-01-font-size, 0.75rem);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.workbench-rail__section-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.workbench-rail__turns {
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem 0.75rem;
+  margin: 0;
+  gap: 0.125rem;
+  list-style: none;
+}
+
+.workbench-rail__turns button {
+  display: flex;
+  width: 100%;
+  padding: 0.5rem;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  gap: 0.5rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__turns button:hover {
+  background: var(--cds-background);
+}
+
+.workbench-rail__turns button:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__turns button[aria-current="true"] {
+  border-left-color: var(--cds-border-interactive);
+  background: var(--cds-layer-selected-01);
+  font-weight: 500;
+}
+
+.workbench-rail__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border: 1px solid var(--cds-border-subtle-02);
+  border-radius: 50%;
+  margin-top: 0.375rem;
+}
+
+.workbench-rail__turns button[data-status="succeeded"] .workbench-rail__dot {
+  border-color: var(--cds-support-success);
+  background: var(--cds-support-success);
+}
+
+.workbench-rail__turns button[data-status="failed"] .workbench-rail__dot {
+  border-color: var(--cds-support-error);
+  background: var(--cds-support-error);
+}
+
+.workbench-rail__turn-ordinal {
+  color: var(--cds-text-helper);
+  font-family: "IBM Plex Mono", "Menlo", monospace;
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
+  font-weight: 600;
+}
+
+.workbench-rail__composing {
+  display: flex;
+  padding: 0.375rem 0.5rem;
+  /* A status line, not a disabled control: it has to meet AA. */
+  color: var(--cds-text-helper);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  gap: 0.5rem;
+}
+
+.workbench-rail__nav {
+  display: grid;
+  flex: none;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-background);
+  grid-template-columns: repeat(4, 1fr);
+  container-type: inline-size;
+  container-name: rail-nav;
+}
+
+.workbench-rail__nav button {
+  display: flex;
+  height: 2.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  padding: 0 0.125rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--cds-text-secondary);
+  cursor: pointer;
+}
+
+/*
+  Four labels need room. Below that width the icons stand alone and the label
+  stays in the accessibility tree, where it is still the button's name.
+*/
+.workbench-rail__nav-label {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+  13.5rem is below the rail's 240px default, so the labels are there on
+  arrival; only a rail dragged near its 200px minimum falls back to icons.
+*/
+@container rail-nav (min-width: 13.5rem) {
+  .workbench-rail__nav button {
+    height: 3.25rem;
+  }
+
+  .workbench-rail__nav-label {
+    position: static;
+    overflow: hidden;
+    width: 100%;
+    height: auto;
+    clip-path: none;
+    font-size: var(--cds-label-01-font-size, 0.75rem);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.workbench-rail__nav button:hover {
+  background: var(--cds-layer-hover-01);
+}
+
+.workbench-rail__nav button:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__nav button[aria-current="page"] {
+  border-bottom-color: var(--cds-border-interactive);
+  color: var(--cds-link-primary);
+}
+
+.workbench-rail__details {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+  gap: 0.5rem;
+}
+
+.workbench-rail__details > button:first-child {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--cds-body-compact-01-font-size, 0.875rem);
+  font-weight: 500;
+  min-height: 2rem;
+  align-items: center;
+  padding: 0.375rem 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--cds-text-secondary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__details button:hover:not(:disabled) {
+  background: var(--cds-background);
+}
+
+.workbench-rail__details button:disabled {
+  color: var(--catalyst-text-disabled);
+  cursor: not-allowed;
+}
+
+.workbench-rail__details button[aria-expanded="true"] {
+  background: var(--cds-layer-hover-01);
+  color: var(--cds-text-primary);
+}
+
+.workbench-rail__details button:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__session {
+  position: relative;
+}
+
+.workbench-rail__session-button {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--cds-border-subtle-02);
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-button:hover {
+  border-color: var(--cds-border-interactive);
+  background: var(--cds-background);
+}
+
+.workbench-rail__session-button:focus-visible,
+.workbench-rail__session-menu button:focus-visible,
+.workbench-rail__session-form :is(input, select):focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+
+.workbench-rail__session-button > span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.workbench-rail__session-button strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-button small {
+  display: block;
+  overflow: hidden;
+  color: var(--cds-text-helper);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-menu {
+  position: absolute;
+  z-index: 110;
+  top: calc(100% - 0.25rem);
+  right: 0.75rem;
+  left: 0.75rem;
+  /* A long history must scroll inside the menu rather than paint over the
+     page behind it. */
+  overflow-y: auto;
+  max-height: min(24rem, 60vh);
+  max-height: min(24rem, 60dvh);
+  border: 1px solid var(--cds-border-subtle-02);
+  background: var(--cds-layer-01);
+  box-shadow: 0 0.25rem 0.75rem rgb(0 0 0 / 18%);
+}
+
+.workbench-rail__session-menu-title {
+  padding: 0.5rem 0.75rem 0.25rem;
+  margin: 0;
+  color: var(--cds-text-helper);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.workbench-rail__session-menu [role="menuitem"] {
+  display: flex;
+  width: 100%;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  gap: 0.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-menu [role="menuitem"]:hover {
+  background: var(--cds-background);
+}
+
+.workbench-rail__session-menu [role="menuitem"] > span:first-child {
+  width: 0.75rem;
+  flex: none;
+  color: var(--cds-link-primary);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+}
+
+/* Without this the flex child refuses to shrink and a long session name
+   overflows the rail instead of ellipsing. */
+.workbench-rail__session-menu [role="menuitem"] > span:last-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.workbench-rail__session-entry-name {
+  display: block;
+  overflow: hidden;
+  color: var(--cds-text-primary);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-rail__session-entry-meta {
+  display: block;
+  color: var(--cds-text-helper);
+  font-size: 0.625rem;
+}
+
+.workbench-rail__session-empty {
+  padding: 0 0.75rem 0.5rem;
+  margin: 0;
+  color: var(--cds-text-helper);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+}
+
+.workbench-rail__session-new {
+  /* Not a session row, so it does not take the row's leading tick column. */
+  justify-content: flex-start;
+  gap: 0;
+
+  /* Sticky so a long history never buries the primary action. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 2.25rem;
+  align-items: center;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  color: var(--cds-link-primary);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+}
+
+.workbench-rail__session-form {
+  padding: 0.75rem;
+}
+
+.workbench-rail__session-form label {
+  display: block;
+  margin-bottom: 0.625rem;
+}
+
+.workbench-rail__session-form label > span {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--cds-text-helper);
+  font-size: 0.6875rem;
+}
+
+.workbench-rail__session-form :is(input, select) {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--cds-border-strong-01);
+  background: var(--cds-background);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  text-overflow: ellipsis;
+}
+
+.workbench-rail__session-note {
+  margin: 0.5rem 0 0.75rem;
+  color: var(--cds-text-helper);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+}
+
+.workbench-rail__session-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.workbench-rail__session-actions button {
+  min-height: 2rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--cds-border-subtle-02);
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  cursor: pointer;
+}
+
+.workbench-rail__session-start {
+  flex: 1;
+  border: 0 !important;
+  background: var(--cds-background-brand) !important;
+  color: var(--cds-text-on-color) !important;
+}
+
+.workbench-rail__session-start:disabled {
+  background: var(--catalyst-surface-disabled) !important;
+  cursor: not-allowed;
+}
+
+.workbench-rail__session-rename input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--cds-border-interactive);
+  background: var(--cds-layer-01);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+}
+
+.workbench-rail__session-rename-action {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  background: none;
+  color: var(--cds-link-primary);
+  font-family: inherit;
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workbench-rail__session-rename-action:hover {
+  background: var(--cds-background);
+}
+
+/*
+ * Stacked, the rail is a bar. Its body -- session, catalog, thread, details --
+ * collapses behind a disclosure so the thread leads on a phone instead of
+ * starting below the fold. The section nav stays, because it is how you move
+ * between screens.
+ */
+.workbench-rail__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.workbench-rail[data-stacked="true"] .workbench-rail__body {
+  overflow-y: auto;
+  max-height: 50dvh;
+}
+
+.workbench-rail__disclosure {
+  flex: none;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cds-border-subtle-02);
+  background: none;
+  color: var(--cds-link-primary);
+  font-family: inherit;
+  font-size: var(--cds-label-01-font-size, 0.75rem);
+  cursor: pointer;
+}
+
+.workbench-rail__disclosure:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}

@@ -1,9 +1,11 @@
 import { PostgreSQL, sql } from "@codemirror/lang-sql";
+import { syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState } from "@codemirror/state";
 import { Button } from "@carbon/react";
 import { basicSetup, EditorView } from "codemirror";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import "./SqlEditor.css";
+import { sqlHighlightStyle } from "./sqlHighlight";
 import {
   buildSqlCompletionSchema,
   formatPostgresqlSql,
@@ -71,6 +73,9 @@ export const SqlEditor = ({
         doc: initial.value,
         extensions: [
           basicSetup,
+          // The same style a committed cell renders with, so the query cannot
+          // look like one thing while being edited and another once it is not.
+          syntaxHighlighting(sqlHighlightStyle),
           languageCompartmentRef.current.of(
             sql({
               dialect: PostgreSQL,

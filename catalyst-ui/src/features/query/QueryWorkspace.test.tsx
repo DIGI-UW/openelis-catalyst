@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryWorkspace } from "./QueryWorkspace";
 import type { CatalystApi } from "./api";
+import { RAIL_DEFAULT_WIDTH } from "./components/workbenchRailSupport";
 import type {
+  WorkbenchExecution,
   WorkbenchQueryVersion,
   WorkbenchSession,
   WorkbenchTurnTimeline,
@@ -30,6 +32,7 @@ const session: WorkbenchSession = {
   contractVersion: "catalyst.workbench.session.v1",
   sessionId: version.sessionId,
   question: "Count results by test",
+  name: "Count results by test",
   profileId: "catalyst-query",
   datasetId: "openelis",
   datasetVersion: "run-1",
@@ -157,33 +160,116 @@ const api = (): CatalystApi => ({
     offset: 0,
     rows: [],
   }),
-  createWorkbenchSession: vi.fn().mockResolvedValue(session),
+  createWorkbenchSession: vi
+    .fn()
+    .mockImplementation((question: string) =>
+      Promise.resolve(
+        question.trim()
+          ? session
+          : {
+              ...session,
+              sessionId: "empty-session",
+              question: "",
+              currentVersionId: null,
+              currentVersion: null,
+              versions: [],
+              validations: [],
+              latestValidation: null,
+              executions: [],
+              draftSeed: null,
+            },
+      ),
+    ),
+  askWorkbenchSessionQuestion: vi.fn().mockResolvedValue(session),
+  renameWorkbenchSession: vi
+    .fn()
+    .mockImplementation((_id: string, name: string) =>
+      Promise.resolve({ ...session, name }),
+    ),
   getWorkbenchSession: vi.fn().mockResolvedValue(session),
   createWorkbenchVersion: vi.fn(),
   executeWorkbenchVersion: vi.fn(),
   createWorkbenchTurn: vi.fn(),
-  getWorkbenchTurns: vi.fn().mockResolvedValue(timeline),
+  getWorkbenchTurns: vi
+    .fn()
+    .mockImplementation((sessionId: string) =>
+      Promise.resolve(
+        sessionId === "empty-session"
+          ? {
+              contractVersion: "catalyst.workbench.turn.timeline.v1",
+              sessionId: "empty-session",
+              currentTurnId: null,
+              currentVersion: null,
+              turns: [],
+            }
+          : timeline,
+      ),
+    ),
 });
 
+/**
+ * The session control owns both the session list and the data source, so
+ * reaching either means opening it the way a user does.
+ */
+const openSessionMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(
+    screen.getByRole("button", { name: /^Session:/ }),
+  );
+};
+
+
 describe("Dashboard Builder Ask shell", () => {
-  it("makes the four product sections and compact data catalog available without example prompts", async () => {
+  it("puts sections, the session and the catalog in one resizable rail", async () => {
     const user = userEvent.setup();
     render(<QueryWorkspace api={api()} />);
 
-    const navigation = screen.getByRole("navigation", { name: "Catalyst" });
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    const sections = within(rail).getByRole("navigation", { name: "Sections" });
     for (const name of ["Workbench", "Datasets", "Widgets", "Dashboards"]) {
-      expect(within(navigation).getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
+      expect(within(sections).getByRole("button", { name })).toBeVisible();
     }
-    expect(screen.getByText(/^Available data ·/i)).toBeVisible();
     expect(screen.queryByText(/example questions/i)).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Question")).toHaveFocus());
-    const toggle = within(navigation).getByRole("button", { name: "Toggle navigation" });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // DATA and TURNS are mutually exclusive: whichever is open owns the
+    // rail's free height, so neither can paint over the section nav.
+    const data = within(rail).getByRole("button", { name: /^DATA/ });
+    const turns = within(rail).getByRole("button", { name: /^TURNS/ });
+    expect(turns).toHaveAttribute("aria-expanded", "true");
+    expect(data).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(data);
+    expect(data).toHaveAttribute("aria-expanded", "true");
+    expect(turns).toHaveAttribute("aria-expanded", "false");
+    expect(await within(rail).findByLabelText("Filter columns")).toBeVisible();
+
+    // Closing the open section falls back to the thread, never to an empty rail.
+    await user.click(data);
+    expect(turns).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("keeps one active SQL editor, one New session action, and a fixed refinement composer", async () => {
+  it("resizes the rail from the keyboard and clamps it to the viewport", async () => {
+    const user = userEvent.setup();
+    render(<QueryWorkspace api={api()} />);
+
+    const handle = screen.getByRole("separator", { name: "Resize sidebar" });
+    expect(handle).toHaveAttribute("aria-valuenow", String(RAIL_DEFAULT_WIDTH));
+
+    handle.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(handle).toHaveAttribute(
+      "aria-valuenow",
+      String(RAIL_DEFAULT_WIDTH + 32),
+    );
+
+    // 200px is the floor however far left it is dragged.
+    for (let index = 0; index < 5; index += 1) {
+      await user.keyboard("{ArrowLeft}");
+    }
+    expect(handle).toHaveAttribute("aria-valuenow", "200");
+  });
+
+  it("keeps one active SQL editor and puts session management in the rail", async () => {
     const client = api();
     const user = userEvent.setup();
     render(<QueryWorkspace api={client} />);
@@ -193,9 +279,756 @@ describe("Dashboard Builder Ask shell", () => {
 
     expect(await screen.findByRole("textbox", { name: "SQL query" })).toBeVisible();
     expect(screen.getAllByRole("textbox", { name: "SQL query" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "New session" })).toHaveLength(1);
-    const composer = screen.getByRole("region", { name: /refine query v1/i });
+    // Session management lives in one place: the rail's session control.
+    expect(screen.queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
+    await openSessionMenu(user);
+    expect(
+      screen.getAllByRole("menuitem", { name: /New session/ }),
+    ).toHaveLength(1);
+    const composer = screen.getByRole("region", { name: /refine \[\d+\]/i });
     expect(composer).toHaveClass("turn-composer");
     await waitFor(() => expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible());
+  });
+
+  it("grounds a restored session on its own source, not a conflicting URL", async () => {
+    const client = api();
+    // Resolve the source list after the session restore, so the invariant is
+    // pinned under the ordering where the lookup gets the last word.
+    client.getDataSources = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                contractVersion: "catalyst.data-sources.v1",
+                defaultDataSourceId: "openelis-analytics",
+                dataSources: [
+                  {
+                    id: "openelis-analytics",
+                    label: "OpenELIS laboratory",
+                    available: true,
+                  },
+                  { id: "openmrs-hiv", label: "OpenMRS HIV/ART", available: true },
+                ],
+              }),
+            20,
+          );
+        }),
+    );
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, dataSourceId: "openelis-analytics" });
+    client.getWorkbenchCatalog = vi.fn().mockResolvedValue(null);
+    window.history.replaceState({}, "", "/?dataSource=openmrs-hiv");
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+
+    render(<QueryWorkspace api={client} />);
+
+    // A session is grounded in one catalog, so a pasted or stale
+    // `?dataSource=` must not retarget it — the catalog it reads, the URL it
+    // advertises and the source its next turn targets all follow the session.
+    const rail = await screen.findByRole("complementary", { name: "Catalyst" });
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenELIS laboratory")).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(new URL(window.location.href).searchParams.get("dataSource")).toBe(
+        "openelis-analytics",
+      ),
+    );
+    await waitFor(() =>
+      expect(client.getWorkbenchCatalog).toHaveBeenLastCalledWith(
+        "openelis-analytics",
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it("keeps the data source with the session, not with the model profile", async () => {
+    const client = api();
+    client.getDataSources = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.data-sources.v1",
+      defaultDataSourceId: "openelis-analytics",
+      dataSources: [
+        { id: "openelis-analytics", label: "OpenELIS laboratory", available: true },
+        { id: "openmrs-hiv", label: "OpenMRS HIV/ART", available: true },
+      ],
+    });
+    client.listWorkbenchSessions = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.workbench.session-list.v1",
+      sessions: [
+        {
+          sessionId: "older-session",
+          name: "Turnaround time, Q2",
+          question: "How long do results take?",
+          dataSourceId: "openmrs-hiv",
+          turnCount: 5,
+          createdAt: "2026-08-01T00:00:00Z",
+          updatedAt: "2026-08-01T00:00:00Z",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<QueryWorkspace api={client} />);
+
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    // The source a question will target is readable without opening anything.
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenELIS laboratory")).toBeVisible(),
+    );
+    // It is a session property, so it is not offered beside the model
+    // profile, which is a per-turn choice with a different lifetime.
+    expect(screen.queryByLabelText("Data source")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Model profile")).toBeVisible();
+
+    await user.click(within(rail).getByRole("button", { name: /^Session:/ }));
+    expect(
+      screen.getByRole("menuitem", { name: /Turnaround time, Q2/ }),
+    ).toHaveTextContent("OpenMRS HIV/ART · 5 turns");
+
+    await user.click(screen.getByRole("menuitem", { name: /New session/ }));
+    expect(
+      screen.getByText(/A session is grounded in one catalog/),
+    ).toBeVisible();
+    await user.selectOptions(
+      screen.getByLabelText("Data source"),
+      "openmrs-hiv",
+    );
+    await user.type(screen.getByLabelText("Name"), "CD4 cohort review");
+    await user.click(screen.getByRole("button", { name: "Start session" }));
+
+    await waitFor(() =>
+      expect(within(rail).getByText("OpenMRS HIV/ART")).toBeVisible(),
+    );
+
+    // The name and source chosen in the rail are what the session is opened
+    // with, before any question exists.
+    await waitFor(() =>
+      expect(client.createWorkbenchSession).toHaveBeenCalledWith(
+        "",
+        "catalyst-query",
+        undefined,
+        "openmrs-hiv",
+        undefined,
+        "CD4 cohort review",
+      ),
+    );
+
+    await user.type(
+      await screen.findByLabelText("Question"),
+      "How many CD4 results?",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+
+    // The question seeds that session rather than opening a second one.
+    await waitFor(() =>
+      expect(client.askWorkbenchSessionQuestion).toHaveBeenCalledWith(
+        "empty-session",
+        "How many CD4 results?",
+        "catalyst-query",
+      ),
+    );
+  });
+
+  it("renames a session in place without touching the question it asked", async () => {
+    const client = api();
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    const rail = await screen.findByRole("complementary", { name: "Catalyst" });
+    await user.click(within(rail).getByRole("button", { name: /^Session:/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename session" }));
+
+    // Editing happens in the rail itself, not in another window.
+    const field = screen.getByLabelText("Session name");
+    expect(field).toHaveValue(session.name);
+    await user.clear(field);
+    await user.type(field, "Monthly viral load, 2026{Enter}");
+
+    await waitFor(() =>
+      expect(client.renameWorkbenchSession).toHaveBeenCalledWith(
+        session.sessionId,
+        "Monthly viral load, 2026",
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        within(rail).getByRole("button", {
+          name: "Session: Monthly viral load, 2026",
+        }),
+      ).toBeVisible(),
+    );
+  });
+
+  it("renders a recorded run once, in the cell that owns its query version", async () => {
+    const client = api();
+    const failed: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      validationStatus: "valid",
+      query: { sql: version.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "failed",
+      databaseDiagnostic: {
+        sqlstate: "42703",
+        severity: "ERROR",
+        message: 'column "test_type" does not exist',
+        detail: null,
+        hint: null,
+        position: 214,
+      },
+      durationMs: 18,
+      executionId: "88888888-8888-4888-8888-888888888888",
+      sessionId: session.sessionId,
+      versionId: version.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [failed] });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    // The notebook cell owns the run. The workbench panel below must not
+    // repeat it, or the same failure is reported twice on one page.
+    const diagnostic = await screen.findAllByText(
+      'column "test_type" does not exist',
+    );
+    expect(diagnostic).toHaveLength(1);
+    expect(diagnostic[0]!.closest(".query-turn")).not.toBeNull();
+  });
+
+  it("lets a failed run lead, and makes editing again a choice", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      provenance: { editedFromVersionId: version.versionId },
+    };
+    const failed: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "failed",
+      databaseDiagnostic: {
+        sqlstate: "42703",
+        severity: "ERROR",
+        message: 'column "med_display" does not exist',
+        detail: null,
+        hint: null,
+        position: 14,
+      },
+      durationMs: 8,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 2,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    // A clean run first, so the editor is closed and opening it is a choice
+    // the test makes — otherwise it would still be open for want of a result.
+    const ran: WorkbenchExecution = {
+      ...failed,
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      status: "succeeded",
+      databaseDiagnostic: undefined,
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      executionId: "88888888-8888-4888-8888-888888888888",
+      versionId: version.versionId,
+      ordinal: 1,
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [ran] });
+    client.createWorkbenchVersion = vi.fn().mockResolvedValue({
+      ...session,
+      currentVersionId: edited.versionId,
+      currentVersion: edited,
+      versions: [version, edited],
+      executions: [ran],
+    });
+    client.executeWorkbenchVersion = vi.fn().mockResolvedValue(failed);
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit query" }));
+    await user.click(screen.getByRole("button", { name: "Run query" }));
+
+    // A failure is a result. It gets the attention, in the cell that produced
+    // it, rather than leaving the editor in the way of reading it.
+    const diagnostic = await screen.findByText(
+      'column "med_display" does not exist',
+    );
+    expect(diagnostic.closest(".query-turn")).not.toBeNull();
+    expect(
+      screen.queryByRole("textbox", { name: "SQL query" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/That run failed/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Edit query" }));
+    expect(screen.getByRole("textbox", { name: "SQL query" })).toBeVisible();
+  });
+
+  it("names the section in the nav and titles the page it opens", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    // Every other section states where you are in a visible heading; this one
+    // said nothing, so the one screen you spend the most time on was the one
+    // screen that never named itself.
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: session.name!,
+    });
+    expect(title).toBeVisible();
+    const header = title.closest("header")!;
+    expect(within(header).getByText("Workbench")).toBeVisible();
+
+    const rail = screen.getByRole("complementary", { name: "Catalyst" });
+    const sections = within(rail).getByRole("navigation", { name: "Sections" });
+    // The label is text, not just an accessible name on an icon.
+    expect(
+      within(sections).getByRole("button", { name: "Workbench" }),
+    ).toHaveTextContent("Workbench");
+
+    await user.click(within(sections).getByRole("button", { name: "Datasets" }));
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Datasets" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { level: 1, name: session.name! }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers the next step once a result is saved as a dataset", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: version.queryDigest,
+      idempotencyKey: "idem-1",
+      validationStatus: "valid",
+      query: { sql: version.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "test_name",
+            databaseType: "text",
+            typeOid: null,
+            logicalType: "string",
+          },
+          {
+            ordinal: 1,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "string", value: "Viral Load" }, { type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "88888888-8888-4888-8888-888888888888",
+      sessionId: session.sessionId,
+      versionId: version.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:00:05Z",
+    };
+    const savedDataset = {
+      contractVersion: "catalyst.dashboard-builder.entity.v1" as const,
+      kind: "dataset" as const,
+      id: "dataset-1",
+      versionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      ordinal: 1,
+      configurationDigest: "0".repeat(64),
+      configuration: {
+        title: "Results by test",
+        source: {
+          sessionId: session.sessionId,
+          executionId: ran.executionId,
+          dataSourceId: "openelis",
+        },
+        columns: ran.result!.columns,
+        rowCount: ran.result!.rowCount,
+      },
+      createdAt: "2026-08-06T00:01:00Z",
+    };
+    client.getWorkbenchSession = vi
+      .fn()
+      .mockResolvedValue({ ...session, executions: [ran] });
+    client.listDashboardDatasets = vi.fn().mockResolvedValue({ items: [] });
+    client.listDashboardWidgets = vi.fn().mockResolvedValue({ items: [] });
+    client.listDashboards = vi.fn().mockResolvedValue({ items: [] });
+    client.saveDashboardDataset = vi.fn().mockResolvedValue(savedDataset);
+    client.saveDashboardWidget = vi.fn();
+    client.saveDashboard = vi.fn();
+    client.publishDashboard = vi.fn();
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Save to datasets" }),
+    );
+    const review = await screen.findByRole("dialog", { name: "Review panel" });
+    await user.click(within(review).getByRole("button", { name: "Save Dataset" }));
+
+    await waitFor(() =>
+      expect(client.saveDashboardDataset).toHaveBeenCalledWith({
+        sessionId: session.sessionId,
+        executionId: ran.executionId,
+      }),
+    );
+    // Saving used to be the end of the road: the next step lived in a nav
+    // section you had to already know about.
+    expect(
+      await screen.findByRole("button", { name: /Build a widget/ }),
+    ).toBeVisible();
+  });
+
+  it("shows a generating cell, then says why a generation failed", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const failedTurn = {
+      ...timeline.turns[0]!,
+      turnId: "88888888-8888-4888-8888-888888888888",
+      ordinal: 2,
+      kind: "followup" as const,
+      instruction: "Split it by test type",
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      resultingCurrentVersion: null,
+      failure: {
+        stage: "reviewer_output_contract",
+        code: "reviewer_output_contract_failed",
+        message: "Query review failed: query review was not valid JSON",
+      },
+      createdAt: "2026-08-06T00:09:00Z",
+    };
+    let release: (() => void) | null = null;
+    client.createWorkbenchTurn = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(failedTurn);
+        }),
+    );
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.type(
+      await screen.findByRole("textbox", { name: "Follow-up instruction" }),
+      "Split it by test type",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate next query" }));
+
+    // A cell appears in the thread, where the answer will be -- not merely a
+    // busy label on the button, which may be scrolled out of sight.
+    const thread = screen.getByRole("region", { name: "Iterative query notebook" });
+    expect(
+      await within(thread).findByText("Generating the next query…"),
+    ).toBeVisible();
+
+    await waitFor(() => expect(release).not.toBeNull());
+    release!();
+
+    // A generation that failed says so, and does not throw away what was asked.
+    expect(
+      await screen.findByText(/query review was not valid JSON/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+    ).toHaveValue("Split it by test type");
+  });
+
+  it("files a turn that produced no version by when it happened", async () => {
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      createdAt: "2026-08-06T00:05:00Z",
+    };
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          { ordinal: 0, name: "n", databaseType: "bigint", typeOid: null, logicalType: "integer" },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:05:05Z",
+    };
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      versions: [version, edited],
+      executions: [ran],
+    });
+    client.getWorkbenchTurns = vi.fn().mockResolvedValue({
+      ...timeline,
+      turns: [
+        timeline.turns[0]!,
+        {
+          ...timeline.turns[0]!,
+          turnId: "77777777-7777-4777-8777-777777777777",
+          ordinal: 2,
+          kind: "followup" as const,
+          instruction: "Split it by test type",
+          status: "failed" as const,
+          selectedVersionId: null,
+          outputVersions: [],
+          failure: { message: "Query review failed" },
+          // Later than the hand edit, so it belongs after it.
+          createdAt: "2026-08-06T00:09:00Z",
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    const { container } = render(<QueryWorkspace api={client} />);
+
+    await screen.findAllByText("Split it by test type");
+    // A failed generation has no version to be ordered by, so it used to sort
+    // ahead of every hand edit that came after it.
+    expect(
+      [...container.querySelectorAll(".query-turn__summary")].map(
+        (cell) => cell.textContent,
+      ),
+    ).toEqual([session.question, "Edited by hand", "Split it by test type"]);
+  });
+
+  it("keeps a hand-edited run where it happened in the thread", async () => {
+    const client = api();
+    const edited: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "55555555-5555-4555-8555-555555555555",
+      parentVersionId: version.versionId,
+      ordinal: 2,
+      authorType: "human",
+      queryDigest: "f".repeat(64),
+      provenance: { editedFromVersionId: version.versionId },
+      createdAt: "2026-08-06T00:01:00Z",
+    };
+    const generated: WorkbenchQueryVersion = {
+      ...version,
+      versionId: "66666666-6666-4666-8666-666666666666",
+      parentVersionId: edited.versionId,
+      ordinal: 3,
+      authorType: "model",
+      queryDigest: "9".repeat(64),
+      createdAt: "2026-08-06T00:02:00Z",
+    };
+    const ran: WorkbenchExecution = {
+      contractVersion: "catalyst.workbench.execution.v1",
+      queryDigest: edited.queryDigest,
+      idempotencyKey: "idem-2",
+      validationStatus: "valid",
+      query: { sql: edited.sql, parameters: [] },
+      statementTimeoutMs: 30000,
+      maxRows: 1000,
+      replayed: false,
+      status: "succeeded",
+      result: {
+        columns: [
+          {
+            ordinal: 0,
+            name: "n",
+            databaseType: "bigint",
+            typeOid: null,
+            logicalType: "integer",
+          },
+        ],
+        rows: [[{ type: "integer", value: 4 }]],
+        rowCount: { returned: 1, truncated: false, truncationReason: null },
+      },
+      durationMs: 12,
+      executionId: "99999999-9999-4999-8999-999999999999",
+      sessionId: session.sessionId,
+      versionId: edited.versionId,
+      ordinal: 1,
+      completedAt: "2026-08-06T00:01:05Z",
+    };
+    const later = timeline.turns[0]!;
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      currentVersionId: generated.versionId,
+      currentVersion: generated,
+      versions: [version, edited, generated],
+      executions: [ran],
+    });
+    client.getWorkbenchTurns = vi.fn().mockResolvedValue({
+      ...timeline,
+      currentTurnId: "77777777-7777-4777-8777-777777777777",
+      currentVersion: {
+        versionId: generated.versionId,
+        queryDigest: generated.queryDigest,
+      },
+      turns: [
+        later,
+        {
+          ...later,
+          turnId: "77777777-7777-4777-8777-777777777777",
+          ordinal: 2,
+          kind: "followup" as const,
+          instruction: "Split it by test type",
+          // After the hand edit, which is the point of the ordering.
+          createdAt: "2026-08-06T00:02:00Z",
+          selectedVersionId: generated.versionId,
+          outputVersions: [
+            {
+              versionId: generated.versionId,
+              queryDigest: generated.queryDigest,
+              parentVersionId: edited.versionId,
+              role: "writer" as const,
+              authorType: "model" as const,
+              contractValid: true,
+              validationId: null,
+              selected: true,
+            },
+          ],
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    const { container } = render(<QueryWorkspace api={client} />);
+
+    await screen.findAllByText("Split it by test type");
+    // The hand edit happened between the two generations, so that is where it
+    // is filed — appending it after them would report the thread out of order.
+    const cells = [...container.querySelectorAll(".query-turn__summary")].map(
+      (cell) => cell.textContent,
+    );
+    expect(cells).toEqual([
+      session.question,
+      "Edited by hand",
+      "Split it by test type",
+    ]);
+    expect(
+      [...container.querySelectorAll("article.query-turn[id]")].map(
+        (cell) => cell.id,
+      ),
+    ).toEqual(["turn-1", "turn-2", "turn-3"]);
+  });
+
+  it("shows what can be asked about, at full width, before anything is asked", () => {
+    // Earlier tests leave an active session in storage, and a session with
+    // work in it replaces this screen entirely.
+    window.localStorage.clear();
+    const client = api();
+    client.getWorkbenchCatalog = vi.fn().mockResolvedValue({
+      contractVersion: "catalyst.workbench.editor-catalog.v1",
+      catalogVersion: "catalog-1",
+      schemaVersion: "schema-1",
+      dialect: "postgresql",
+      schemas: [
+        {
+          name: "analytics",
+          views: [
+            {
+              name: "lab_result_fact_v1",
+              qualifiedName: "analytics.lab_result_fact_v1",
+              grain: "One row per FHIR Observation.",
+              columns: [
+                { name: "patient_id", logicalType: "string", databaseType: "text", nullable: false },
+                { name: "test_name", logicalType: "string", databaseType: "text", nullable: false },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(<QueryWorkspace api={client} />);
+
+    // The empty screen's job is to answer "what is in here?". It used to show
+    // one relation name and a count in a 34rem card, with the rest behind a
+    // rail section you had to know about.
+    return waitFor(() => {
+      const cards = document.querySelectorAll(".workbench-catalog__relation");
+      expect(cards.length).toBeGreaterThan(0);
+      // Each names its relation and shows some of its columns, so the screen
+      // is browsable rather than a pointer to somewhere else.
+      expect(cards[0]!.querySelector(".workbench-catalog__columns code")).not.toBeNull();
+      expect(
+        document.querySelector(".workbench-empty")?.className,
+      ).toContain("workbench-empty");
+    });
   });
 });
