@@ -999,12 +999,19 @@ class CatalystService:
                 source_findings=list(writer_failure.get("lintFindings") or []),
             )
             evidence = dict(hub_generation.hub_evidence or {}) if hub_generation else {}
-            stage, code = self._model_failure_stage(evidence, reviewer=True)
+            stage, code = self._model_failure_stage(
+                evidence,
+                reviewer=True,
+                outcome_body=generation.body,
+            )
             store.fail_turn(
                 initial_turn["turnId"],
                 stage=stage,
                 code=code,
-                message=str(generation.body.get("message") or "Initial review failed."),
+                message=self._failure_summary(
+                    generation.body,
+                    str(generation.body.get("message") or "Initial review failed."),
+                ),
                 raw_evidence=raw_output,
                 hub_trace_id=self._response_hub_trace_id(generation.body),
                 hub_response=evidence or generation.body,
@@ -1018,7 +1025,7 @@ class CatalystService:
                 ),
                 retained_writer=retained,
                 retained_writer_validation=retained_validation,
-                details=self._failure_check_details(generation.body),
+                details=self._failure_details(generation.body),
             )
             restored = store.get_session(session["sessionId"])
             assert restored is not None
@@ -1148,7 +1155,11 @@ class CatalystService:
                 else {}
             )
             if evidence.get("modelInvocations"):
-                stage, code = self._model_failure_stage(evidence, reviewer=False)
+                stage, code = self._model_failure_stage(
+                    evidence,
+                    reviewer=False,
+                    outcome_body=generation.body,
+                )
             else:
                 code = str(
                     generation.body.get("error", {}).get("code") or "generation_failed"
@@ -1162,10 +1173,14 @@ class CatalystService:
                 initial_turn["turnId"],
                 stage=stage,
                 code=code,
-                message=str(
-                    generation.body.get("error", {}).get("message")
-                    or generation.body.get("message")
-                    or "Initial query generation did not produce a usable candidate."
+                message=self._failure_summary(
+                    generation.body,
+                    str(
+                        generation.body.get("error", {}).get("message")
+                        or generation.body.get("message")
+                        or "Initial query generation did not produce a usable "
+                        "candidate."
+                    ),
                 ),
                 raw_evidence=raw_output,
                 hub_trace_id=self._response_hub_trace_id(generation.body),
@@ -1178,7 +1193,7 @@ class CatalystService:
                     kind="initial",
                     failed=True,
                 ),
-                details=self._failure_check_details(generation.body),
+                details=self._failure_details(generation.body),
             )
 
         restored = store.get_session(session["sessionId"])
@@ -1497,12 +1512,16 @@ class CatalystService:
                 stage, failure_code = self._model_failure_stage(
                     hub_evidence,
                     reviewer=retained_writer is not None,
+                    outcome_body=query,
                 )
                 failed = store.fail_turn(
                     claimed["turnId"],
                     stage=stage,
                     code=failure_code,
-                    message=str(query.get("message") or "Follow-up generation failed."),
+                    message=self._failure_summary(
+                        query,
+                        str(query.get("message") or "Follow-up generation failed."),
+                    ),
                     raw_evidence=raw_output,
                     hub_trace_id=self._response_hub_trace_id(query),
                     hub_response=hub_evidence or query,
@@ -1516,7 +1535,7 @@ class CatalystService:
                     ),
                     retained_writer=retained_writer,
                     retained_writer_validation=retained_validation,
-                    details=self._failure_check_details(query),
+                    details=self._failure_details(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -1544,7 +1563,7 @@ class CatalystService:
                         kind="followup",
                         failed=True,
                     ),
-                    details=self._failure_check_details(query),
+                    details=self._failure_details(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -2610,11 +2629,13 @@ class CatalystService:
         # dispatch occurred (transport failure, cancellation, or non-2xx).
         return []
 
-    @staticmethod
+    @classmethod
     def _model_failure_stage(
+        cls,
         evidence: dict[str, Any],
         *,
         reviewer: bool,
+        outcome_body: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         invocations = evidence.get("modelInvocations")
         terminal = (
@@ -2631,10 +2652,16 @@ class CatalystService:
             if terminal_role in {"writer", "reviewer"}
             else ("reviewer" if reviewer else "writer")
         )
+        transport_outcomes = {"timed_out", "cancelled", "transport_failed"}
+        if outcome not in transport_outcomes and cls._unresolved_findings(outcome_body):
+            # The request was understood and could not be satisfied: a
+            # different thing from output that never became a candidate, and
+            # it calls for a different response from whoever reads it.
+            return f"{role}_findings", "generation_findings_unresolved"
         if outcome == "contract_failed":
             return f"{role}_output_contract", f"{role}_output_contract_failed"
         if outcome == "validation_failed":
-            return f"{role}_validation", f"{role}_validation_failed"
+            return f"{role}_output_contract", f"{role}_output_contract_failed"
         if outcome == "timed_out":
             return f"{role}_transport", f"{role}_timeout"
         if outcome == "cancelled":
@@ -2644,6 +2671,51 @@ class CatalystService:
             # decision was a rejection, not because of a transport problem.
             return f"{role}_decision", f"{role}_rejected"
         return f"{role}_transport", f"{role}_transport_failed"
+
+    @staticmethod
+    def _unresolved_findings(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """The lint findings the generation loop never resolved.
+
+        These name a specific defect in a specific place -- an unknown column,
+        an unbound literal -- and are the only part of a failed turn that tells
+        someone what to do next. They live on the last attempt of the
+        diagnostic candidate, which is where the loop gave up.
+        """
+        if not isinstance(outcome, dict):
+            return []
+        diagnostic = outcome.get("diagnosticCandidate")
+        attempts = diagnostic.get("attempts") if isinstance(diagnostic, dict) else None
+        if not isinstance(attempts, list) or not attempts:
+            return []
+        last = attempts[-1]
+        findings = last.get("findings") if isinstance(last, dict) else None
+        return [
+            finding
+            for finding in (findings if isinstance(findings, list) else [])
+            if isinstance(finding, dict) and finding.get("code")
+        ]
+
+    @classmethod
+    def _failure_summary(cls, outcome: dict[str, Any] | None, fallback: str) -> str:
+        """What a person reads when a turn fails.
+
+        A finding says which identifier is wrong and how to fix it; the
+        pipeline stage says only that a pipeline exists.
+        """
+        findings = cls._unresolved_findings(outcome)
+        if not findings:
+            return fallback
+        first = findings[0]
+        parts = [str(first.get("message") or "").strip()]
+        action = str(first.get("suggestedAction") or "").strip()
+        if action and action not in parts[0]:
+            parts.append(action)
+        summary = " ".join(part for part in parts if part)
+        remaining = len(findings) - 1
+        if remaining > 0:
+            noun = "finding" if remaining == 1 else "findings"
+            summary = f"{summary} ({remaining} more {noun})"
+        return summary or fallback
 
     @staticmethod
     def _failure_check_details(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -2676,6 +2748,35 @@ class CatalystService:
                 }
             )
         return details[:32]
+
+    @classmethod
+    def _failure_details(cls, outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """Pointed findings first, then the named checks.
+
+        A finding carries the path and the offending fragment, so it is what a
+        person needs; the checks say which stage reported it.
+        """
+        details = [
+            {
+                "name": str(finding.get("code"))[:100],
+                "value": " ".join(
+                    part
+                    for part in (
+                        str(finding.get("path") or "").strip(),
+                        str(finding.get("message") or "").strip(),
+                        (
+                            f"Found: {finding['evidence']}"
+                            if finding.get("evidence")
+                            else ""
+                        ),
+                        str(finding.get("suggestedAction") or "").strip(),
+                    )
+                    if part
+                )[:4000],
+            }
+            for finding in cls._unresolved_findings(outcome)
+        ]
+        return (details + cls._failure_check_details(outcome))[:32]
 
     @staticmethod
     def _response_hub_trace_id(outcome: dict[str, Any]) -> str | None:
