@@ -26,7 +26,6 @@ import { WorkbenchPanel } from "./components/WorkbenchPanel";
 import { WorkbenchRail } from "./components/WorkbenchRail";
 import {
   clampRailWidth,
-  RAIL_DEFAULT_WIDTH,
   RAIL_STACK_BREAKPOINT,
   type RailSection,
   type RailTurn,
@@ -39,6 +38,7 @@ import {
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
 import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
+import { useWorkbenchShell } from "./hooks/useWorkbenchShell";
 import type { ThemePreference } from "./theme";
 import {
   isPreview,
@@ -49,13 +49,11 @@ import {
   type CatalystPreview,
   type CatalystQueryOutcome,
   type DataSourcesResponse,
-  type DashboardBuilderSection,
   type CatalystTable,
   type QueryOptions,
   type WorkbenchEditorCatalog,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
-  type WorkbenchSessionSummary,
   type WorkbenchTurnRequest,
   type WorkbenchTurnTimeline,
 } from "./types";
@@ -587,24 +585,31 @@ export const QueryWorkspace = ({
   themePreference = "system",
   onThemePreferenceChange,
 }: QueryWorkspaceProps) => {
-  const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
-  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
-  const [railSection, setRailSection] = useState<RailSection>("turns");
-  const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
-  const [sessionMenu, setSessionMenu] = useState<
-    "closed" | "list" | "new" | "rename"
-  >("closed");
-  const [recentSessions, setRecentSessions] = useState<WorkbenchSessionSummary[]>(
-    [],
-  );
-  const [draftSessionName, setDraftSessionName] = useState("");
-  const [detailsTurnId, setDetailsTurnId] = useState<string | null>(null);
-  // Details can be scoped to the session rather than a turn: a gateway that
-  // serves no per-turn evidence still records validation, provenance and
-  // versions, and they must stay reachable.
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
-  const [developerMode, setDeveloperMode] = useState(false);
+  const {
+    activeSection,
+    setActiveSection,
+    railWidth,
+    setRailWidth,
+    railSection,
+    setRailSection,
+    activeTurnOrdinal,
+    setActiveTurnOrdinal,
+    sessionMenu,
+    setSessionMenu,
+    recentSessions,
+    setRecentSessions,
+    draftSessionName,
+    setDraftSessionName,
+    detailsTurnId,
+    setDetailsTurnId,
+    detailsOpen,
+    setDetailsOpen,
+    detailsTab,
+    setDetailsTab,
+    developerMode,
+    setDeveloperMode,
+    viewportWidth,
+  } = useWorkbenchShell();
   const [editorOpen, setEditorOpen] = useState(false);
   // A run asks for the cell that will carry its result; the cell is only in
   // the document a render later, so the request waits here until it exists.
@@ -618,9 +623,6 @@ export const QueryWorkspace = ({
       openDatasetReview.current = open;
     },
     [],
-  );
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 1440 : window.innerWidth,
   );
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<WorkflowState>({ kind: "idle" });
@@ -727,7 +729,7 @@ export const QueryWorkspace = ({
         .then(setWorkbenchTimeline)
         .catch(() => setWorkbenchTimeline(null));
     }
-  }, [api]);
+  }, [api, setDetailsOpen, setDetailsTurnId, setRailSection, setRailWidth]);
 
   useEffect(() => {
     if (!api.getQueryOptions) return;
@@ -778,12 +780,6 @@ export const QueryWorkspace = ({
   useEffect(() => {
     writeDataSourceIdToUrl(effectiveDataSourceId);
   }, [effectiveDataSourceId]);
-
-  useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize, { passive: true });
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   useEffect(() => {
     if (!api.getWorkbenchCatalog) return;
