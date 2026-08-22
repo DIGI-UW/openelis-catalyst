@@ -682,6 +682,7 @@ export const QueryWorkspace = ({
     setDetailsOpen(false);
     setDetailsTurnId(null);
     setWorkbenchError(null);
+    setFollowupError(null);
     if (api.getWorkbenchTurns) {
       void api.getWorkbenchTurns(session.sessionId)
         .then(setWorkbenchTimeline)
@@ -692,6 +693,7 @@ export const QueryWorkspace = ({
     setDataSourceId,
     setDetailsOpen,
     setDetailsTurnId,
+    setFollowupError,
     setProfileId,
     setQuestion,
     setRailSection,
@@ -871,6 +873,7 @@ export const QueryWorkspace = ({
     setWorkbenchTimeline(null);
     setFollowupInstruction("");
     setFollowupBusy(false);
+    setFollowupError(null);
     resetGenerationEvidence();
     forgetActiveWorkbenchSession();
     setActiveSection("ask");

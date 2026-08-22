@@ -1325,7 +1325,8 @@ def test_reformatted_snapshot_is_the_same_query_not_a_hand_edit(
     # current version?" by digest equality, so a reflow was classified
     # promoted_human and minted a hand-authored version: the same byte-blind
     # comparison already fixed for the create-version path.
-    client, _ = _client(tmp_path, _ready_query())
+    hub = FakeHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
     session = _create_session(client)
     base = session["currentVersion"]
     reflowed = (
@@ -1364,6 +1365,12 @@ def test_reformatted_snapshot_is_the_same_query_not_a_hand_edit(
     # What the person saw is what is recorded.
     assert turn["editorSnapshot"]["content"]["sql"] == reflowed
     assert turn["manualVersion"] is None
+    # The evidence the model reasons from is recorded against the stored
+    # version's digest. A reused snapshot is that version, so a reflow must not
+    # cost the model its validation and execution context.
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    assert revision["validationContext"] is not None
+    assert revision["selection"]["validationRef"] is not None
 
 
 def test_session_without_a_profile_uses_the_configured_default(
