@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   type CSSProperties,
 } from "react";
 import type { CatalystApi } from "./api";
@@ -26,7 +25,6 @@ import { WorkbenchPanel } from "./components/WorkbenchPanel";
 import { WorkbenchRail } from "./components/WorkbenchRail";
 import {
   clampRailWidth,
-  RAIL_DEFAULT_WIDTH,
   RAIL_STACK_BREAKPOINT,
   type RailSection,
   type RailTurn,
@@ -38,43 +36,26 @@ import {
   workbenchEditorDigest,
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
+import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
+import { useRunActions } from "./hooks/useRunActions";
+import { useEditorBuffer } from "./hooks/useEditorBuffer";
+import {
+  useWorkbenchSession,
+  writeDataSourceIdToUrl,
+} from "./hooks/useWorkbenchSession";
+import { useWorkbenchShell } from "./hooks/useWorkbenchShell";
 import type { ThemePreference } from "./theme";
 import {
   isPreview,
   isTable,
   type BoundParameter,
   type CatalystExecutionOutcome,
-  type CatalystPolicyOutcome,
-  type CatalystPreview,
   type CatalystQueryOutcome,
-  type DataSourcesResponse,
-  type DashboardBuilderSection,
-  type CatalystTable,
-  type QueryOptions,
-  type WorkbenchEditorCatalog,
-  type WorkbenchGenerationEvidence,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
-  type WorkbenchSessionSummary,
   type WorkbenchTurnRequest,
   type WorkbenchTurnTimeline,
 } from "./types";
-
-type WorkflowState =
-  | { kind: "idle" }
-  | { kind: "submitting" }
-  | { kind: "preview"; preview: CatalystPreview; executing: boolean }
-  | { kind: "query-outcome"; outcome: CatalystQueryOutcome }
-  | { kind: "policy-outcome"; outcome: CatalystPolicyOutcome }
-  | {
-      kind: "polling";
-      preview: CatalystPreview;
-      idempotencyKey: string;
-      outcome: CatalystExecutionOutcome;
-    }
-  | { kind: "execution-outcome"; outcome: CatalystExecutionOutcome }
-  | { kind: "result"; result: CatalystTable }
-  | { kind: "error"; message: string };
 
 interface QueryWorkspaceProps {
   api?: CatalystApi;
@@ -110,42 +91,6 @@ const forgetActiveWorkbenchSession = () => {
     globalThis.localStorage?.removeItem(ACTIVE_WORKBENCH_SESSION_KEY);
   } catch {
     // Nothing else is required when browser storage is unavailable.
-  }
-};
-
-// The selected data source lives in the URL so a reload, a bookmark, or a
-// pasted link all reopen the same dataset, and so support can tell which
-// source a reported screen was actually reading.
-const DATA_SOURCE_QUERY_KEY = "dataSource";
-
-const readDataSourceIdFromUrl = () => {
-  try {
-    const search = globalThis.location?.search;
-    if (!search) return "";
-    return new URLSearchParams(search).get(DATA_SOURCE_QUERY_KEY) ?? "";
-  } catch {
-    return "";
-  }
-};
-
-const writeDataSourceIdToUrl = (dataSourceId: string) => {
-  try {
-    const { location, history } = globalThis;
-    if (!location || !history?.replaceState) return;
-    const url = new URL(location.href);
-    if (url.searchParams.get(DATA_SOURCE_QUERY_KEY) === (dataSourceId || null)) {
-      return;
-    }
-    if (dataSourceId) {
-      url.searchParams.set(DATA_SOURCE_QUERY_KEY, dataSourceId);
-    } else {
-      url.searchParams.delete(DATA_SOURCE_QUERY_KEY);
-    }
-    // replaceState, not pushState: switching sources reframes the current view
-    // rather than adding a step the back button should walk through.
-    history.replaceState(history.state, "", url);
-  } catch {
-    // A non-browser host (tests, SSR) still works from component state alone.
   }
 };
 
@@ -587,25 +532,31 @@ export const QueryWorkspace = ({
   themePreference = "system",
   onThemePreferenceChange,
 }: QueryWorkspaceProps) => {
-  const [activeSection, setActiveSection] = useState<DashboardBuilderSection>("ask");
-  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
-  const [railSection, setRailSection] = useState<RailSection>("turns");
-  const [activeTurnOrdinal, setActiveTurnOrdinal] = useState<number | null>(null);
-  const [sessionMenu, setSessionMenu] = useState<
-    "closed" | "list" | "new" | "rename"
-  >("closed");
-  const [recentSessions, setRecentSessions] = useState<WorkbenchSessionSummary[]>(
-    [],
-  );
-  const [draftSessionName, setDraftSessionName] = useState("");
-  const [detailsTurnId, setDetailsTurnId] = useState<string | null>(null);
-  // Details can be scoped to the session rather than a turn: a gateway that
-  // serves no per-turn evidence still records validation, provenance and
-  // versions, and they must stay reachable.
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsTab, setDetailsTab] = useState<DetailsTab>("validation");
-  const [developerMode, setDeveloperMode] = useState(false);
-  const [editorOpen, setEditorOpen] = useState(false);
+  const {
+    activeSection,
+    setActiveSection,
+    railWidth,
+    setRailWidth,
+    railSection,
+    setRailSection,
+    activeTurnOrdinal,
+    setActiveTurnOrdinal,
+    sessionMenu,
+    setSessionMenu,
+    recentSessions,
+    setRecentSessions,
+    draftSessionName,
+    setDraftSessionName,
+    detailsTurnId,
+    setDetailsTurnId,
+    detailsOpen,
+    setDetailsOpen,
+    detailsTab,
+    setDetailsTab,
+    developerMode,
+    setDeveloperMode,
+    viewportWidth,
+  } = useWorkbenchShell();
   // A run asks for the cell that will carry its result; the cell is only in
   // the document a render later, so the request waits here until it exists.
   const revealVersionId = useRef<string | null>(null);
@@ -619,79 +570,67 @@ export const QueryWorkspace = ({
     },
     [],
   );
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 1440 : window.innerWidth,
-  );
-  const [question, setQuestion] = useState("");
-  const [state, setState] = useState<WorkflowState>({ kind: "idle" });
-  const [queryOptions, setQueryOptions] = useState<QueryOptions | null>(null);
-  const [profileId, setProfileId] = useState("");
-  const [dataSources, setDataSources] = useState<DataSourcesResponse | null>(
-    null,
-  );
-  // What the picker holds before a session exists. Once a session exists its
-  // own source wins — see effectiveDataSourceId.
-  const [dataSourceId, setDataSourceId] = useState(readDataSourceIdFromUrl);
-  const [workbenchSession, setWorkbenchSession] =
-    useState<WorkbenchSession | null>(null);
-  const [workbenchSql, setWorkbenchSql] = useState("");
-  const [workbenchParameters, setWorkbenchParameters] = useState<
-    BoundParameter[]
-  >([]);
-  const [workbenchCatalog, setWorkbenchCatalog] =
-    useState<WorkbenchEditorCatalog | null>(null);
-  const [workbenchCatalogFailed, setWorkbenchCatalogFailed] = useState(false);
-  const [workbenchWrapLines, setWorkbenchWrapLines] = useState(true);
-  const [workbenchBusy, setWorkbenchBusy] = useState<"running" | null>(null);
-  const [workbenchError, setWorkbenchError] = useState<string | null>(null);
-  const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
-  const [sqlEditorFocusRequestId, setSqlEditorFocusRequestId] = useState(0);
-  const [workbenchTimeline, setWorkbenchTimeline] =
-    useState<WorkbenchTurnTimeline | null>(null);
-  const [followupInstruction, setFollowupInstruction] = useState("");
-  const [followupBusy, setFollowupBusy] = useState(false);
-  const [generationEvidence, setGenerationEvidence] =
-    useState<WorkbenchGenerationEvidence | null>(null);
-  const [generationEvidenceLoadingTurnId, setGenerationEvidenceLoadingTurnId] =
-    useState<string | null>(null);
-  const [generationEvidenceError, setGenerationEvidenceError] =
-    useState<string | null>(null);
-  const usesWorkbench = Boolean(
-    api.createWorkbenchSession &&
-      api.createWorkbenchVersion &&
-      api.executeWorkbenchVersion,
-  );
-  const usesNotebook = Boolean(
-    api.createWorkbenchTurn && api.getWorkbenchTurns,
-  );
-  const availableProfiles = queryOptions?.profiles.filter(
-    (profile) => profile.available,
-  ) ?? [];
-  const fallbackProfileId =
-    availableProfiles.find(
-      (profile) => profile.id === queryOptions?.defaultProfileId,
-    )?.id ?? availableProfiles[0]?.id ?? "";
-  const selectedAvailableProfileId = availableProfiles.some(
-    (profile) => profile.id === profileId,
-  )
-    ? profileId
-    : fallbackProfileId;
-  const revisionProfiles = queryOptions?.profiles.filter(
-    (profile) => profile.available && profile.revisionCapable === true,
-  ) ?? [];
-  const noAvailableProfiles =
-    queryOptions !== null &&
-    !queryOptions.profiles.some((profile) => profile.available);
-  const fallbackRevisionProfileId =
-    revisionProfiles.find(
-      (profile) => profile.id === queryOptions?.defaultProfileId,
-    )?.id ?? revisionProfiles[0]?.id ?? "";
-  const selectedRevisionProfileId = revisionProfiles.some(
-    (profile) => profile.id === profileId,
-  )
-    ? profileId
-    : fallbackRevisionProfileId;
-
+  const {
+    question,
+    setQuestion,
+    state,
+    setState,
+    queryOptions,
+    profileId,
+    setProfileId,
+    dataSources,
+    dataSourceId,
+    setDataSourceId,
+    workbenchSession,
+    setWorkbenchSession,
+    workbenchTimeline,
+    setWorkbenchTimeline,
+    usesWorkbench,
+    usesNotebook,
+    selectedAvailableProfileId,
+    noAvailableProfiles,
+    selectedRevisionProfileId,
+  } = useWorkbenchSession(api);
+  // A session is grounded in one catalog, so once one is open its recorded
+  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
+  // Reading it from the session rather than mirroring it into state keeps that
+  // structural: the Gateway still accepts a turn that targets another source
+  // (see tests/test_multi_source.py), so this UI should never send one.
+  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
+  const {
+    sql: workbenchSql,
+    setSql: setWorkbenchSql,
+    parameters: workbenchParameters,
+    setParameters: setWorkbenchParameters,
+    catalog: workbenchCatalog,
+    catalogFailed: workbenchCatalogFailed,
+    wrapLines: workbenchWrapLines,
+    setWrapLines: setWorkbenchWrapLines,
+    focusRequestId: sqlEditorFocusRequestId,
+    setFocusRequestId: setSqlEditorFocusRequestId,
+    editorOpen,
+    setEditorOpen,
+  } = useEditorBuffer(api, effectiveDataSourceId);
+  const {
+    workbenchBusy,
+    setWorkbenchBusy,
+    workbenchError,
+    setWorkbenchError,
+    workbenchAnnouncement,
+    setWorkbenchAnnouncement,
+    followupInstruction,
+    setFollowupInstruction,
+    followupBusy,
+    setFollowupBusy,
+  } = useRunActions();
+  const {
+    evidence: generationEvidence,
+    loadingTurnId: generationEvidenceLoadingTurnId,
+    error: generationEvidenceError,
+    show: showGenerationEvidence,
+    reset: resetGenerationEvidence,
+    invalidate: invalidateGenerationEvidence,
+  } = useGenerationEvidence(api);
   // Everything it takes to make a stored session the one on screen. Restore
   // on load and picking one from the rail menu are the same operation.
   // Stable across renders: the restore effect depends on it, and useState
@@ -725,80 +664,26 @@ export const QueryWorkspace = ({
         .then(setWorkbenchTimeline)
         .catch(() => setWorkbenchTimeline(null));
     }
-  }, [api]);
-
-  useEffect(() => {
-    if (!api.getQueryOptions) return;
-    const controller = new AbortController();
-    api.getQueryOptions(controller.signal)
-      .then((options) => {
-        setQueryOptions(options);
-        const defaultProfile = options.profiles.find(
-          (profile) => profile.id === options.defaultProfileId && profile.available,
-        );
-        const fallbackProfileId =
-          defaultProfile?.id ??
-          options.profiles.find((profile) => profile.available)?.id ??
-          "";
-        setProfileId((currentProfileId) => currentProfileId || fallbackProfileId);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [api]);
-
-  useEffect(() => {
-    if (!api.getDataSources) return;
-    const controller = new AbortController();
-    api.getDataSources(controller.signal)
-      .then((response) => {
-        setDataSources(response);
-        setDataSourceId((current) => {
-          // A URL can name a source this deployment does not register (stale
-          // link, renamed source). Fall back to the default rather than
-          // sending an id every request would reject.
-          const known = response.dataSources.some(
-            (source) => source.id === current && source.available,
-          );
-          return known ? current : response.defaultDataSourceId;
-        });
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [api]);
-
-  // A session is grounded in one catalog, so once one is open its recorded
-  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
-  // Reading it from the session rather than mirroring it into state keeps that
-  // structural: the Gateway still accepts a turn that targets another source
-  // (see tests/test_multi_source.py), so this UI should never send one.
-  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
+  }, [
+    api,
+    setDataSourceId,
+    setDetailsOpen,
+    setDetailsTurnId,
+    setProfileId,
+    setQuestion,
+    setRailSection,
+    setRailWidth,
+    setWorkbenchParameters,
+    setWorkbenchError,
+    setWorkbenchSession,
+    setWorkbenchSql,
+    setWorkbenchTimeline,
+    setWorkbenchWrapLines,
+  ]);
 
   useEffect(() => {
     writeDataSourceIdToUrl(effectiveDataSourceId);
   }, [effectiveDataSourceId]);
-
-  useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize, { passive: true });
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    if (!api.getWorkbenchCatalog) return;
-    const controller = new AbortController();
-    api.getWorkbenchCatalog(effectiveDataSourceId || undefined, controller.signal)
-      .then((catalog) => {
-        setWorkbenchCatalog(catalog);
-        setWorkbenchCatalogFailed(false);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setWorkbenchCatalog(null);
-          setWorkbenchCatalogFailed(true);
-        }
-      });
-    return () => controller.abort();
-  }, [api, effectiveDataSourceId]);
 
   useEffect(() => {
     if (!api.getWorkbenchSession) return;
@@ -822,7 +707,7 @@ export const QueryWorkspace = ({
         if (!controller.signal.aborted) forgetActiveWorkbenchSession();
       });
     return () => controller.abort();
-  }, [api, adoptWorkbenchSession]);
+  }, [api, adoptWorkbenchSession, setWorkbenchTimeline]);
 
   useEffect(() => {
     if (state.kind !== "polling") return;
@@ -853,7 +738,7 @@ export const QueryWorkspace = ({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [api, pollIntervalMs, state]);
+  }, [api, pollIntervalMs, state, setState]);
 
   const submitQuestion = async (normalizedQuestion: string) => {
     setState({ kind: "submitting" });
@@ -963,9 +848,7 @@ export const QueryWorkspace = ({
     setWorkbenchTimeline(null);
     setFollowupInstruction("");
     setFollowupBusy(false);
-    setGenerationEvidence(null);
-    setGenerationEvidenceLoadingTurnId(null);
-    setGenerationEvidenceError(null);
+    resetGenerationEvidence();
     forgetActiveWorkbenchSession();
     setActiveSection("ask");
     try {
@@ -1121,8 +1004,7 @@ export const QueryWorkspace = ({
     setFollowupBusy(true);
     setWorkbenchError(null);
     setWorkbenchAnnouncement("");
-    setGenerationEvidence(null);
-    setGenerationEvidenceError(null);
+    invalidateGenerationEvidence();
     const baseVersion = workbenchSession.currentVersion;
     const content = {
       sql: workbenchSql,
@@ -1215,27 +1097,6 @@ export const QueryWorkspace = ({
       setWorkbenchError(messageFromError(error));
     } finally {
       setFollowupBusy(false);
-    }
-  };
-
-  const showWorkbenchGenerationEvidence = async (turnId: string) => {
-    if (!workbenchSession || !api.getWorkbenchGenerationEvidence) {
-      setGenerationEvidenceError("Generation evidence is unavailable.");
-      return;
-    }
-    setGenerationEvidenceLoadingTurnId(turnId);
-    setGenerationEvidenceError(null);
-    try {
-      setGenerationEvidence(
-        await api.getWorkbenchGenerationEvidence(
-          workbenchSession.sessionId,
-          turnId,
-        ),
-      );
-    } catch (error) {
-      setGenerationEvidenceError(messageFromError(error));
-    } finally {
-      setGenerationEvidenceLoadingTurnId(null);
     }
   };
 
@@ -1361,7 +1222,7 @@ export const QueryWorkspace = ({
     if (turn) setActiveTurnOrdinal(turn.ordinal);
     if (isManualCell(turnId)) return;
     if (generationEvidence?.turnId !== turnId) {
-      void showWorkbenchGenerationEvidence(turnId);
+      void showGenerationEvidence(workbenchSession?.sessionId ?? null, turnId);
     }
   };
 

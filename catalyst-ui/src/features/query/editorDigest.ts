@@ -241,6 +241,20 @@ export const sqlLayoutMatches = (left: string, right: string): boolean =>
   normalizeSqlLayout(left) === normalizeSqlLayout(right);
 
 /**
+ * Whether two parameter lists bind the same values.
+ *
+ * The last surviving instance of the hand-written comparison class was
+ * `JSON.stringify(a) === JSON.stringify(b)` on parameters — which also reads
+ * two equal parameters as different when their keys serialize in a different
+ * order. Canonical JSON sorts keys, so this compares what is bound, not how
+ * the object happened to be built.
+ */
+export const parametersMatch = (
+  left: BoundParameter[],
+  right: BoundParameter[],
+): boolean => canonicalJson(left) === canonicalJson(right);
+
+/**
  * The model's declared columns, kept only while they still describe the query.
  *
  * Layout-insensitive for the same reason the authorship check is: a reflow of
