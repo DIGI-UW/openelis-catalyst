@@ -10,6 +10,7 @@ import type {
   WorkbenchTurnTimeline,
   WorkbenchValidation,
 } from "../src/features/query/types";
+import { workbenchEditorDigest } from "../src/features/query/editorDigest";
 import { QUESTION } from "../src/features/query/test/fixtures";
 
 const query = process.env.PLAYWRIGHT_QUERY ?? QUESTION;
@@ -1136,7 +1137,13 @@ test("question to iterative notebook to imported dashboard", async ({
         sql: manualSql,
         parameters,
         expectedColumns: [],
-        editorDigest: manualQueryDigest,
+        // The digest of the snapshot being sent. The gateway recomputes it over
+        // what it receives, so any other value fails the wire's own check.
+        editorDigest: workbenchEditorDigest({
+          sql: manualSql,
+          parameters,
+          expectedColumns: [],
+        }),
       },
     });
 
