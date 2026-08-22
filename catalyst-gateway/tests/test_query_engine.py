@@ -254,7 +254,15 @@ async def test_reviewed_path_runs_writer_then_reviewer():
 
 
 @pytest.mark.asyncio
-async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
+async def test_a_malformed_review_gets_one_corrective_attempt_and_recovers():
+    """The case that cost a real turn.
+
+    A reviewer failed field-grounding, announced in its message that it was
+    repairing the candidate, and then emitted ``{"status": "ready"}`` with no SQL.
+    The corrective re-ask and the instruction written for exactly this case
+    already existed; an early raise made them unreachable, so the turn ended on a
+    jsonschema string instead of a second attempt.
+    """
     captured_messages = []
     malformed_review = {
         "decision": "repair",
@@ -267,7 +275,36 @@ async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
 
     result = await _run_revision(
         _collaborative_profile(),
-        [_ready_candidate(), malformed_review],
+        [_ready_candidate(), malformed_review, _approve_review()],
+        captured_messages=captured_messages,
+    )
+
+    # The corrected review lands and the turn completes.
+    assert result["status"] != "rejected"
+    # Three model calls: writer, malformed review, corrected review.
+    assert len(captured_messages) == 3
+    # The correction names the contract rather than restating the question.
+    correction = captured_messages[2][-1]["content"]
+    assert "failed the strict output contract" in correction
+
+
+@pytest.mark.asyncio
+async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
+    captured_messages = []
+    malformed_review = {
+        "decision": "repair",
+        "checks": _approve_review()["checks"],
+        "candidate": {
+            "status": "ready",
+            "target": copy.deepcopy(RESPONSE_TARGET),
+        },
+    }
+
+    # Two malformed reviews: the reviewer is asked once to correct the shape of
+    # its output and fails again. One corrective attempt, then the turn stops.
+    result = await _run_revision(
+        _collaborative_profile(),
+        [_ready_candidate(), malformed_review, malformed_review],
         captured_messages=captured_messages,
     )
 

@@ -716,8 +716,11 @@ async def _review(
         _finish_invocation(
             invocations[-1], outcome="contract_failed", failure=str(error)
         )
-        if not deterministic_findings:
-            raise QueryReviewError(str(error), raw_output=content) from error
+        # No early exit here. The corrective re-ask below, and the instruction
+        # written for this very case, were unreachable while a review with no
+        # deterministic findings raised immediately -- so a reviewer that
+        # diagnosed the query correctly and then bungled the shape of its repair
+        # took the turn down without ever being asked to fix the shape.
         if deterministic_findings:
             correction_instruction = (
                 "Your repair JSON failed the strict output contract: "
@@ -770,8 +773,14 @@ async def _review(
                 outcome="contract_failed",
                 failure=str(correction_error),
             )
+            # The contract detail stays, because it is what a developer needs,
+            # but it is no longer the whole message: a bare jsonschema string is
+            # not something to show a person who asked a question about data.
             raise QueryReviewError(
-                str(correction_error), raw_output=corrected
+                "The reviewer did not return a usable review. It was asked once "
+                "to correct the shape of its output and did not. Its raw output "
+                f"is retained as evidence. Contract detail: {correction_error}",
+                raw_output=corrected,
             ) from correction_error
         return parsed, 2
 
