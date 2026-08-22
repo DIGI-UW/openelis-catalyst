@@ -1313,6 +1313,39 @@ def test_ready_candidate_historical_lint_warning_stays_in_generation_history(
     )
 
 
+def test_failed_turn_names_its_failed_checks_in_the_failure_block(
+    tmp_path: Path,
+) -> None:
+    # WS3b decision: 201 + an explicit failure block IS the API contract for a
+    # failed turn — and the block must name what failed, not just narrate it.
+    # The named checks existed at failure time all along; they were dropped on
+    # the way into diagnostic.details, which was always [].
+    # The recoverable candidate is removed so the turn genuinely fails
+    # (a recoverable rejection completes as an unresolved draft instead).
+    query = _rejected_query()
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = "SELECT 1"
+    client, _ = _client(tmp_path, query)
+    session = _create_session(client)
+
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    turn = timeline["turns"][0]
+    assert turn["status"] == "failed"
+    failure = turn["failure"]
+    assert failure["stage"]
+    assert failure["code"]
+    assert failure["message"]
+    details = failure["diagnostic"]["details"]
+    assert {
+        "name": "query_generate",
+        "value": "failed — Generation did not pass lint.",
+    } in details
+    # Passed checks are not failures; they stay out of the failure block.
+    assert all(not detail["value"].startswith("passed") for detail in details)
+
+
 def test_structured_raw_only_diagnostic_is_preserved_for_manual_recovery(
     tmp_path: Path,
 ) -> None:

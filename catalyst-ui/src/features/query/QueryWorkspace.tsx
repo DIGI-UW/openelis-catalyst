@@ -53,6 +53,7 @@ import {
   type CatalystQueryOutcome,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
+  type WorkbenchTurnFailure,
   type WorkbenchTurnRequest,
   type WorkbenchTurnTimeline,
 } from "./types";
@@ -235,6 +236,21 @@ const manualNotebookTurns = (
 };
 
 /** A cell with no model generation behind it has no evidence to fetch. */
+/** The failure diagnostic's named details, when the gateway recorded any. */
+const failureCheckDetails = (failure: WorkbenchTurnFailure) => {
+  const details = (failure.diagnostic as { details?: unknown } | undefined)
+    ?.details;
+  if (!Array.isArray(details)) return undefined;
+  const checks = details.flatMap((detail) => {
+    if (typeof detail !== "object" || detail === null) return [];
+    const { name, value } = detail as { name?: unknown; value?: unknown };
+    return typeof name === "string" && typeof value === "string"
+      ? [{ name, value }]
+      : [];
+  });
+  return checks.length > 0 ? checks : undefined;
+};
+
 const isManualCell = (turnId: string) => turnId.startsWith("manual:");
 
 const notebookTurns = (
@@ -266,7 +282,12 @@ const notebookTurns = (
         (version) => version.versionId === output.versionId,
       ),
     })),
-    failure: turn.failure ? { message: turn.failure.message } : null,
+    failure: turn.failure
+      ? {
+          message: turn.failure.message,
+          checks: failureCheckDetails(turn.failure),
+        }
+      : null,
     execution: executionForVersion(session, turn.selectedVersionId),
     validationStatus: validationStatusForVersion(session, turn.selectedVersionId),
     current:

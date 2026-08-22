@@ -57,7 +57,11 @@ export interface NotebookTurn {
     writer: { modelId: string } | null;
     reviewer: { modelId: string } | null;
   };
-  failure: { message: string } | null;
+  failure: {
+    message: string;
+    /** The named checks that failed, straight from the failure diagnostic. */
+    checks?: { name: string; value: string }[];
+  } | null;
   /** Run recorded against this turn's selected version, if it has been run. */
   execution?: WorkbenchExecution | null;
   /** Advisory validation status for this turn's selected version. */
@@ -176,6 +180,29 @@ const cellAuthor = (turn: NotebookTurn): "model" | "human" | "reviewer" => {
 };
 
 /** The right-hand summary in a collapsed header: `v3 · 12 rows`. */
+/**
+ * A completed turn whose profile declares a reviewer, but whose selected
+ * version no reviewer ever signed off: no reviewer output, and no recorded
+ * query_review check. Silence here read as approval, which is the one thing
+ * an unreviewed query must not do.
+ */
+const isUnreviewed = (turn: NotebookTurn, version: NotebookVersion | null) => {
+  if (turn.status !== "completed") return false;
+  if (!turn.profileSnapshot.reviewer) return false;
+  if (turn.outputVersions.some((output) => output.role === "reviewer")) {
+    return false;
+  }
+  const provenance = (version?.provenance ?? {}) as Record<string, unknown>;
+  if (typeof provenance.collaborationRole === "string") return false;
+  const validation = provenance.generationValidation as
+    | { checks?: { name?: unknown }[] }
+    | undefined;
+  const reviewed = (validation?.checks ?? []).some(
+    (check) => String(check?.name ?? "").startsWith("query_review"),
+  );
+  return !reviewed;
+};
+
 const cellOutcome = (turn: NotebookTurn) => {
   if (turn.status === "failed") return "generation failed";
   if (turn.status === "requested") return "generating…";
@@ -401,8 +428,10 @@ export const TurnNotebook = ({
     // The visible header truncates the instruction to one line, so the
     // accessible name carries it in full alongside the run counter it is cited
     // by and the outcome the status dot encodes visually.
+    const unreviewed = isUnreviewed(turn, version);
     const headerLabel =
-      `Query turn ${turn.ordinal}: ${turn.instruction} — ${outcome}`;
+      `Query turn ${turn.ordinal}: ${turn.instruction} — ${outcome}` +
+      (unreviewed ? " — unreviewed" : "");
 
     return (
       <article
@@ -427,6 +456,13 @@ export const TurnNotebook = ({
           >
             <span className="query-turn__dot" aria-hidden="true" />
             <span className="query-turn__summary">{turn.instruction}</span>
+            {/*
+              Visible while the cell is collapsed, because that is exactly when
+              an unreviewed query would otherwise pass unnoticed.
+            */}
+            {unreviewed && (
+              <span className="query-turn__unreviewed">unreviewed</span>
+            )}
             <span className="query-turn__outcome">{outcome}</span>
             <span className="query-turn__caret" aria-hidden="true">
               {expanded ? "▾" : "▸"}
@@ -499,6 +535,20 @@ export const TurnNotebook = ({
                   <p>
                     {turn.failure?.message ?? "The generation did not complete."}
                   </p>
+                  {/*
+                    Which checks failed, by name, so the reason is readable
+                    here rather than only in Evidence.
+                  */}
+                  {turn.failure?.checks && turn.failure.checks.length > 0 && (
+                    <dl className="query-turn__failure-checks">
+                      {turn.failure.checks.map((check) => (
+                        <div key={check.name}>
+                          <dt>{check.name}</dt>
+                          <dd>{check.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                 </div>
               )}
 

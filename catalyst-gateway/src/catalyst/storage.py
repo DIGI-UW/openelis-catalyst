@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 import sqlite3
 import threading
 import uuid
@@ -1637,6 +1638,7 @@ class WorkbenchStore:
         invocations: list[dict[str, Any]] | None = None,
         retained_writer: dict[str, Any] | None = None,
         retained_writer_validation: dict[str, Any] | None = None,
+        details: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         timestamp = _timestamp(self._now())
         with self._transaction() as connection:
@@ -1695,7 +1697,9 @@ class WorkbenchStore:
                 "diagnostic": {
                     "contractVersion": "catalyst.workbench.turn-failure-diagnostic.v1",
                     "retryable": stage not in {"orphan_recovery", "legacy_generation"},
-                    "details": [],
+                    # The named checks that failed, when the outcome carried
+                    # any -- what the person reads instead of opening Evidence.
+                    "details": deepcopy(details or []),
                 },
             }
             terminal_event = {

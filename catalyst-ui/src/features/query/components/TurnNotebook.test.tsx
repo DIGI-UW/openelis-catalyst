@@ -701,6 +701,85 @@ describe("TurnNotebook", () => {
     expect(screen.getByText("+2 −0 vs [3]")).toBeVisible();
   });
 
+  it("names a failed turn's failed checks in the cell", () => {
+    const failedTurn = {
+      ...followupTurn,
+      turnId: "eeeeeeee-1111-4111-8111-eeeeeeeeeeee",
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        message: "Query generation failed its structured-output contract.",
+        checks: [
+          {
+            name: "query_review",
+            value: "failed — Reviewer emitted an incomplete candidate.",
+          },
+        ],
+      },
+    };
+    render(<TurnNotebook {...defaultProps} turns={[initialTurn, failedTurn]} />);
+
+    expect(
+      screen.getByText("Query generation failed its structured-output contract."),
+    ).toBeVisible();
+    expect(screen.getByText("query_review")).toBeVisible();
+    expect(
+      screen.getByText("failed — Reviewer emitted an incomplete candidate."),
+    ).toBeVisible();
+  });
+
+  it("marks a completed model turn that no reviewer signed off as unreviewed", () => {
+    // initialTurn is exactly this state: the profile declares a reviewer, the
+    // only output is the writer's, and the version's provenance carries no
+    // query_review check. followupTurn has a reviewer output and stays clean.
+    render(<TurnNotebook {...defaultProps} />);
+
+    const cells = document.querySelectorAll(".query-turn");
+    expect(cells[0]!.textContent).toMatch(/unreviewed/i);
+    expect(cells[1]!.textContent).not.toMatch(/unreviewed/i);
+  });
+
+  it("treats a provenance-recorded review as reviewed", () => {
+    const reviewedProvenance = {
+      ...modelVersion.provenance,
+      generationValidation: {
+        status: "passed",
+        checks: [{ name: "query_review", status: "passed" }],
+      },
+    };
+    const reviewedVersion = { ...modelVersion, provenance: reviewedProvenance };
+    const reviewedTurn = {
+      ...initialTurn,
+      outputVersions: [
+        {
+          selected: true,
+          role: "writer" as const,
+          contractValid: true,
+          version: reviewedVersion,
+        },
+      ],
+    };
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        session={
+          {
+            ...session,
+            versions: session.versions.map((item) =>
+              item.versionId === modelVersion.versionId
+                ? { ...item, provenance: reviewedProvenance }
+                : item,
+            ),
+          } as typeof session
+        }
+        turns={[reviewedTurn, followupTurn]}
+      />,
+    );
+
+    expect(screen.queryByText(/unreviewed/i)).not.toBeInTheDocument();
+  });
+
   it("collapses as you scroll up into history and returns as you scroll back", async () => {
     const user = userEvent.setup();
     render(<TurnNotebook {...defaultProps} />);
