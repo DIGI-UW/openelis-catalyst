@@ -38,6 +38,7 @@ import {
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
 import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
+import { useEditorBuffer } from "./hooks/useEditorBuffer";
 import { useWorkbenchShell } from "./hooks/useWorkbenchShell";
 import type { ThemePreference } from "./theme";
 import {
@@ -51,7 +52,6 @@ import {
   type DataSourcesResponse,
   type CatalystTable,
   type QueryOptions,
-  type WorkbenchEditorCatalog,
   type WorkbenchQueryVersion,
   type WorkbenchSession,
   type WorkbenchTurnRequest,
@@ -610,7 +610,6 @@ export const QueryWorkspace = ({
     setDeveloperMode,
     viewportWidth,
   } = useWorkbenchShell();
-  const [editorOpen, setEditorOpen] = useState(false);
   // A run asks for the cell that will carry its result; the cell is only in
   // the document a render later, so the request waits here until it exists.
   const revealVersionId = useRef<string | null>(null);
@@ -636,18 +635,29 @@ export const QueryWorkspace = ({
   const [dataSourceId, setDataSourceId] = useState(readDataSourceIdFromUrl);
   const [workbenchSession, setWorkbenchSession] =
     useState<WorkbenchSession | null>(null);
-  const [workbenchSql, setWorkbenchSql] = useState("");
-  const [workbenchParameters, setWorkbenchParameters] = useState<
-    BoundParameter[]
-  >([]);
-  const [workbenchCatalog, setWorkbenchCatalog] =
-    useState<WorkbenchEditorCatalog | null>(null);
-  const [workbenchCatalogFailed, setWorkbenchCatalogFailed] = useState(false);
-  const [workbenchWrapLines, setWorkbenchWrapLines] = useState(true);
+  // A session is grounded in one catalog, so once one is open its recorded
+  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
+  // Reading it from the session rather than mirroring it into state keeps that
+  // structural: the Gateway still accepts a turn that targets another source
+  // (see tests/test_multi_source.py), so this UI should never send one.
+  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
+  const {
+    sql: workbenchSql,
+    setSql: setWorkbenchSql,
+    parameters: workbenchParameters,
+    setParameters: setWorkbenchParameters,
+    catalog: workbenchCatalog,
+    catalogFailed: workbenchCatalogFailed,
+    wrapLines: workbenchWrapLines,
+    setWrapLines: setWorkbenchWrapLines,
+    focusRequestId: sqlEditorFocusRequestId,
+    setFocusRequestId: setSqlEditorFocusRequestId,
+    editorOpen,
+    setEditorOpen,
+  } = useEditorBuffer(api, effectiveDataSourceId);
   const [workbenchBusy, setWorkbenchBusy] = useState<"running" | null>(null);
   const [workbenchError, setWorkbenchError] = useState<string | null>(null);
   const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
-  const [sqlEditorFocusRequestId, setSqlEditorFocusRequestId] = useState(0);
   const [workbenchTimeline, setWorkbenchTimeline] =
     useState<WorkbenchTurnTimeline | null>(null);
   const [followupInstruction, setFollowupInstruction] = useState("");
@@ -729,7 +739,16 @@ export const QueryWorkspace = ({
         .then(setWorkbenchTimeline)
         .catch(() => setWorkbenchTimeline(null));
     }
-  }, [api, setDetailsOpen, setDetailsTurnId, setRailSection, setRailWidth]);
+  }, [
+    api,
+    setDetailsOpen,
+    setDetailsTurnId,
+    setRailSection,
+    setRailWidth,
+    setWorkbenchParameters,
+    setWorkbenchSql,
+    setWorkbenchWrapLines,
+  ]);
 
   useEffect(() => {
     if (!api.getQueryOptions) return;
@@ -770,33 +789,9 @@ export const QueryWorkspace = ({
     return () => controller.abort();
   }, [api]);
 
-  // A session is grounded in one catalog, so once one is open its recorded
-  // source is authoritative and a `?dataSource=` in the URL cannot retarget it.
-  // Reading it from the session rather than mirroring it into state keeps that
-  // structural: the Gateway still accepts a turn that targets another source
-  // (see tests/test_multi_source.py), so this UI should never send one.
-  const effectiveDataSourceId = workbenchSession?.dataSourceId || dataSourceId;
-
   useEffect(() => {
     writeDataSourceIdToUrl(effectiveDataSourceId);
   }, [effectiveDataSourceId]);
-
-  useEffect(() => {
-    if (!api.getWorkbenchCatalog) return;
-    const controller = new AbortController();
-    api.getWorkbenchCatalog(effectiveDataSourceId || undefined, controller.signal)
-      .then((catalog) => {
-        setWorkbenchCatalog(catalog);
-        setWorkbenchCatalogFailed(false);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setWorkbenchCatalog(null);
-          setWorkbenchCatalogFailed(true);
-        }
-      });
-    return () => controller.abort();
-  }, [api, effectiveDataSourceId]);
 
   useEffect(() => {
     if (!api.getWorkbenchSession) return;
