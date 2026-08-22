@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .digest import canonical_sha256, query_digest, utf8_sha256
+from .sql_layout import sql_layout_matches
 from .workbench import workbench_query_digest
 
 
@@ -1324,15 +1325,18 @@ class WorkbenchStore:
 
             if (
                 current is not None
-                and digest == current_digest
-                and sql == current["sql"]
+                and sql_layout_matches(sql, current["sql"])
                 and parameters == json.loads(current["parameters_json"])
                 and columns == json.loads(current["expected_columns_json"])
             ):
                 # Validate, Run, and follow-up all resolve the exact visible
                 # editor buffer against the same immutable content identity.
                 # Saving an unchanged buffer is therefore a read-only reuse,
-                # not a duplicate human version or event.
+                # not a duplicate human version or event. "Unchanged" is judged
+                # up to layout: a reformatted buffer is the same query, and
+                # minting a human-authored copy of the model's own work is the
+                # mislabelling this exists to prevent. The stored bytes (and
+                # their digest) remain the version of record.
                 return self._version_from_row(current)
 
             ordinal = int(

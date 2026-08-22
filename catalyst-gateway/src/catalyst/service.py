@@ -26,6 +26,7 @@ from .policy import (
     validate_query_invariants,
 )
 from .request import QUERY_PROFILE_ID, build_query_request, build_revision_query_request
+from .sql_layout import sql_layout_matches
 from .storage import (
     ExecutionDecision,
     ActiveTurnGenerationError,
@@ -1729,10 +1730,12 @@ class CatalystService:
                     parent["expectedColumns"] if parent is not None else [],
                 )
             )
-            if parent is not None and sql != parent["sql"]:
+            if parent is not None and not sql_layout_matches(sql, parent["sql"]):
                 # Expected columns describe model output, not an independently
                 # editable contract. Once a human changes SQL, retaining the old
                 # projection would present stale schema as if it were verified.
+                # A reformat is not such a change: a reflowed query has the
+                # same projection, so the model's declaration still holds.
                 expected_columns = []
             version = store.append_version(
                 session_id,
