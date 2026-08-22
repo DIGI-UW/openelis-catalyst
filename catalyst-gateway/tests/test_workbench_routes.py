@@ -1528,16 +1528,15 @@ def test_unresolved_findings_are_named_and_classified_as_semantics(
     assert "Replace the literal" in failure["message"]
 
 
-def test_the_loops_instructions_to_itself_are_not_shown_as_advice(
+def test_the_loop_does_not_speak_to_the_reader_in_its_own_words(
     tmp_path: Path,
 ) -> None:
-    """A suggested action is only advice if a person can act on it.
+    """The correction loop reports on itself in its own vocabulary.
 
-    The correction loop raises findings about its own run, and their suggested
-    actions tell the model what to return next -- "stop retrying", "return one
-    complete JSON candidate". Printed in the cell they read as instructions to
-    the reader, who has no such lever. The finding itself still says what
-    happened.
+    "Stop retrying and reject this generation run" is addressed to the runner,
+    and "anchored SQL text must occur exactly once" is about the patch format.
+    Neither is something the reader can act on, so neither is quoted to them.
+    The words survive in the diagnostic, where someone debugging the run looks.
     """
     query = _rejected_query()
     finding = {
@@ -1567,13 +1566,18 @@ def test_the_loops_instructions_to_itself_are_not_shown_as_advice(
     ).json()
     failure = timeline["turns"][0]["failure"]
 
-    assert failure["message"] == finding["message"]
     assert "Stop retrying" not in failure["message"]
-    # It is still recorded, where someone reading the diagnostic can see it.
+    assert "unchanged candidate" not in failure["message"]
+    assert (
+        failure["message"] == "The model did not produce a usable query in 1 attempt."
+    )
+    # Nor does it reach the cell's technical tier, which is read in the thread.
     named = {
         detail["name"]: detail["value"] for detail in failure["diagnostic"]["details"]
     }
-    assert "Stop retrying" in named["generation.unchanged_candidate"]
+    assert "generation.unchanged_candidate" not in named
+    # What the model returned is recorded, and one click away from the cell.
+    assert failure["evidenceAvailable"] is True
 
 
 def test_asking_for_a_field_the_dataset_lacks_becomes_a_question(
@@ -1653,6 +1657,118 @@ def test_a_mixed_failure_is_not_reduced_to_a_question(tmp_path: Path) -> None:
     ).json()
 
     assert timeline["turns"][0]["failure"]["code"] == "generation_findings_unresolved"
+
+
+def test_the_query_finding_outlives_the_repair_that_failed_after_it(
+    tmp_path: Path,
+) -> None:
+    """A later attempt reporting on the machinery does not bury the defect.
+
+    This is the shape of every real exhaustion: attempt 1 produces a candidate
+    with a bad identifier, and the patches sent to fix it fail to apply. The
+    last thing that happened is a patch that would not apply -- a fact about
+    the correction loop. What still stands is the identifier, which is what
+    the person asked about and the only thing they can act on.
+    """
+    query = _rejected_query()
+    unknown_column = {
+        "code": "catalog.unknown_column",
+        "stage": "catalog_identifiers",
+        "severity": "error",
+        "path": "$.sql",
+        "message": "SQL references fields absent from the approved catalog.",
+        "evidence": "t2.last_name",
+        "suggestedAction": "Replace or remove every field not in the catalog.",
+    }
+    patch_rejected = {
+        "code": "generation.patch_ambiguous",
+        "stage": "query_correct",
+        "severity": "error",
+        "path": "$",
+        "message": "Anchored SQL text 't2.last_name' must occur exactly once.",
+        "evidence": "generation correction patch was rejected",
+        "suggestedAction": "Return only permitted patch operations.",
+    }
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    query["diagnosticCandidate"]["attempts"] = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "finding_codes": [unknown_column["code"]],
+            "findings": [unknown_column],
+        },
+        {
+            "attempt": 2,
+            "status": "failed",
+            "finding_codes": [patch_rejected["code"]],
+            "findings": [patch_rejected],
+        },
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    # The unknown identifier is unanswerable without asking, so it reaches the
+    # reader as the question it is -- and the patch machinery says nothing.
+    assert failure["code"] == "needs_clarification"
+    assert "t2.last_name" in failure["message"]
+    assert "Anchored SQL text" not in failure["message"]
+    named = {
+        detail["name"]: detail["value"] for detail in failure["diagnostic"]["details"]
+    }
+    assert "catalog.unknown_column" in named
+
+
+def test_a_run_that_learned_nothing_says_so_without_contract_jargon(
+    tmp_path: Path,
+) -> None:
+    """Attempts that never described the query still owe the reader a sentence.
+
+    When every attempt failed on the machinery there is no finding to report,
+    and the outcome's own wording is the structured-output boilerplate this
+    work exists to remove. What is true and useful is that the model tried and
+    did not get there.
+    """
+    query = _rejected_query()
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = "not json"
+    query["diagnosticCandidate"]["attempts"] = [
+        {
+            "attempt": attempt,
+            "status": "failed",
+            "finding_codes": ["contract.invalid_candidate"],
+            "findings": [
+                {
+                    "code": "contract.invalid_candidate",
+                    "stage": "output_contract",
+                    "severity": "error",
+                    "path": "$",
+                    "message": "candidate failed the strict JSON Schema contract",
+                    "evidence": "candidate failed the strict JSON Schema contract",
+                    "suggestedAction": "Return exactly one complete JSON candidate.",
+                }
+            ],
+        }
+        for attempt in (1, 2, 3)
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    assert "3 attempts" in failure["message"]
+    assert "structured-output contract" not in failure["message"]
+    assert "JSON Schema" not in failure["message"]
+    # Nothing was learned about the request, so this is not the semantic case.
+    assert failure["code"] != "generation_findings_unresolved"
 
 
 def test_shape_failures_stay_classified_as_output_contract(
