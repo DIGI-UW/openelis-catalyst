@@ -114,6 +114,9 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Demo recordings live on the host, not in git or an image. Read-only:
+      # the edge serves them, the deploy is what writes them.
+      - "${CATALYST_MEDIA_DIR:-./runtime/media}:/srv/media:ro"
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

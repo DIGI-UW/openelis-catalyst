@@ -32,6 +32,21 @@
 		}
 	}
 
+	# Demo media -- recordings the landing page and the docs site link to.
+	# Served from a directory on the host rather than from the repository or a
+	# container image: an MP4 re-recorded on every UI change is a new blob each
+	# time, and git keeps every one of them forever. Files here are uploaded by
+	# the deploy, so the pages can link to a stable URL without the videos
+	# entering history. Cached hard because a given filename never changes
+	# content -- a new cut gets a new name.
+	handle_path /media/* {
+		root * /srv/media
+		header Cache-Control "public, max-age=604800, immutable"
+		file_server {
+			precompressed
+		}
+	}
+
 	# Everything else is the SPA (static assets + client-side routes).
 	handle {
 		reverse_proxy catalyst-ui:8080
