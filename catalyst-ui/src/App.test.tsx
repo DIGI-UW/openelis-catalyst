@@ -1176,6 +1176,11 @@ describe("Catalyst query workflow", () => {
       name: "Follow-up instruction",
     });
     await user.type(instruction, "Only include released results");
+    // An edit, so the run really does have a version to save — an unchanged
+    // draft runs the version it came from and saves nothing.
+    await user.click(screen.getByRole("textbox", { name: "SQL query" }));
+    await user.keyboard("{Control>}{End}{/Control}");
+    await user.paste(" AND 1 = 1");
     await user.click(screen.getByRole("button", { name: "Run query" }));
 
     await waitFor(() => expect(api.createWorkbenchVersion).toHaveBeenCalledOnce());
@@ -1619,6 +1624,36 @@ describe("Catalyst query workflow", () => {
     );
   });
 
+  it("runs the model's own version when the editor has not changed it", async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    api.createWorkbenchSession = vi.fn().mockResolvedValue(workbenchSession);
+    api.createWorkbenchVersion = vi.fn();
+    api.executeWorkbenchVersion = vi.fn().mockResolvedValue({
+      ...failedWorkbenchExecution,
+      queryDigest: workbenchVersion.queryDigest,
+    });
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await user.click(await screen.findByRole("button", { name: "Run query" }));
+
+    // Running a query nobody rewrote is not authoring one. Every version this
+    // endpoint creates is recorded as hand-authored by the gateway, so saving
+    // one here labelled the model's own query "Edited by hand" the moment it
+    // was run -- which is what Ian saw, and what the editor now presenting SQL
+    // formatted would otherwise have made unavoidable.
+    await waitFor(() =>
+      expect(api.executeWorkbenchVersion).toHaveBeenCalledWith(
+        workbenchVersion.versionId,
+        workbenchVersion.queryDigest,
+        expect.any(String),
+      ),
+    );
+    expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
   it("persists and executes the exact draft even when validation is invalid", async () => {
     const user = userEvent.setup();
     const api = makeApi();
@@ -1632,6 +1667,12 @@ describe("Catalyst query workflow", () => {
 
     await user.type(screen.getByLabelText("Question"), QUESTION);
     await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const editor = await screen.findByRole("textbox", { name: "SQL query" });
+    // A real edit, so there genuinely is a new version to persist: an
+    // unchanged draft now runs the version it came from.
+    await user.click(editor);
+    await user.keyboard("{Control>}{End}{/Control}");
+    await user.paste(" LIMIT 5");
     await user.click(await screen.findByRole("button", { name: "Run query" }));
 
     expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
@@ -1639,7 +1680,7 @@ describe("Catalyst query workflow", () => {
       {
         parentVersionId: workbenchVersion.versionId,
         parentQueryDigest: workbenchVersion.queryDigest,
-        sql: asEditorText(workbenchVersion.sql),
+        sql: `${asEditorText(workbenchVersion.sql)} LIMIT 5`,
         parameters: workbenchVersion.parameters,
         expectedColumns: [],
       },
