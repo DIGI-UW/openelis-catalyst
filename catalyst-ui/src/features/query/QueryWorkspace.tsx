@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   type CSSProperties,
 } from "react";
 import type { CatalystApi } from "./api";
@@ -38,6 +37,7 @@ import {
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
 import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
+import { useRunActions } from "./hooks/useRunActions";
 import { useEditorBuffer } from "./hooks/useEditorBuffer";
 import {
   useWorkbenchSession,
@@ -611,11 +611,18 @@ export const QueryWorkspace = ({
     editorOpen,
     setEditorOpen,
   } = useEditorBuffer(api, effectiveDataSourceId);
-  const [workbenchBusy, setWorkbenchBusy] = useState<"running" | null>(null);
-  const [workbenchError, setWorkbenchError] = useState<string | null>(null);
-  const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
-  const [followupInstruction, setFollowupInstruction] = useState("");
-  const [followupBusy, setFollowupBusy] = useState(false);
+  const {
+    workbenchBusy,
+    setWorkbenchBusy,
+    workbenchError,
+    setWorkbenchError,
+    workbenchAnnouncement,
+    setWorkbenchAnnouncement,
+    followupInstruction,
+    setFollowupInstruction,
+    followupBusy,
+    setFollowupBusy,
+  } = useRunActions();
   const {
     evidence: generationEvidence,
     loadingTurnId: generationEvidenceLoadingTurnId,
@@ -667,6 +674,7 @@ export const QueryWorkspace = ({
     setRailSection,
     setRailWidth,
     setWorkbenchParameters,
+    setWorkbenchError,
     setWorkbenchSession,
     setWorkbenchSql,
     setWorkbenchTimeline,
