@@ -49,4 +49,9 @@ export const formatPostgresqlSql = (source: string) =>
     tabWidth: 2,
     useTabs: false,
     linesBetweenQueries: 1,
+    // Without this, `:name` is not a token to the formatter and it emits
+    // `test_name =:test_name` -- the parameter still binds, but the query reads
+    // badly and the missing space shows up in anything that stores the
+    // formatted text.
+    paramTypes: { named: [":"] },
   });

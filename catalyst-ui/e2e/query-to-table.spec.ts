@@ -918,13 +918,41 @@ test.setTimeout(480_000);
  * than hoping. Scrolling to the end is what a person does, and what the
  * state machine listens for.
  */
+/**
+ * Bring the composer within reach the way a person would, and wait for the
+ * thing every caller actually wants: somewhere to type.
+ *
+ * Scrolling toward now is the usual gesture, but it only works while there is
+ * still something to scroll. Sitting at the bottom of a page barely taller
+ * than the viewport, a scroll-to-bottom produces no travel, and the mode
+ * reacts to travel — so the composer can sit collapsed with no scroll able to
+ * open it. The lip is the affordance the design offers for exactly that, and
+ * the unit tests call it the manual way back. Try both, and settle for
+ * neither: assert on the textbox.
+ */
 const openComposer = async (page: Page): Promise<void> => {
-  const composer = page.locator("#refine-openelis");
-  if ((await composer.getAttribute("data-mode")) === "full") return;
-  await page.evaluate(
-    "window.scrollTo({ top: document.documentElement.scrollHeight })",
-  );
-  await expect(composer).toHaveAttribute("data-mode", "full");
+  const instruction = page.getByRole("textbox", {
+    name: "Follow-up instruction",
+  });
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (await instruction.isVisible().catch(() => false)) return;
+    await page.evaluate(
+      "window.scrollTo({ top: document.documentElement.scrollHeight })",
+    );
+    const lip = page.locator("#refine-openelis-toggle");
+    if (await lip.isVisible().catch(() => false)) {
+      await lip.click({ timeout: 2000 }).catch(() => undefined);
+    }
+    const jumpBack = page.locator(".turn-composer__restore");
+    if (
+      !(await instruction.isVisible().catch(() => false)) &&
+      (await jumpBack.isVisible().catch(() => false))
+    ) {
+      await jumpBack.click({ timeout: 2000 }).catch(() => undefined);
+    }
+    await page.waitForTimeout(250);
+  }
+  await expect(instruction).toBeVisible();
 };
 
 test("question to iterative notebook to imported dashboard", async ({
