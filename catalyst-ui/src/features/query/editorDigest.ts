@@ -140,13 +140,109 @@ const sha256Hex = (source: string) => {
     .join("");
 };
 
+/**
+ * The same SQL, with layout removed and nothing else.
+ *
+ * Two queries that differ only in whitespace or keyword case are the same
+ * query, and treating them as different is what made pressing "Format SQL"
+ * register as authoring a new version by hand. Comparing normalized fixes that
+ * without rewriting a byte of what is stored or executed -- and it holds even
+ * if the editor's formatter and any other formatter disagree, because it never
+ * asks them to agree.
+ *
+ * String literals and dollar-quoted bodies are copied through untouched: the
+ * spaces in 'HIV viral load' and the digits in '990D9%' are data, and
+ * collapsing them would silently change what the query means.
+ */
+export const normalizeSqlLayout = (sql: string): string => {
+  let out = "";
+  let index = 0;
+  let pendingSpace = false;
+  let quote: string | null = null;
+  let dollarTag: string | null = null;
+
+  const pushLiteral = (text: string) => {
+    if (pendingSpace && out.length > 0) out += " ";
+    pendingSpace = false;
+    out += text;
+  };
+
+  while (index < sql.length) {
+    const char = sql.charAt(index);
+
+    if (dollarTag !== null) {
+      if (sql.startsWith(dollarTag, index)) {
+        out += dollarTag;
+        index += dollarTag.length;
+        dollarTag = null;
+      } else {
+        out += char;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote !== null) {
+      out += char;
+      index += 1;
+      if (char === quote) {
+        if (sql.charAt(index) === quote) {
+          out += sql.charAt(index);
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      pushLiteral(char);
+      quote = char;
+      index += 1;
+      continue;
+    }
+
+    if (char === "$") {
+      const end = sql.indexOf("$", index + 1);
+      if (end !== -1) {
+        const tag = sql.slice(index + 1, end);
+        if (tag === "" || /^[A-Za-z_]\w*$/.test(tag)) {
+          dollarTag = sql.slice(index, end + 1);
+          pushLiteral(dollarTag);
+          index = end + 1;
+          continue;
+        }
+      }
+    }
+
+    if (/\s/.test(char)) {
+      pendingSpace = true;
+      index += 1;
+      continue;
+    }
+
+    pushLiteral(char.toLowerCase());
+    index += 1;
+  }
+
+  return out;
+};
+
+const comparableContent = (content: EditorContent) =>
+  canonicalJson({
+    sql: normalizeSqlLayout(content.sql),
+    parameters: content.parameters,
+    expectedColumns: content.expectedColumns,
+  });
+
 export const editorContentMatchesVersion = (
   content: EditorContent,
   version: WorkbenchQueryVersion | null,
 ) =>
   version !== null &&
-  canonicalJson(content) ===
-    canonicalJson({
+  comparableContent(content) ===
+    comparableContent({
       sql: version.sql,
       parameters: version.parameters,
       expectedColumns: version.expectedColumns,

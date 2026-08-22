@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CatalystApi } from "./features/query/api";
+import { formatPostgresqlSql } from "./features/query/components/sqlEditorSupport";
 import type {
   WorkbenchEditorCatalog,
   WorkbenchExecution,
@@ -18,6 +19,19 @@ import {
   QUESTION,
   table,
 } from "./features/query/test/fixtures";
+
+// The editor lays model SQL out for reading on arrival, and a run persists what
+// the editor holds, so these expectations are written through the same formatter
+// the app uses rather than as hand-copied strings.
+const asEditorText = (sql: string) => formatPostgresqlSql(sql);
+
+// The editor renders SQL across lines, so its textContent has no spaces at the
+// line breaks. These assertions are about *which* query is on screen, not how it
+// is laid out, so both sides are compared with whitespace removed.
+const showsQuery = (element: HTMLElement, sql: string) => {
+  const strip = (value: string) => value.replace(/\s+/g, "");
+  expect(strip(element.textContent ?? "")).toContain(strip(sql));
+};
 
 const makeApi = (): CatalystApi => ({
   submitQuestion: vi.fn(),
@@ -147,7 +161,7 @@ const workbenchSession: WorkbenchSession = {
         executable: false,
         candidate: {
           status: "ready",
-          sql: workbenchVersion.sql,
+          sql: asEditorText(workbenchVersion.sql),
           parameters: workbenchVersion.parameters,
         },
         rawOutput: "{latest malformed model output}",
@@ -917,7 +931,7 @@ describe("Catalyst query workflow", () => {
       },
       editorSnapshot: {
         contractVersion: "catalyst.workbench.editor-snapshot.v1",
-        sql: workbenchVersion.sql,
+        sql: asEditorText(workbenchVersion.sql),
         parameters: workbenchVersion.parameters,
         expectedColumns: workbenchVersion.expectedColumns,
         editorDigest: workbenchVersion.queryDigest,
@@ -933,7 +947,7 @@ describe("Catalyst query workflow", () => {
       versionId: completedFollowupTurn.resultingCurrentVersion.versionId,
       parentVersionId: workbenchVersion.versionId,
       ordinal: 2,
-      sql: `${workbenchVersion.sql} AND result_status = 'final'`,
+      sql: asEditorText(`${workbenchVersion.sql} AND result_status = 'final'`),
       queryDigest: completedFollowupTurn.resultingCurrentVersion.queryDigest,
       createdAt: "2026-07-17T00:00:03Z",
     } satisfies WorkbenchQueryVersion;
@@ -975,7 +989,7 @@ describe("Catalyst query workflow", () => {
       ),
     ).toHaveAttribute("role", "status");
     await waitFor(() => expect(editor).toHaveFocus());
-    expect(editor).toHaveTextContent(successorVersion.sql);
+    showsQuery(editor, successorVersion.sql);
     expect(screen.getAllByRole("textbox", { name: "SQL query" })).toHaveLength(1);
   });
 
@@ -1010,7 +1024,7 @@ describe("Catalyst query workflow", () => {
     });
     expect(request.editorSnapshot).toEqual({
       contractVersion: "catalyst.workbench.editor-snapshot.v1",
-      sql: workbenchVersion.sql,
+      sql: asEditorText(workbenchVersion.sql),
       parameters: [
         workbenchVersion.parameters[0],
         {
@@ -1028,7 +1042,7 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
   });
 
-  it("clears model expected columns after a manual SQL edit", async () => {
+  it("keeps model expected columns when the query is only reformatted", async () => {
     const versionWithColumns = {
       ...workbenchVersion,
       expectedColumns: [
@@ -1064,8 +1078,53 @@ describe("Catalyst query workflow", () => {
 
     await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
     const request = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1];
-    expect(request.editorSnapshot.sql).not.toBe(workbenchVersion.sql);
+    // Only the layout moved, so the model's declared columns still describe the
+    // query. This test previously asserted the opposite: pressing Format SQL
+    // dropped them, because formatting was indistinguishable from an edit.
     expect(request.editorSnapshot.sql).toContain("SELECT");
+    expect(request.editorSnapshot.expectedColumns).toEqual(
+      versionWithColumns.expectedColumns,
+    );
+  });
+
+  it("clears model expected columns after a real SQL edit", async () => {
+    const versionWithColumns = {
+      ...workbenchVersion,
+      expectedColumns: [
+        { name: "count", logicalType: "integer" as const, nullable: false },
+      ],
+    };
+    const sessionWithColumns = {
+      ...notebookSession,
+      currentVersion: versionWithColumns,
+      versions: [versionWithColumns],
+    };
+    const api = makeNotebookApi(sessionWithColumns, {
+      ...notebookTimeline,
+      currentVersion: {
+        versionId: versionWithColumns.versionId,
+        queryDigest: versionWithColumns.queryDigest,
+      },
+    });
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const editor = await screen.findByRole("textbox", { name: "SQL query" });
+    // A genuine change to the query, not a reflow of it.
+    await user.click(editor);
+    await user.keyboard(" AND 1 = 1");
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Keep the manually edited limit",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const request = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1];
     expect(request.editorSnapshot.expectedColumns).toEqual([]);
     expect(request.editorSnapshot.editorDigest).not.toBe(
       versionWithColumns.queryDigest,
@@ -1179,7 +1238,7 @@ describe("Catalyst query workflow", () => {
     expect(request.observedBase).toBeNull();
     expect(request.editorSnapshot).toEqual({
       contractVersion: "catalyst.workbench.editor-snapshot.v1",
-      sql: unresolvedRawSql,
+      sql: asEditorText(unresolvedRawSql),
       parameters: unresolvedRawSession.draftSeed!.parameters,
       expectedColumns: [],
       editorDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -1206,8 +1265,10 @@ describe("Catalyst query workflow", () => {
     expect(api.createWorkbenchTurn).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Restore the current query" }));
-    expect(screen.getByRole("textbox", { name: "SQL query" }))
-      .toHaveTextContent(workbenchVersion.sql);
+    showsQuery(
+      screen.getByRole("textbox", { name: "SQL query" }),
+      workbenchVersion.sql,
+    );
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
     expect(
       screen.getByRole("button", { name: "Generate next query" }),
@@ -1248,8 +1309,10 @@ describe("Catalyst query workflow", () => {
     expect(
       screen.getByRole("heading", { name: /^Refine \[\d+\]$/ }),
     ).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "SQL query" }))
-      .toHaveTextContent(workbenchVersion.sql);
+    showsQuery(
+      screen.getByRole("textbox", { name: "SQL query" }),
+      workbenchVersion.sql,
+    );
     expect(screen.getByRole("combobox", { name: "Model profile" })).toHaveValue(
       notebookSession.profileId,
     );
@@ -1431,7 +1494,8 @@ describe("Catalyst query workflow", () => {
     await user.click(screen.getByRole("button", { name: "Generate query" }));
 
     expect(await screen.findByText("Unresolved model draft")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "SQL query" })).toHaveTextContent(
+    showsQuery(
+      screen.getByRole("textbox", { name: "SQL query" }),
       unresolvedRawSql,
     );
     expect(screen.getByLabelText("Parameter 1 name")).toHaveValue("");
@@ -1446,7 +1510,7 @@ describe("Catalyst query workflow", () => {
       expect(api.createWorkbenchVersion).toHaveBeenCalledWith(
         unresolvedRawSession.sessionId,
         {
-          sql: unresolvedRawSql,
+          sql: asEditorText(unresolvedRawSql),
           parameters: [
             {
               name: "test_name",
@@ -1481,9 +1545,10 @@ describe("Catalyst query workflow", () => {
     // The editor is CodeMirror and mounts in an effect, so it can lag the
     // notification by a tick -- fast enough to look synchronous on a laptop
     // and not on a CI runner. Await the mount rather than assume it.
-    expect(
+    showsQuery(
       await screen.findByRole("textbox", { name: "SQL query" }),
-    ).toHaveTextContent(unresolvedRawSql);
+      unresolvedRawSql,
+    );
     expect(screen.getByLabelText("Parameter 2 value")).toHaveValue("1000");
   });
 
@@ -1501,9 +1566,10 @@ describe("Catalyst query workflow", () => {
     await user.type(screen.getByLabelText("Question"), QUESTION);
     await user.click(screen.getByRole("button", { name: "Generate query" }));
 
-    expect(
+    showsQuery(
       await screen.findByRole("textbox", { name: "SQL query" }),
-    ).toHaveTextContent(workbenchVersion.sql);
+      workbenchVersion.sql,
+    );
     expect(screen.queryByText("Unresolved model draft")).not.toBeInTheDocument();
   });
 
@@ -1531,7 +1597,7 @@ describe("Catalyst query workflow", () => {
         {
           parentVersionId: workbenchVersion.versionId,
           parentQueryDigest: workbenchVersion.queryDigest,
-          sql: workbenchVersion.sql,
+          sql: asEditorText(workbenchVersion.sql),
           parameters: [
             workbenchVersion.parameters[0],
             {
@@ -1573,7 +1639,7 @@ describe("Catalyst query workflow", () => {
       {
         parentVersionId: workbenchVersion.versionId,
         parentQueryDigest: workbenchVersion.queryDigest,
-        sql: workbenchVersion.sql,
+        sql: asEditorText(workbenchVersion.sql),
         parameters: workbenchVersion.parameters,
         expectedColumns: [],
       },
