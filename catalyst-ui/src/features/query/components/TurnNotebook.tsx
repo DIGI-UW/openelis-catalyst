@@ -299,16 +299,22 @@ export const TurnNotebook = ({
 
       // Read out of the mutable accumulator before handing React an updater:
       // the updater runs later, by which time `intent` has been reset.
-      const towardNow = intent > 0;
       intent = 0;
 
       setScrollMode((current) => {
-        if (towardNow) {
-          if (gap < NEAR_END) return "full";
-          return current === "full" && gap < LEAVE_END ? "full" : "line";
-        }
+        // Position, not travel direction. catalyst#35 survived an
+        // accumulated-intent gate because a real browser applies momentum: an
+        // 8px wheel tick scrolls far enough to satisfy any travel threshold,
+        // so a wobble at the end read as "up, then down, then up" and the
+        // composer flickered full/line/full. Where you *are* cannot wobble
+        // like that, and it is a measurement the composer's own height cannot
+        // invert. Bands overlap, so leaving a mode needs more than entering
+        // it, and `line` is the middle band rather than a one-pixel edge.
+        if (gap < NEAR_END) return "full";
         if (gap > FAR_BACK) return "tucked";
-        return current === "tucked" && gap > LEAVE_FAR ? "tucked" : "line";
+        if (current === "full") return gap < LEAVE_END ? "full" : "line";
+        if (current === "tucked") return gap > LEAVE_FAR ? "tucked" : "line";
+        return "line";
       });
     };
 
