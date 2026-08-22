@@ -398,6 +398,9 @@ class PostgresAnalyticsAdapter:
                     "SELECT set_config('statement_timeout', %s, true)",
                     (f"{statement_timeout_ms}ms",),
                 )
+                # ``bindings`` is passed even when empty: _driver_sql doubled the
+                # literal per-cent signs, and psycopg only collapses them back
+                # when it has parameters to convert.
                 cursor.execute(driver_sql, bindings)
                 rows = list(cursor.fetchmany(max_rows + 1))
                 description = cursor.description or ()
@@ -426,8 +429,10 @@ class PostgresAnalyticsAdapter:
             parameter["name"]: self._binding_value(parameter)
             for parameter in parameters
         }
-        # psycopg uses ``%(name)s`` for named bindings. This lexical conversion
-        # is the only change made to the submitted SQL; no row limit is added.
+        # psycopg uses ``%(name)s`` for named bindings, and reads any other
+        # per-cent sign as a malformed placeholder. Rewriting the named bindings
+        # and doubling the literal per-cent signs are the only changes made to
+        # the submitted SQL; no row limit is added.
         driver_sql = self._driver_sql(sql, set(bindings))
         with self._connect(
             self.dsn,
@@ -439,6 +444,9 @@ class PostgresAnalyticsAdapter:
                     "SELECT set_config('statement_timeout', %s, true)",
                     (f"{statement_timeout_ms}ms",),
                 )
+                # ``bindings`` is passed even when empty: _driver_sql doubled the
+                # literal per-cent signs, and psycopg only collapses them back
+                # when it has parameters to convert.
                 cursor.execute(driver_sql, bindings)
                 raw_rows = list(cursor.fetchmany(max_rows + 1))
                 description = tuple(cursor.description or ())
@@ -1120,6 +1128,25 @@ class PostgresAnalyticsAdapter:
     @staticmethod
     def _driver_sql(sql: str, parameter_names: set[str]) -> str:
         output: list[str] = []
+
+        def emit(text: str) -> None:
+            """Append text that came from the submitted SQL, per-cent signs doubled.
+
+            psycopg finds placeholders by scanning the whole statement with a
+            regular expression, without any knowledge of SQL quoting. A literal
+            per-cent sign therefore reads as the start of a placeholder wherever
+            it appears -- inside a string literal, a dollar-quoted body, or even
+            a comment -- and ``TO_CHAR(x, '990D9%')`` is rejected outright. Every
+            per-cent sign that came from the caller is doubled here; psycopg
+            collapses ``%%`` back to a single ``%`` when it converts the query.
+
+            It only does that collapsing when parameters are supplied, so the
+            callers below must always pass their bindings mapping, even when it
+            is empty. Substituting ``bindings or None`` would send ``%%`` through
+            to the database unchanged.
+            """
+            output.append(text.replace("%", "%%"))
+
         index = 0
         quote: str | None = None
         dollar_quote: str | None = None
@@ -1130,51 +1157,51 @@ class PostgresAnalyticsAdapter:
             following = sql[index + 1] if index + 1 < len(sql) else ""
 
             if line_comment:
-                output.append(char)
+                emit(char)
                 index += 1
                 if char == "\n":
                     line_comment = False
                 continue
             if block_comment:
-                output.append(char)
+                emit(char)
                 index += 1
                 if char == "*" and following == "/":
-                    output.append(following)
+                    emit(following)
                     index += 1
                     block_comment = False
                 continue
             if quote:
-                output.append(char)
+                emit(char)
                 index += 1
                 if char == quote:
                     if following == quote:
-                        output.append(following)
+                        emit(following)
                         index += 1
                     else:
                         quote = None
                 continue
             if dollar_quote:
                 if sql.startswith(dollar_quote, index):
-                    output.append(dollar_quote)
+                    emit(dollar_quote)
                     index += len(dollar_quote)
                     dollar_quote = None
                 else:
-                    output.append(char)
+                    emit(char)
                     index += 1
                 continue
             if char == "-" and following == "-":
-                output.extend((char, following))
+                emit(char + following)
                 index += 2
                 line_comment = True
                 continue
             if char == "/" and following == "*":
-                output.extend((char, following))
+                emit(char + following)
                 index += 2
                 block_comment = True
                 continue
             if char in {"'", '"'}:
                 quote = char
-                output.append(char)
+                emit(char)
                 index += 1
                 continue
             if char == "$":
@@ -1186,7 +1213,7 @@ class PostgresAnalyticsAdapter:
                         and all(part.isalnum() or part == "_" for part in tag)
                     ):
                         dollar_quote = sql[index : delimiter_end + 1]
-                        output.append(dollar_quote)
+                        emit(dollar_quote)
                         index = delimiter_end + 1
                         continue
             if (
@@ -1199,9 +1226,11 @@ class PostgresAnalyticsAdapter:
                     end += 1
                 name = sql[index + 1 : end]
                 if name in parameter_names:
+                    # Appended rather than emitted: this is the one per-cent sign
+                    # in the output that psycopg is meant to read as a placeholder.
                     output.append(f"%({name})s")
                     index = end
                     continue
-            output.append(char)
+            emit(char)
             index += 1
         return "".join(output)
