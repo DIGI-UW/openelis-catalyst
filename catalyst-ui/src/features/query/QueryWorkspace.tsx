@@ -1065,7 +1065,29 @@ export const QueryWorkspace = ({
     setWorkbenchBusy("running");
     setWorkbenchError(null);
     try {
-      const { session, version } = await persistWorkbenchDraft();
+      // Running a query nobody rewrote is not authoring one. Every version the
+      // create endpoint stores is recorded as hand-authored, so persisting the
+      // draft unconditionally labelled the model's own query "Edited by hand"
+      // the moment it was run — the complaint this work exists to answer, and
+      // one the editor now laying SQL out on arrival would have made
+      // unavoidable rather than occasional. An unchanged draft runs the version
+      // it came from; only a real difference earns a version of its own.
+      const current = workbenchSession?.currentVersion ?? null;
+      const unchanged =
+        workbenchSession !== null &&
+        current !== null &&
+        editorContentMatchesVersion(
+          {
+            sql: workbenchSql,
+            parameters: workbenchParameters,
+            expectedColumns: editorExpectedColumns(current, workbenchSql),
+          },
+          current,
+        );
+      const { session, version } =
+        unchanged && workbenchSession
+          ? { session: workbenchSession, version: current! }
+          : await persistWorkbenchDraft();
       const execution = await api.executeWorkbenchVersion(
         version.versionId,
         version.queryDigest,
