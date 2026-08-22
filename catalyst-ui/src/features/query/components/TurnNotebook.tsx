@@ -1,4 +1,4 @@
-import { DataBase } from "@carbon/icons-react";
+import { DataBase, WarningAltFilled } from "@carbon/icons-react";
 import { Button, Tag } from "@carbon/react";
 import {
   useEffect,
@@ -16,9 +16,20 @@ import type {
   WorkbenchSession,
 } from "../types";
 import type { DetailsTab } from "./DetailsPanel";
+import { lineDiffSummary } from "../lineDiff";
 import { highlightSql } from "./sqlHighlight";
+import { formatPostgresqlSql } from "./sqlEditorSupport";
 import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
+
+/** The layout both diff sides share; unformattable text stays as written. */
+const comparableSqlText = (sql: string): string => {
+  try {
+    return formatPostgresqlSql(sql);
+  } catch {
+    return sql;
+  }
+};
 
 type NotebookVersion = Pick<
   WorkbenchQueryVersion,
@@ -89,6 +100,8 @@ interface TurnNotebookProps {
    * a panel detached from the thread it belongs to.
    */
   activeCell?: ReactNode;
+  /** The active draft differs from the current version, so its cell says so. */
+  draftDivergent?: boolean;
 }
 
 const textAt = (source: Record<string, unknown>, key: string) => {
@@ -199,6 +212,7 @@ export const TurnNotebook = ({
   onOpenDetails,
   onSaveDataset,
   activeCell = null,
+  draftDivergent = false,
 }: TurnNotebookProps) => {
   const [turnVisibilityOverrides, setTurnVisibilityOverrides] = useState<
     Record<string, boolean>
@@ -363,17 +377,27 @@ export const TurnNotebook = ({
     const outcome = cellOutcome(turn);
     // The version this one succeeded, so the footer can offer the comparison
     // the analyst actually wants: what this turn changed.
-    const previousVersionOrdinal = (() => {
+    const parentVersion = (() => {
       const parentId = version
         ? session.versions.find((item) => item.versionId === version.versionId)
             ?.parentVersionId
         : null;
       if (!parentId) return null;
-      return (
-        session.versions.find((item) => item.versionId === parentId)?.ordinal ??
-        null
-      );
+      return session.versions.find((item) => item.versionId === parentId) ?? null;
     })();
+    const previousVersionOrdinal = parentVersion?.ordinal ?? null;
+    // The one-glance answer to "how big was the hand edit?" — the full
+    // comparison stays behind "what changed". Both sides go through the same
+    // formatter first: the parent may be stored as the model's one dense line
+    // while the edit was made on the formatted text, and a diff that counts
+    // the reflow would report "+7 −1" for a one-line change.
+    const editDiff =
+      version?.authorType === "human" && parentVersion
+        ? lineDiffSummary(
+            comparableSqlText(parentVersion.sql),
+            comparableSqlText(version.sql),
+          )
+        : null;
     // The visible header truncates the instruction to one line, so the
     // accessible name carries it in full alongside the run counter it is cited
     // by and the outcome the status dot encodes visually.
@@ -553,6 +577,19 @@ export const TurnNotebook = ({
                     {execution.durationMs} ms
                   </span>
                 )}
+                {editDiff && (editDiff.added > 0 || editDiff.removed > 0) && (
+                  <span className="query-turn__footer-item">
+                    +{editDiff.added} −{editDiff.removed} vs [
+                    {previousVersionOrdinal}]
+                  </span>
+                )}
+                {turn.current && execution && (
+                  <span className="query-turn__footer-note">
+                    {execution.status === "failed"
+                      ? "The database diagnostic is available to the model; result row values are not."
+                      : "Result row values are not included in model context."}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="query-turn__footer-link"
@@ -585,11 +622,24 @@ export const TurnNotebook = ({
         ))}
         {activeCell && (
           <li>
-            <article className="query-turn query-turn--active">
+            <article
+              className={`query-turn query-turn--active${
+                draftDivergent ? " query-turn--provisional" : ""
+              }`}
+            >
               <div className="query-turn__gutter" aria-hidden="true">
                 [{turns.length + 1}]
               </div>
-              <div className="query-turn__body">{activeCell}</div>
+              <div className="query-turn__body">
+                {draftDivergent && (
+                  <p className="query-turn__provisional" role="status">
+                    Provisional draft — differs from{" "}
+                    {baseVersion ? `[${baseVersion.ordinal}]` : "the current query"}.
+                    Running it records a new version.
+                  </p>
+                )}
+                {activeCell}
+              </div>
             </article>
           </li>
         )}
@@ -724,13 +774,16 @@ export const TurnNotebook = ({
                 ))}
               </select>
             </label>
-            <span
-              className="turn-composer__grounding"
-              data-kind={grounding.kind}
-              role="status"
-            >
-              {grounding.text}
-            </span>
+            {grounding.kind === "stale" && (
+              <span
+                className="turn-composer__stale"
+                role="img"
+                aria-label={grounding.text}
+                title={grounding.text}
+              >
+                <WarningAltFilled aria-hidden="true" />
+              </span>
+            )}
             <Button
               type="submit"
               disabled={editorEmpty || busy || noRevisionProfiles}

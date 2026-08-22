@@ -1017,7 +1017,10 @@ test("question to iterative notebook to imported dashboard", async ({
   await expect(page.getByLabel("Question")).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Follow-up instruction" }))
     .toBeVisible();
-  await expect(page.getByText(/has not been executed/i)).toBeVisible();
+  // Run state lives in the thread, not the composer: the fresh query's cell
+  // says "not run" and the composer carries no grounding prose.
+  await expect(page.getByText(/not run/i).first()).toBeVisible();
+  await expect(page.locator(".turn-composer__grounding")).toHaveCount(0);
 
   if (useMockApi) {
     // The source is bound at creation — a session is grounded in exactly one.
@@ -1078,14 +1081,14 @@ test("question to iterative notebook to imported dashboard", async ({
   await expect(page.getByRole("button", { name: "Edit query" })).toBeVisible();
 
   if (useMockApi) {
-    // The grounding line lives inside the scroll-adaptive composer, which is
-    // collapsed unless it is in reach — so assert what it says, not whether
-    // it happens to be expanded at this scroll position.
-    const grounding = page.locator(".turn-composer__grounding");
-    await expect(grounding).toContainText(/this query ran · 1 row/i);
-    await expect(grounding).toContainText(
-      /Result row values are not included in model context/i,
-    );
+    // The execution summary lives with the results now, not in the composer:
+    // the model-context note sits in the current cell's footer, and the
+    // composer carries no grounding prose (only a ⚠ icon when stale — and the
+    // editor matches the run here, so not even that).
+    await expect(
+      page.getByText("Result row values are not included in model context."),
+    ).toBeVisible();
+    await expect(page.locator(".turn-composer__stale")).toHaveCount(0);
 
     // ------------------------------------------------ promote to a Dataset
     await datasetTile.getByRole("button", { name: "Save to datasets" }).click();
