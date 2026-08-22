@@ -15,6 +15,8 @@ export const useRunActions = () => {
   const [workbenchAnnouncement, setWorkbenchAnnouncement] = useState("");
   const [followupInstruction, setFollowupInstruction] = useState("");
   const [followupBusy, setFollowupBusy] = useState(false);
+  /** A follow-up that never became a turn, so no cell can report it. */
+  const [followupError, setFollowupError] = useState<string | null>(null);
 
   return {
     workbenchBusy,
@@ -27,5 +29,7 @@ export const useRunActions = () => {
     setFollowupInstruction,
     followupBusy,
     setFollowupBusy,
+    followupError,
+    setFollowupError,
   };
 };

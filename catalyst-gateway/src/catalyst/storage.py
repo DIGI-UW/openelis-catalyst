@@ -1078,9 +1078,23 @@ class WorkbenchStore:
                         "editorDigest does not match the exact editor snapshot."
                     )
                 unresolved_paths = self._snapshot_unresolved_paths(editor_snapshot)
+                # Same query, judged the way the create-version path judges it
+                # (see append_version): up to layout. The editor presents SQL
+                # laid out, so an untouched query arrives reflowed -- and
+                # comparing the digest, which is byte-exact by construction,
+                # called that a hand edit and minted a human version. The
+                # digest check above stays byte-exact: it is an integrity check
+                # on the payload, not a question about meaning.
                 if (
                     current_ref is not None
-                    and computed_digest == current_ref["queryDigest"]
+                    and current is not None
+                    and sql_layout_matches(
+                        str(editor_snapshot.get("sql") or ""), current["sql"]
+                    )
+                    and list(editor_snapshot.get("parameters") or [])
+                    == json.loads(current["parameters_json"])
+                    and list(editor_snapshot.get("expectedColumns") or [])
+                    == json.loads(current["expected_columns_json"])
                 ):
                     classification = "reused"
                     effective_base = current_ref

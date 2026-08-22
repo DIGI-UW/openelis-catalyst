@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CatalystApi } from "./features/query/api";
 import { formatPostgresqlSql } from "./features/query/components/sqlEditorSupport";
+import { workbenchEditorDigest } from "./features/query/editorDigest";
 import type {
   WorkbenchEditorCatalog,
   WorkbenchExecution,
@@ -937,7 +938,14 @@ describe("Catalyst query workflow", () => {
         sql: asEditorText(workbenchVersion.sql),
         parameters: workbenchVersion.parameters,
         expectedColumns: workbenchVersion.expectedColumns,
-        editorDigest: workbenchVersion.queryDigest,
+        // The digest of the snapshot being sent, not the stored version's:
+        // the gateway recomputes over what it receives, and claiming the
+        // version's digest for reflowed text is what broke every follow-up.
+        editorDigest: workbenchEditorDigest({
+          sql: asEditorText(workbenchVersion.sql),
+          parameters: workbenchVersion.parameters,
+          expectedColumns: workbenchVersion.expectedColumns,
+        }),
       },
     });
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
@@ -1043,6 +1051,108 @@ describe("Catalyst query workflow", () => {
       workbenchVersion.queryDigest,
     );
     expect(api.createWorkbenchVersion).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed follow-up in the composer that submitted it", async () => {
+    // The only error surface was inside the editor card, and a completed run
+    // closes the editor -- so a failed "Generate next query" produced no
+    // visible change at all. An action reports where it was taken.
+    const api = makeNotebookApi();
+    api.createWorkbenchTurn = vi
+      .fn()
+      .mockRejectedValue(new Error("Catalyst could not start the next query."));
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await screen.findByRole("textbox", { name: "Follow-up instruction" });
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Collapse to one row per patient",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    const composer = document.getElementById("refine-openelis")!;
+    await waitFor(() =>
+      expect(composer.textContent).toContain(
+        "Catalyst could not start the next query.",
+      ),
+    );
+  });
+
+  it("sends a follow-up whose digest is the digest of what it sends", async () => {
+    // The gateway recomputes the digest over the snapshot it receives and
+    // rejects a mismatch with 422 editor_snapshot_digest_mismatch. The UI used
+    // to send the *stored version's* digest alongside the *reflowed* editor
+    // text, which is a lie about the payload: every follow-up after the editor
+    // formatted a query on arrival failed, and the second round of SQL was
+    // impossible. Mocks never recompute, so nothing caught it. This asserts the
+    // one invariant the wire actually has.
+    const api = makeNotebookApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    await screen.findByRole("textbox", { name: "SQL query" });
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Collapse to one row per patient",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const snapshot = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1]
+      .editorSnapshot;
+    expect(snapshot.editorDigest).toBe(
+      workbenchEditorDigest({
+        sql: snapshot.sql,
+        parameters: snapshot.parameters,
+        expectedColumns: snapshot.expectedColumns,
+      }),
+    );
+    // The snapshot carries what was on screen -- the formatted text -- because
+    // that is what the evidence record is for. Judging it the same query as the
+    // stored version is the gateway's job, done up to layout.
+    expect(snapshot.sql).toBe(asEditorText(workbenchVersion.sql));
+  });
+
+  it("still hashes what it sends after a real edit", async () => {
+    const api = makeNotebookApi();
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    await user.type(screen.getByLabelText("Question"), QUESTION);
+    await user.click(screen.getByRole("button", { name: "Generate query" }));
+    const editor = await screen.findByRole("textbox", { name: "SQL query" });
+    await user.click(editor);
+    await user.keyboard("{Control>}{End}{/Control}");
+    await user.paste(" AND 1 = 1");
+    await user.type(
+      screen.getByRole("textbox", { name: "Follow-up instruction" }),
+      "Collapse to one row per patient",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Generate next query" }),
+    );
+
+    await waitFor(() => expect(api.createWorkbenchTurn).toHaveBeenCalledOnce());
+    const snapshot = vi.mocked(api.createWorkbenchTurn).mock.calls[0]![1]
+      .editorSnapshot;
+    expect(snapshot.sql).toContain("AND 1 = 1");
+    expect(snapshot.editorDigest).toBe(
+      workbenchEditorDigest({
+        sql: snapshot.sql,
+        parameters: snapshot.parameters,
+        expectedColumns: snapshot.expectedColumns,
+      }),
+    );
+    expect(snapshot.editorDigest).not.toBe(workbenchVersion.queryDigest);
   });
 
   it("keeps model expected columns when the query is only reformatted", async () => {

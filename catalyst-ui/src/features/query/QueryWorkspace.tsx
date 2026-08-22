@@ -641,6 +641,8 @@ export const QueryWorkspace = ({
     setWorkbenchAnnouncement,
     followupInstruction,
     setFollowupInstruction,
+    followupError,
+    setFollowupError,
     followupBusy,
     setFollowupBusy,
   } = useRunActions();
@@ -1024,6 +1026,7 @@ export const QueryWorkspace = ({
 
     setFollowupBusy(true);
     setWorkbenchError(null);
+    setFollowupError(null);
     setWorkbenchAnnouncement("");
     invalidateGenerationEvidence();
     const baseVersion = workbenchSession.currentVersion;
@@ -1032,9 +1035,13 @@ export const QueryWorkspace = ({
       parameters: workbenchParameters,
       expectedColumns: editorExpectedColumns(baseVersion, workbenchSql),
     };
-    const editorDigest = editorContentMatchesVersion(content, baseVersion)
-      ? baseVersion!.queryDigest
-      : workbenchEditorDigest(content);
+    // The digest of what is being sent, always. It made the snapshot's own
+    // integrity check fail to send the stored version's digest alongside
+    // reflowed text: the gateway recomputes over what it receives, so any
+    // other value is a lie about the payload. Whether this is still the same
+    // query as the base version is a separate question, and the gateway
+    // answers it up to layout.
+    const editorDigest = workbenchEditorDigest(content);
     const request: WorkbenchTurnRequest = {
       contractVersion: "catalyst.workbench.turn.request.v1",
       instruction: followupInstruction,
@@ -1115,7 +1122,11 @@ export const QueryWorkspace = ({
         setFollowupInstruction("");
       }
     } catch (error) {
-      setWorkbenchError(messageFromError(error));
+      // No turn was created, so no cell exists to carry this: the composer
+      // that submitted it is the only honest place to say so. A turn that
+      // comes back *failed* is reported by its own cell instead — saying it
+      // twice is the duplication the composer was just cleared of.
+      setFollowupError(messageFromError(error));
     } finally {
       setFollowupBusy(false);
     }
@@ -1623,6 +1634,7 @@ export const QueryWorkspace = ({
           busy={followupBusy || workbenchBusy !== null}
           generating={followupBusy}
           lastRunFailed={latestExecutionFailed(workbenchSession)}
+          error={followupError}
           onInstructionChange={setFollowupInstruction}
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}

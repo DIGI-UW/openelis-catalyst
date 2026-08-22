@@ -825,3 +825,10 @@
   white-space: nowrap;
 }
 
+.turn-composer__error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--cds-text-error);
+  font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+}
+
