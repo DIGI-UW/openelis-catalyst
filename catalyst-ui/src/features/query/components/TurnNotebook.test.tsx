@@ -939,6 +939,43 @@ describe("TurnNotebook", () => {
     expect(onOpenDetails).toHaveBeenCalledWith(failed.turnId);
   });
 
+  it("lets the retained attempt on a failed turn be taken into the editor", async () => {
+    // The attempt a failed turn kept is only worth keeping if it can be
+    // acted on: naming it and leaving it inert is the same dead end as
+    // dropping it.
+    const user = userEvent.setup();
+    const onEditAttempt = vi.fn();
+    const failed = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [
+        {
+          selected: false,
+          role: "writer" as const,
+          contractValid: true,
+          version: writerVersion,
+        },
+      ],
+      failure: {
+        stage: "writer_findings",
+        code: "generation_findings_unresolved",
+        message: "No column named patient_last_name on this view.",
+      },
+    };
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        turns={[initialTurn, failed]}
+        baseVersion={modelVersion}
+        onEditAttempt={onEditAttempt}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /edit this attempt/i }));
+    expect(onEditAttempt).toHaveBeenCalledWith(writerVersion.versionId);
+  });
+
   it("offers only available different-family profiles and records per-turn switching", async () => {
     const user = userEvent.setup();
     const onProfileChange = vi.fn();

@@ -141,6 +141,15 @@ class DataSourceBundle:
 
 
 @dataclass(frozen=True)
+class _RetainedAttempt:
+    """A candidate a failed turn keeps, so the failure has somewhere to go."""
+
+    candidate: dict[str, Any]
+    validation: dict[str, Any]
+    rejected_by_reviewer: bool
+
+
+@dataclass(frozen=True)
 class _HubGeneration:
     query: dict[str, Any]
     selected_profile: dict[str, Any]
@@ -968,41 +977,21 @@ class CatalystService:
             provenance["generationRawOutput"] = raw_output
         store.update_session_provenance(session["sessionId"], provenance)
 
-        collaboration_failure = generation.body.get("modelCollaboration")
-        writer_failure = (
-            collaboration_failure.get("writer")
-            if isinstance(collaboration_failure, dict)
+        attempt = (
+            self._retained_attempt(
+                generation.body,
+                turn_id=initial_turn["turnId"],
+                catalog=runtime_catalog,
+                question=question,
+            )
+            if generation.body.get("status") != "ready"
             else None
         )
-        if (
-            generation.body.get("status") != "ready"
-            and isinstance(writer_failure, dict)
-            and writer_failure.get("disposition") == "retained_unselected"
-            and isinstance(writer_failure.get("candidate"), dict)
-        ):
-            candidate = dict(writer_failure["candidate"])
-            retained = {
-                **candidate,
-                "provenance": {
-                    "turnId": initial_turn["turnId"],
-                    "collaborationRole": "writer",
-                    "model": writer_failure.get("model"),
-                    "lintFindings": deepcopy(writer_failure.get("lintFindings") or []),
-                },
-            }
-            retained_validation = self._build_workbench_validation(
-                {
-                    **retained,
-                    "queryDigest": workbench_query_digest(
-                        candidate["sql"],
-                        list(candidate.get("parameters") or []),
-                        list(candidate.get("expectedColumns") or []),
-                    ),
-                },
-                question=question,
-                catalog=runtime_catalog,
-                source_findings=list(writer_failure.get("lintFindings") or []),
-            )
+        # A reviewer rejection is terminal for the turn: the writer's candidate
+        # is kept unselected. A writer that gave up mid-repair falls through to
+        # recovery instead -- an initial turn has no query to protect, so its
+        # near-miss becomes the session's first draft.
+        if attempt is not None and attempt.rejected_by_reviewer:
             evidence = dict(hub_generation.hub_evidence or {}) if hub_generation else {}
             stage, code = self._model_failure_stage(
                 evidence,
@@ -1028,8 +1017,8 @@ class CatalystService:
                     kind="initial",
                     failed=True,
                 ),
-                retained_writer=retained,
-                retained_writer_validation=retained_validation,
+                retained_writer=attempt.candidate,
+                retained_writer_validation=attempt.validation,
                 details=self._failure_details(generation.body),
             )
             restored = store.get_session(session["sessionId"])
@@ -1174,6 +1163,8 @@ class CatalystService:
                     if generation.status_code >= 500 and code != "hub_invalid_response"
                     else "writer_output_contract"
                 )
+            # Nothing to retain here by construction: a candidate with SQL
+            # would have been recovered as the draft above.
             store.fail_turn(
                 initial_turn["turnId"],
                 stage=stage,
@@ -1476,47 +1467,19 @@ class CatalystService:
             )
             raw_output = self._workbench_raw_output(query)
             if query.get("status") != "ready":
-                collaboration_failure = query.get("modelCollaboration")
-                writer_data = (
-                    collaboration_failure.get("writer")
-                    if isinstance(collaboration_failure, dict)
-                    else None
+                # A follow-up already has a working query behind it, so a
+                # failed attempt is kept beside that query rather than
+                # replacing it: the turn stays failed and the candidate is one
+                # click from the editor.
+                attempt = self._retained_attempt(
+                    query,
+                    turn_id=claimed["turnId"],
+                    catalog=runtime_catalog,
+                    question=instruction,
                 )
-                retained_writer = None
-                retained_validation = None
-                if (
-                    isinstance(writer_data, dict)
-                    and writer_data.get("disposition") == "retained_unselected"
-                    and isinstance(writer_data.get("candidate"), dict)
-                ):
-                    candidate = dict(writer_data["candidate"])
-                    retained_writer = {
-                        **candidate,
-                        "provenance": {
-                            "turnId": claimed["turnId"],
-                            "collaborationRole": "writer",
-                            "model": writer_data.get("model"),
-                            "lintFindings": deepcopy(
-                                writer_data.get("lintFindings") or []
-                            ),
-                        },
-                    }
-                    retained_validation = self._build_workbench_validation(
-                        {
-                            **retained_writer,
-                            "queryDigest": workbench_query_digest(
-                                candidate["sql"],
-                                list(candidate.get("parameters") or []),
-                                list(candidate.get("expectedColumns") or []),
-                            ),
-                        },
-                        question=instruction,
-                        catalog=runtime_catalog,
-                        source_findings=list(writer_data.get("lintFindings") or []),
-                    )
                 stage, failure_code = self._model_failure_stage(
                     hub_evidence,
-                    reviewer=retained_writer is not None,
+                    reviewer=attempt is not None and attempt.rejected_by_reviewer,
                     outcome_body=query,
                 )
                 failed = store.fail_turn(
@@ -1538,8 +1501,10 @@ class CatalystService:
                         kind="followup",
                         failed=True,
                     ),
-                    retained_writer=retained_writer,
-                    retained_writer_validation=retained_validation,
+                    retained_writer=attempt.candidate if attempt else None,
+                    retained_writer_validation=(
+                        attempt.validation if attempt else None
+                    ),
                     details=self._failure_details(query),
                 )
                 return self._workbench_terminal_turn_response(
@@ -2676,6 +2641,101 @@ class CatalystService:
             # decision was a rejection, not because of a transport problem.
             return f"{role}_decision", f"{role}_rejected"
         return f"{role}_transport", f"{role}_transport_failed"
+
+    def _retained_attempt(
+        self,
+        outcome: dict[str, Any] | None,
+        *,
+        turn_id: str,
+        catalog: Catalog,
+        question: str,
+    ) -> _RetainedAttempt | None:
+        """The best complete candidate a failed generation produced, if any.
+
+        Two things end a generation holding a usable candidate: a reviewer
+        rejecting one the writer had already linted clean, and the writer's own
+        repair loop running out of attempts on a candidate that is usually one
+        identifier from correct. Both leave something worth editing, and which
+        one happened decides how the failure is described -- so this resolves
+        the candidate and reports its origin together, rather than letting
+        callers infer the second from the first.
+        """
+        if not isinstance(outcome, dict):
+            return None
+        collaboration = outcome.get("modelCollaboration")
+        writer = (
+            collaboration.get("writer") if isinstance(collaboration, dict) else None
+        )
+        if (
+            isinstance(writer, dict)
+            and writer.get("disposition") == "retained_unselected"
+            and isinstance(writer.get("candidate"), dict)
+            and writer["candidate"].get("sql")
+        ):
+            return self._retain(
+                writer["candidate"],
+                turn_id=turn_id,
+                catalog=catalog,
+                question=question,
+                findings=list(writer.get("lintFindings") or []),
+                model=writer.get("model"),
+                rejected_by_reviewer=True,
+            )
+
+        diagnostic = outcome.get("diagnosticCandidate")
+        candidate = (
+            diagnostic.get("candidate") if isinstance(diagnostic, dict) else None
+        )
+        if not isinstance(candidate, dict) or not candidate.get("sql"):
+            return None
+        return self._retain(
+            candidate,
+            turn_id=turn_id,
+            catalog=catalog,
+            question=question,
+            findings=self._unresolved_findings(outcome),
+            model=None,
+            rejected_by_reviewer=False,
+        )
+
+    def _retain(
+        self,
+        candidate: dict[str, Any],
+        *,
+        turn_id: str,
+        catalog: Catalog,
+        question: str,
+        findings: list[dict[str, Any]],
+        model: Any,
+        rejected_by_reviewer: bool,
+    ) -> _RetainedAttempt:
+        retained: dict[str, Any] = {
+            **deepcopy(candidate),
+            "provenance": {
+                "turnId": turn_id,
+                "collaborationRole": "writer",
+                "lintFindings": deepcopy(findings),
+                **({"model": model} if model is not None else {}),
+            },
+        }
+        validation = self._build_workbench_validation(
+            {
+                **retained,
+                "queryDigest": workbench_query_digest(
+                    str(retained["sql"]),
+                    list(retained.get("parameters") or []),
+                    list(retained.get("expectedColumns") or []),
+                ),
+            },
+            question=question,
+            catalog=catalog,
+            source_findings=deepcopy(findings),
+        )
+        return _RetainedAttempt(
+            candidate=retained,
+            validation=validation,
+            rejected_by_reviewer=rejected_by_reviewer,
+        )
 
     @staticmethod
     def _unresolved_findings(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:

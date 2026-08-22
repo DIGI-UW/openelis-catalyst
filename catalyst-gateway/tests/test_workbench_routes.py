@@ -416,6 +416,26 @@ class SwitchableAvailabilityHub(FakeHub):
         return profiles
 
 
+class FailingFollowupHub(FakeHub):
+    """Ready on the first turn, generation failure on every one after it.
+
+    Failure on a follow-up is a different situation from failure on an initial
+    turn: the session already holds a query someone is working from.
+    """
+
+    def __init__(self, ready: dict, rejected: dict) -> None:
+        super().__init__(ready)
+        self.ready = ready
+        self.rejected = rejected
+
+    async def generate_query(self, request: dict) -> dict:
+        followup = (
+            request["catalystQuery"]["contractVersion"] == "catalyst.query.request.v2"
+        )
+        self.query = self.rejected if followup else self.ready
+        return await super().generate_query(request)
+
+
 class TransportFailureHub(FakeHub):
     async def generate_query(self, request: dict) -> dict:
         self.requests.append(deepcopy(request))
@@ -1397,6 +1417,76 @@ def test_session_without_a_profile_uses_the_configured_default(
 
     assert response.status_code == 201, response.text
     assert response.json()["profileId"] == configured
+
+
+def test_repair_exhaustion_keeps_the_last_complete_candidate(
+    tmp_path: Path,
+) -> None:
+    """A near-miss is worth more than a red cell.
+
+    When the loop runs out of attempts it still holds the last complete
+    candidate it built -- usually one identifier away from correct. Dropping it
+    leaves someone with a failure and nothing to work from; keeping it as an
+    unselected output on the failed turn lets them take it into the editor.
+
+    A follow-up is where this costs something. An initial turn recovers the
+    candidate as the session's draft because there is nothing to overwrite; a
+    follow-up has a working query, so the attempt is kept beside it, not in
+    place of it.
+    """
+    rejected = _rejected_query()
+    hub = FailingFollowupHub(_ready_query(), rejected)
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+
+    session = _create_session(client)
+    base = session["currentVersion"]
+
+    followup = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Bind the date to a named parameter",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+    assert followup.status_code == 201, followup.text
+    turn = followup.json()
+
+    assert turn["status"] == "failed"
+    retained = [
+        output
+        for output in turn["outputVersions"]
+        if output["role"] == "writer" and not output["selected"]
+    ]
+    assert retained, "the failed turn kept no candidate to edit"
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    version = next(
+        item
+        for item in reloaded["versions"]
+        if item["versionId"] == retained[0]["versionId"]
+    )
+    assert version["sql"] == rejected["diagnosticCandidate"]["candidate"]["sql"]
+    assert version["authorType"] == "model"
+    # A starting point, not the answer: nothing selected it, and the query the
+    # person already had still stands.
+    assert turn["selectedVersionId"] is None
+    assert reloaded["currentVersionId"] == base["versionId"]
 
 
 def test_unresolved_findings_are_named_and_classified_as_semantics(
