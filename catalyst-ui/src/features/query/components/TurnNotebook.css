@@ -104,6 +104,11 @@
   border-left-color: var(--cds-border-strong-01);
 }
 
+/* Waiting on an answer is its own outcome: informational, never red. */
+.query-turn[data-status="asking"] .query-turn__disclosure {
+  border-left-color: var(--cds-support-info);
+}
+
 .query-turn[data-current="true"] .query-turn__disclosure {
   border-left-width: 4px;
 }
@@ -131,6 +136,11 @@
 .query-turn[data-status="not-run"] .query-turn__dot {
   border-color: var(--cds-border-strong-01);
   background: var(--cds-layer-01);
+}
+
+.query-turn[data-status="asking"] .query-turn__dot {
+  border-color: var(--cds-support-info);
+  background: var(--cds-support-info);
 }
 
 /* Authorship, legible while collapsed. */
