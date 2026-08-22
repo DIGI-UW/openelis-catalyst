@@ -8,7 +8,10 @@ import type {
   WorkbenchExecution,
   WorkbenchSession,
 } from "../types";
-import { editorContentMatchesVersion } from "../editorDigest";
+import {
+  editorContentMatchesVersion,
+  sqlLayoutMatches,
+} from "../editorDigest";
 import { SqlEditor } from "./SqlEditor";
 import { workbenchCatalogRelations } from "./workbenchPanelSupport";
 import "./WorkbenchPanel.css";
@@ -347,7 +350,7 @@ export const ExecutionResult = ({
             },
             executionVersion,
           )
-        : sql === execution.query.sql &&
+        : sqlLayoutMatches(sql, execution.query.sql) &&
           JSON.stringify(parameters) ===
             JSON.stringify(execution.query.parameters)));
 
@@ -580,7 +583,8 @@ export const WorkbenchPanel = ({
   // Closing throws away whatever the editor holds that the current version does
   // not, so say which of the two things the button is about to do.
   const closeDiscardsEdits = Boolean(
-    session.currentVersion && sql !== session.currentVersion.sql,
+    session.currentVersion &&
+      !sqlLayoutMatches(sql, session.currentVersion.sql),
   );
 
   return (

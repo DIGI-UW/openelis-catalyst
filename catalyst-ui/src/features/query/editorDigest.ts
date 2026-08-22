@@ -229,6 +229,35 @@ export const normalizeSqlLayout = (sql: string): string => {
   return out;
 };
 
+/**
+ * Whether two queries are the same query.
+ *
+ * The one place that answers this. Comparing SQL with `===` is the defect this
+ * module exists to remove: it was written out by hand at seven call sites, and
+ * every one of them read a reflow as a rewrite. Call this instead — there is a
+ * test that fails if a new site spells the comparison out again.
+ */
+export const sqlLayoutMatches = (left: string, right: string): boolean =>
+  normalizeSqlLayout(left) === normalizeSqlLayout(right);
+
+/**
+ * The model's declared columns, kept only while they still describe the query.
+ *
+ * Layout-insensitive for the same reason the authorship check is: a reflow of
+ * the query the model wrote still returns the same columns, so dropping them
+ * would present the editor as describing something unverified when nothing
+ * about the query had changed. Lives here, beside the comparison it has to
+ * agree with, because two copies of this rule in two files is how one of them
+ * ends up comparing bytes.
+ */
+export const editorExpectedColumns = (
+  baseVersion: Pick<WorkbenchQueryVersion, "sql" | "expectedColumns"> | null,
+  sql: string,
+): Column[] =>
+  baseVersion !== null && sqlLayoutMatches(sql, baseVersion.sql)
+    ? baseVersion.expectedColumns
+    : [];
+
 const comparableContent = (content: EditorContent) =>
   canonicalJson({
     sql: normalizeSqlLayout(content.sql),

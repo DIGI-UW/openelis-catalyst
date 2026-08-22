@@ -2,7 +2,10 @@ import { CheckmarkFilled, Close, DataBase, Renew } from "@carbon/icons-react";
 import { Button, InlineNotification, Select, SelectItem, Tag, TextInput } from "@carbon/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CatalystApiError, type CatalystApi } from "../api";
-import { editorContentMatchesVersion } from "../editorDigest";
+import {
+  editorContentMatchesVersion,
+  editorExpectedColumns,
+} from "../editorDigest";
 import type {
   BoundParameter,
   DashboardBuilderEntity,
@@ -290,10 +293,12 @@ export const DashboardPublishPanel = ({
         {
           sql,
           parameters,
-          expectedColumns:
-            sql === session.currentVersion.sql
-              ? session.currentVersion.expectedColumns
-              : [],
+          // Compared the way the editor compares. This read `sql ===
+          // currentVersion.sql`, so once the editor presented the model's
+          // query laid out, the columns were dropped, the content stopped
+          // matching, and every model result was reported stale -- which
+          // disabled "Save Dataset" for queries nobody had touched.
+          expectedColumns: editorExpectedColumns(session.currentVersion, sql),
         },
         session.currentVersion,
       ),

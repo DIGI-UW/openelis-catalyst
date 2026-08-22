@@ -33,7 +33,8 @@ import {
 } from "./components/workbenchRailSupport";
 import {
   editorContentMatchesVersion,
-  normalizeSqlLayout,
+  editorExpectedColumns,
+  sqlLayoutMatches,
   workbenchEditorDigest,
 } from "./editorDigest";
 import { formatPostgresqlSql } from "./components/sqlEditorSupport";
@@ -172,15 +173,6 @@ const editorReadySql = (sql: string): string => {
     return sql;
   }
 };
-
-const editorExpectedColumns = (
-  baseVersion: WorkbenchQueryVersion | null,
-  sql: string,
-) =>
-  baseVersion !== null &&
-  normalizeSqlLayout(sql) === normalizeSqlLayout(baseVersion.sql)
-    ? baseVersion.expectedColumns
-    : [];
 
 const currentQueryProfileId = (session: WorkbenchSession) => {
   const visited = new Set<string>();
@@ -1466,8 +1458,7 @@ export const QueryWorkspace = ({
   // Compared the same way editorContentMatchesVersion compares, so the editor
   // and the authorship check can never disagree about what "changed" means.
   const editorDirty = workbenchSession?.currentVersion
-    ? normalizeSqlLayout(workbenchSql) !==
-      normalizeSqlLayout(workbenchSession.currentVersion.sql)
+    ? !sqlLayoutMatches(workbenchSql, workbenchSession.currentVersion.sql)
     : workbenchSql.trim().length > 0;
   // Open while there is something to do in it: a query not yet run, unsaved
   // edits, or an explicit ask to edit. Otherwise the run's result leads.

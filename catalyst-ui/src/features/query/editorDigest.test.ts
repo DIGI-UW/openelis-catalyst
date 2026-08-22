@@ -1,9 +1,21 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   editorContentMatchesVersion,
   normalizeSqlLayout,
+  sqlLayoutMatches,
   workbenchEditorDigest,
 } from "./editorDigest";
+
+const featureSources = (directory: string): string[] =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return featureSources(path);
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)
+      ? [path]
+      : [];
+  });
 
 describe("workbench editor digest", () => {
   it("matches the gateway RFC 8785 golden vector", () => {
@@ -16,6 +28,67 @@ describe("workbench editor digest", () => {
     ).toBe(
       "82d9696f92e64acb0c4edba843633c97eb23fd3f22887d93755eb86971855105",
     );
+  });
+});
+
+describe("one owner for 'is this the same query?'", () => {
+  // This rule was written out by hand at seven call sites across four files.
+  // Each one compared SQL as bytes, so each one read a reformat as a rewrite --
+  // mislabelling the model's query "Edited by hand", clearing its declared
+  // columns, reporting a fresh result stale, and disabling "Save Dataset". They
+  // were found one at a time over three rounds because nothing stopped the
+  // eighth from being written the same way. This does.
+  const sources = featureSources(join(__dirname));
+
+  it("finds no hand-written SQL comparison outside this module", () => {
+    const offenders = sources
+      .filter((path) => !path.endsWith("editorDigest.ts"))
+      .flatMap((path) =>
+        readFileSync(path, "utf8")
+          .split("\n")
+          .map((line, index) => ({ path, line, number: index + 1 }))
+          .filter(({ line }) => {
+            // Comments are not comparisons.
+            if (/^\s*(\/\/|\*)/.test(line)) return false;
+            const code = line.replace(/\/\/.*$/, "");
+            // An equality test whose operand IS sql -- `sql ===`, `.sql !==`,
+            // `=== execution.query.sql`, `!== currentVersion?.sql`. The first
+            // version of this guard required a literal `.sql` before the
+            // operator, missed `?.sql`, and passed on a planted violation; a
+            // guard is only kept after it has been watched failing.
+            // `sql.trim().length === 0` does not match: the operand there is
+            // `length`, not sql.
+            return (
+              /[\w$?.]*\bsql\b\s*(===|!==)/i.test(code) ||
+              /(===|!==)\s*[\w$?.]*\bsql\b/i.test(code) ||
+              /normalizeSqlLayout\s*\(/.test(code)
+            );
+          }),
+      )
+      .map(({ path, line, number }) => `${path}:${number} ${line.trim()}`);
+
+    // Call sqlLayoutMatches, or editorContentMatchesVersion for whole content.
+    expect(offenders).toEqual([]);
+  });
+
+  it("scanned the files it claims to scan", () => {
+    // A guard that silently matches nothing guards nothing.
+    expect(sources.length).toBeGreaterThan(5);
+    expect(sources).toContain(join(__dirname, "QueryWorkspace.tsx"));
+    expect(sources).toContain(
+      join(__dirname, "components", "WorkbenchPanel.tsx"),
+    );
+  });
+});
+
+describe("sqlLayoutMatches", () => {
+  it("is true for a reflow and false for a real change", () => {
+    expect(sqlLayoutMatches("SELECT a\n  FROM t", "select a from t")).toBe(true);
+    expect(sqlLayoutMatches("SELECT a FROM t", "SELECT b FROM t")).toBe(false);
+  });
+
+  it("does not collapse spaces inside a literal", () => {
+    expect(sqlLayoutMatches("SELECT 'a  b'", "SELECT 'a b'")).toBe(false);
   });
 });
 
