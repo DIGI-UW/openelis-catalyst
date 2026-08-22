@@ -61,6 +61,8 @@ export interface NotebookTurn {
     message: string;
     /** The failure's own code; `needs_clarification` is a question, not a fault. */
     code?: string;
+    /** The model's own output was recorded and can be shown. */
+    evidenceAvailable?: boolean;
     /** The named checks that failed, straight from the failure diagnostic. */
     checks?: { name: string; value: string }[];
   } | null;
@@ -601,6 +603,19 @@ export const TurnNotebook = ({
                         </div>
                       ))}
                     </dl>
+                  )}
+                  {/*
+                    What the model actually returned settles any question this
+                    summary leaves open, and it is already recorded.
+                  */}
+                  {turn.failure?.evidenceAvailable && (
+                    <button
+                      type="button"
+                      className="query-turn__footer-link"
+                      onClick={() => onOpenDetails(turn.turnId, "evidence")}
+                    >
+                      Show the model's output
+                    </button>
                   )}
                 </div>
               )}
