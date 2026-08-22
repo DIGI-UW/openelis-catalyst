@@ -1559,6 +1559,75 @@ def test_changed_manual_sql_drops_stale_model_expected_columns(
     assert edited.json()["currentVersion"]["expectedColumns"] == []
 
 
+def test_reformatted_sql_reuses_the_current_version(tmp_path: Path) -> None:
+    # The same query with its layout changed is not a new query, and running a
+    # reformatted buffer must not mint a human-authored version of the model's
+    # own work. The UI already refuses to send layout-only changes here; this
+    # pins the same judgement at the API boundary, where any client can reach.
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    parent = session["currentVersion"]
+    assert parent["authorType"] == "model"
+    reflowed = (
+        "select test_name\nfrom analytics.lab_results\n"
+        "where result_date >= :start_date\nlimit 2"
+    )
+    assert reflowed != parent["sql"]
+
+    saved = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": parent["versionId"],
+            "parentQueryDigest": parent["queryDigest"],
+            "sql": reflowed,
+            "parameters": parent["parameters"],
+            "expectedColumns": parent["expectedColumns"],
+        },
+    )
+
+    assert saved.status_code == 201, saved.text
+    body = saved.json()
+    # Read-only reuse: still the model's version, nothing appended.
+    assert body["currentVersion"]["versionId"] == parent["versionId"]
+    assert body["currentVersion"]["authorType"] == "model"
+    assert len(body["versions"]) == len(session["versions"])
+
+
+def test_reformatted_sql_keeps_columns_when_parameters_change(
+    tmp_path: Path,
+) -> None:
+    # A changed parameter is a real edit and earns a human version — but the
+    # declared columns describe the projection, and a reflowed projection is
+    # the same projection. Only a genuine SQL change may drop them.
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    parent = session["currentVersion"]
+    assert parent["expectedColumns"]
+    edited_parameters = [dict(parent["parameters"][0], value="2026-02-01")]
+
+    saved = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "parentVersionId": parent["versionId"],
+            "parentQueryDigest": parent["queryDigest"],
+            "sql": (
+                "select test_name\nfrom analytics.lab_results\n"
+                "where result_date >= :start_date\nlimit 2"
+            ),
+            "parameters": edited_parameters,
+            "expectedColumns": parent["expectedColumns"],
+        },
+    )
+
+    assert saved.status_code == 201, saved.text
+    version = saved.json()["currentVersion"]
+    assert version["versionId"] != parent["versionId"]
+    assert version["authorType"] == "human"
+    assert version["expectedColumns"] == parent["expectedColumns"]
+
+
 def test_human_invalid_edit_runs_and_preserves_database_diagnostic(
     tmp_path: Path,
 ) -> None:
@@ -1621,7 +1690,10 @@ def test_stale_manual_edit_is_a_conflict(tmp_path: Path) -> None:
         "contractVersion": "catalyst.workbench.version.request.v1",
         "parentVersionId": parent["versionId"],
         "parentQueryDigest": parent["queryDigest"],
-        "sql": parent["sql"] + " ",
+        # A real edit: under layout-insensitive comparison a trailing space is
+        # (correctly) no longer a change, and this test is about staleness,
+        # not about what counts as an edit.
+        "sql": parent["sql"] + " OFFSET 0",
         "parameters": parent["parameters"],
     }
     assert (
@@ -1653,7 +1725,7 @@ def test_stale_followup_has_no_turn_event_or_hub_generation_side_effects(
             "contractVersion": "catalyst.workbench.version.request.v1",
             "parentVersionId": stale_base["versionId"],
             "parentQueryDigest": stale_base["queryDigest"],
-            "sql": stale_base["sql"] + " ",
+            "sql": stale_base["sql"] + " OFFSET 0",
             "parameters": stale_base["parameters"],
             "expectedColumns": stale_base["expectedColumns"],
         },
