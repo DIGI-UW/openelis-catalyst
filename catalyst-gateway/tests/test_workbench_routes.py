@@ -1724,6 +1724,47 @@ def test_the_query_finding_outlives_the_repair_that_failed_after_it(
     assert "catalog.unknown_column" in named
 
 
+def test_a_check_that_only_repeats_the_outcome_is_not_shown_twice(
+    tmp_path: Path,
+) -> None:
+    """The stage check restates the outcome message, which has been replaced.
+
+    The cell's message is now the finding in the reader's terms, and the check
+    named `query_generate` carried the generic wording it replaced -- so the
+    boilerplate came back on the next line. The check's name still earns its
+    place when it says something the message does not.
+    """
+    query = _rejected_query()
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    query["validation"]["checks"] = [
+        {
+            "name": "query_generate",
+            "status": "failed",
+            "message": query["message"],
+        },
+        {
+            "name": "query_lint_attempt_1",
+            "status": "failed",
+            "message": "Lint rejected attempt 1.",
+        },
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    details = timeline["turns"][0]["failure"]["diagnostic"]["details"]
+
+    named = {detail["name"]: detail["value"] for detail in details}
+    assert "query_generate" not in named
+    assert "Lint rejected attempt 1." in named["query_lint_attempt_1"]
+    assert all(
+        "structured-output contract" not in detail["value"] for detail in details
+    )
+
+
 def test_a_run_that_learned_nothing_says_so_without_contract_jargon(
     tmp_path: Path,
 ) -> None:

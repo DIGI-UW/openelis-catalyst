@@ -2876,12 +2876,17 @@ class CatalystService:
             return []
         validation = outcome.get("validation")
         checks = validation.get("checks") if isinstance(validation, dict) else None
+        # The stage check that only restates the outcome's own message would
+        # put the generic wording back under the summary that replaced it.
+        outcome_message = str(outcome.get("message") or "").strip()
         details: list[dict[str, Any]] = []
         for check in checks if isinstance(checks, list) else []:
             if not isinstance(check, dict) or check.get("status") == "passed":
                 continue
             status = str(check.get("status") or "failed")
             message = check.get("message")
+            if outcome_message and str(message or "").strip() == outcome_message:
+                continue
             value = (
                 f"{status} — {message}"
                 if isinstance(message, str) and message
