@@ -59,6 +59,11 @@ _WORKBENCH_PARAMETER_TYPES = frozenset(
 )
 _WORKBENCH_PARAMETER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Stages where the correction loop reports on its own run rather than on the
+# query. Their findings' suggested actions instruct the model what to return
+# next, so they are never repeated to a person as advice.
+_LOOP_STAGES = frozenset({"output_contract", "query_correct"})
+
 
 class ProfileEvidenceError(ContractError):
     """An advertised profile lacks exact role/model/prompt evidence."""
@@ -2707,7 +2712,11 @@ class CatalystService:
             return fallback
         first = findings[0]
         parts = [str(first.get("message") or "").strip()]
-        action = str(first.get("suggestedAction") or "").strip()
+        action = (
+            ""
+            if str(first.get("stage") or "") in _LOOP_STAGES
+            else str(first.get("suggestedAction") or "").strip()
+        )
         if action and action not in parts[0]:
             parts.append(action)
         summary = " ".join(part for part in parts if part)

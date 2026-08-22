@@ -1434,6 +1434,56 @@ def test_unresolved_findings_are_named_and_classified_as_semantics(
     # The message a person reads names the finding, not the pipeline stage.
     assert "structured-output contract" not in failure["message"]
     assert "named parameters" in failure["message"]
+    # A lint finding's suggested action is about the query, so it is advice.
+    assert "Replace the literal" in failure["message"]
+
+
+def test_the_loops_instructions_to_itself_are_not_shown_as_advice(
+    tmp_path: Path,
+) -> None:
+    """A suggested action is only advice if a person can act on it.
+
+    The correction loop raises findings about its own run, and their suggested
+    actions tell the model what to return next -- "stop retrying", "return one
+    complete JSON candidate". Printed in the cell they read as instructions to
+    the reader, who has no such lever. The finding itself still says what
+    happened.
+    """
+    query = _rejected_query()
+    finding = {
+        "code": "generation.unchanged_candidate",
+        "stage": "query_correct",
+        "severity": "error",
+        "path": "$",
+        "message": "The model repeated an unchanged candidate after feedback.",
+        "evidence": "candidate output matched an earlier attempt",
+        "suggestedAction": "Stop retrying and reject this generation run.",
+    }
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    query["diagnosticCandidate"]["attempts"] = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "finding_codes": [finding["code"]],
+            "findings": [finding],
+        }
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    assert failure["message"] == finding["message"]
+    assert "Stop retrying" not in failure["message"]
+    # It is still recorded, where someone reading the diagnostic can see it.
+    named = {
+        detail["name"]: detail["value"] for detail in failure["diagnostic"]["details"]
+    }
+    assert "Stop retrying" in named["generation.unchanged_candidate"]
 
 
 def test_shape_failures_stay_classified_as_output_contract(
