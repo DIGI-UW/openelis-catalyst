@@ -186,6 +186,54 @@ def structured_format(name: str, schema: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _flatten_conditional_object(schema: Mapping[str, Any]) -> Dict[str, Any]:
+    """Fold a base object plus its ``oneOf`` refinements into closed branches.
+
+    The parameter contract is written as a base object (name, type, source) with
+    a ``oneOf`` that pins ``value`` to the declared type. Each of those branches
+    inherits the base by sitting alongside it -- correct JSON Schema, and
+    another shape llama.cpp's converter cannot carry: branch-local ``required``
+    is dropped, so the grammar permits a parameter with no ``value`` at all, or
+    a string where an integer was declared.
+
+    Merging each branch with the base produces self-contained alternatives that
+    say the same thing without relying on sibling context.
+    """
+    base = {
+        key: deepcopy(value)
+        for key, value in schema.items()
+        if key not in ("oneOf", "anyOf", "allOf")
+    }
+    variants = schema.get("oneOf")
+    if not variants:
+        return base
+
+    branches: list[Dict[str, Any]] = []
+    for variant in variants:
+        properties = deepcopy(base.get("properties", {}))
+        properties.update(deepcopy(variant.get("properties", {})))
+        required = sorted(
+            set(base.get("required", [])) | set(variant.get("required", []))
+        )
+        branches.append(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": required,
+                "properties": properties,
+            }
+        )
+    return {"oneOf": branches}
+
+
+def _grammar_safe_defs(defs: Mapping[str, Any]) -> Dict[str, Any]:
+    """The shared ``$defs``, with conditional objects flattened for the wire."""
+    return {
+        name: _flatten_conditional_object(definition)
+        for name, definition in deepcopy(dict(defs)).items()
+    }
+
+
 BACKEND_GENERATION_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -203,10 +251,84 @@ BACKEND_GENERATION_SCHEMA: Dict[str, Any] = {
         "parameters": deepcopy(CANDIDATE_SCHEMA["properties"]["parameters"]),
         "expectedColumns": deepcopy(CANDIDATE_SCHEMA["properties"]["expectedColumns"]),
     },
-    "$defs": deepcopy(CANDIDATE_SCHEMA["$defs"]),
+    "$defs": _grammar_safe_defs(CANDIDATE_SCHEMA["$defs"]),
 }
-BACKEND_GENERATION_SCHEMA["$defs"]["parameter"]["required"] = ["type", "value"]
-BACKEND_REVIEW_SCHEMA: Dict[str, Any] = deepcopy(REVIEW_SCHEMA)
+
+
+def _closed_candidate_branch(status: str, fields: Tuple[str, ...]) -> Dict[str, Any]:
+    """One candidate status as a closed object with nothing left to forbid.
+
+    REVIEW_SCHEMA expresses the same rule as a ``oneOf`` of branches that carry
+    ``not: {anyOf: [{required: [...]}]}`` to exclude the fields belonging to the
+    other statuses. That is correct JSON Schema and Python validates it, but
+    llama.cpp's schema-to-grammar conversion does not implement ``not`` or
+    branch-local ``required``: it silently emits a grammar that accepts any
+    object with the declared properties. A reviewer could therefore return
+    ``candidate: {"status": "ready"}`` -- no SQL -- while the request declared
+    ``strict: True``, and it did, repeatedly, which killed every follow-up turn.
+
+    Stating each status as its own closed object needs no ``not`` at all: the
+    other statuses' fields are simply absent from ``properties``, and
+    ``additionalProperties: false`` rejects them. That shape the grammar does
+    compile faithfully.
+    """
+    properties: Dict[str, Any] = {"status": {"const": status}}
+    for field in fields:
+        properties[field] = deepcopy(CANDIDATE_SCHEMA["properties"][field])
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["status", *fields],
+        "properties": properties,
+    }
+
+
+_BACKEND_CHECKS: Dict[str, Any] = {
+    "type": "array",
+    "minItems": 1,
+    "items": deepcopy(CHECK_SCHEMA),
+}
+# The wire contract for review, as three closed alternatives. Narrower than
+# REVIEW_SCHEMA on purpose: a decision the reviewer cannot act on is not worth
+# generating. "repair" must carry a complete ready candidate, because applying a
+# repair means taking its SQL. REVIEW_SCHEMA stays as the validator, so an
+# output that arrives in some other legal shape is still judged, not crashed on.
+BACKEND_REVIEW_SCHEMA: Dict[str, Any] = {
+    "oneOf": [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["decision", "checks"],
+            "properties": {
+                "decision": {"const": "approve"},
+                "checks": deepcopy(_BACKEND_CHECKS),
+                "message": {"type": "string"},
+            },
+        },
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["decision", "checks", "message"],
+            "properties": {
+                "decision": {"const": "reject"},
+                "checks": deepcopy(_BACKEND_CHECKS),
+                "message": {"type": "string", "minLength": 1},
+            },
+        },
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["decision", "checks", "candidate"],
+            "properties": {
+                "decision": {"const": "repair"},
+                "checks": deepcopy(_BACKEND_CHECKS),
+                "message": {"type": "string"},
+                "candidate": _closed_candidate_branch("ready", STATUS_FIELDS["ready"]),
+            },
+        },
+    ],
+    "$defs": _grammar_safe_defs(CANDIDATE_SCHEMA["$defs"]),
+}
 BACKEND_REPAIR_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -232,7 +354,7 @@ BACKEND_REPAIR_SCHEMA: Dict[str, Any] = {
         "parameters": deepcopy(CANDIDATE_SCHEMA["properties"]["parameters"]),
         "expectedColumns": deepcopy(CANDIDATE_SCHEMA["properties"]["expectedColumns"]),
     },
-    "$defs": deepcopy(CANDIDATE_SCHEMA["$defs"]),
+    "$defs": _grammar_safe_defs(CANDIDATE_SCHEMA["$defs"]),
 }
 Draft202012Validator.check_schema(BACKEND_GENERATION_SCHEMA)
 Draft202012Validator.check_schema(BACKEND_REVIEW_SCHEMA)
