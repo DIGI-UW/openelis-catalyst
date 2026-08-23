@@ -117,10 +117,17 @@ def build_revision_context(
         for turn in omitted
     ]
     editor_digest = str(editor_snapshot["editorDigest"])
+    # Validations and executions are recorded against the stored version's
+    # digest. When the snapshot resolves to that version, the editor's own
+    # digest is a different string for the same query -- the editor may hold it
+    # laid out -- so evidence has to be looked up under the version.
+    evidence_digests = {editor_digest}
+    if isinstance(effective_base, Mapping) and effective_base.get("queryDigest"):
+        evidence_digests.add(str(effective_base["queryDigest"]))
     matching_validations = [
         validation
         for validation in session.get("validations", [])
-        if validation.get("queryDigest") == editor_digest
+        if validation.get("queryDigest") in evidence_digests
     ]
     validation_context = None
     validation_ref = None
@@ -158,7 +165,7 @@ def build_revision_context(
     matching_executions = [
         execution
         for execution in session.get("executions", [])
-        if execution.get("queryDigest") == editor_digest
+        if execution.get("queryDigest") in evidence_digests
     ]
     execution_context = None
     execution_ref = None

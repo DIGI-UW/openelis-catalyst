@@ -22,6 +22,7 @@ from src.catalyst.digest import canonical_sha256, utf8_sha256
 from src.catalyst.hub import HubError
 from src.catalyst.policy import SqlPolicy
 from src.catalyst.service import CatalystService
+from src.catalyst.workbench import workbench_query_digest
 from src.catalyst.storage import PreviewStore, WorkbenchStore
 
 
@@ -1313,6 +1314,63 @@ def test_ready_candidate_historical_lint_warning_stays_in_generation_history(
         session["currentVersion"]["provenance"]["generationValidation"]
         == (query["validation"])
     )
+
+
+def test_reformatted_snapshot_is_the_same_query_not_a_hand_edit(
+    tmp_path: Path,
+) -> None:
+    # The editor presents SQL laid out, so a follow-up on an untouched query
+    # sends reflowed text with a digest over that text -- correct, and what the
+    # evidence record should hold. The turn path still judged "is this the
+    # current version?" by digest equality, so a reflow was classified
+    # promoted_human and minted a hand-authored version: the same byte-blind
+    # comparison already fixed for the create-version path.
+    hub = FakeHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    reflowed = (
+        "select test_name\nfrom analytics.lab_results\n"
+        "where result_date >= :start_date\nlimit 2"
+    )
+    assert reflowed != base["sql"]
+    snapshot = {
+        "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+        "sql": reflowed,
+        "parameters": base["parameters"],
+        "expectedColumns": base["expectedColumns"],
+        # The digest of what is sent -- the integrity check stays byte-exact.
+        "editorDigest": workbench_query_digest(
+            reflowed, base["parameters"], base["expectedColumns"]
+        ),
+    }
+
+    followup = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Collapse to one row per patient",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": snapshot,
+        },
+    )
+
+    assert followup.status_code == 201, followup.text
+    turn = followup.json()
+    assert turn["snapshotClassification"] == "reused"
+    # What the person saw is what is recorded.
+    assert turn["editorSnapshot"]["content"]["sql"] == reflowed
+    assert turn["manualVersion"] is None
+    # The evidence the model reasons from is recorded against the stored
+    # version's digest. A reused snapshot is that version, so a reflow must not
+    # cost the model its validation and execution context.
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    assert revision["validationContext"] is not None
+    assert revision["selection"]["validationRef"] is not None
 
 
 def test_session_without_a_profile_uses_the_configured_default(

@@ -91,6 +91,8 @@ interface TurnNotebookProps {
   generating?: boolean;
   /** The last run failed, which pins the composer open on its error state. */
   lastRunFailed?: boolean;
+  /** A failed workbench action, reported where the action was taken. */
+  error?: string | null;
   onInstructionChange: (instruction: string) => void;
   onProfileChange: (profileId: string) => void;
   onGenerate: () => void;
@@ -233,6 +235,7 @@ export const TurnNotebook = ({
   busy,
   generating = false,
   lastRunFailed = false,
+  error = null,
   onInstructionChange,
   onProfileChange,
   onGenerate,
@@ -830,6 +833,11 @@ export const TurnNotebook = ({
                 ))}
               </select>
             </label>
+            {error && (
+              <p className="turn-composer__error" role="alert">
+                {error}
+              </p>
+            )}
             {grounding.kind === "stale" && (
               <span
                 className="turn-composer__stale"
