@@ -1001,6 +1001,58 @@ describe("TurnNotebook", () => {
     expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
   });
 
+  it("puts the model's own output one click from the failure that needs it", async () => {
+    // What the model actually returned is the ground truth about a failure,
+    // and it is already recorded. Reaching it should not require knowing that
+    // "details" leads to a tab called Evidence.
+    const user = userEvent.setup();
+    const onOpenDetails = vi.fn();
+    const failed = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        code: "writer_output_contract_failed",
+        message: "The model did not return the expected shape.",
+        evidenceAvailable: true,
+      },
+    };
+    render(
+      <TurnNotebook
+        {...defaultProps}
+        turns={[initialTurn, failed]}
+        onOpenDetails={onOpenDetails}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /show the model's output/i }),
+    );
+    expect(onOpenDetails).toHaveBeenCalledWith(failed.turnId, "evidence");
+  });
+
+  it("does not offer output that was never recorded", () => {
+    const failed = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        code: "writer_timeout",
+        message: "The model backend timed out.",
+        evidenceAvailable: false,
+      },
+    };
+    render(
+      <TurnNotebook {...defaultProps} turns={[initialTurn, failed]} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /show the model's output/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("offers only available different-family profiles and records per-turn switching", async () => {
     const user = userEvent.setup();
     const onProfileChange = vi.fn();
