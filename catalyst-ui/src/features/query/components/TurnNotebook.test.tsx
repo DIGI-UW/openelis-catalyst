@@ -976,6 +976,31 @@ describe("TurnNotebook", () => {
     expect(onEditAttempt).toHaveBeenCalledWith(writerVersion.versionId);
   });
 
+  it("puts a turn that ended in a question to the reader, not a red failure", async () => {
+    // Asking for a field the data does not have is answerable only by the
+    // person who asked. Reported as a failed pipeline it reads as something
+    // to retry; reported as a question it reads as something to answer.
+    const asking = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        code: "needs_clarification",
+        message:
+          "This data has no “patient_last_name”. Which field is meant, " +
+          "or should the request be worded differently?",
+      },
+    };
+    render(
+      <TurnNotebook {...defaultProps} turns={[initialTurn, asking]} />,
+    );
+
+    expect(screen.getByText(/Which field is meant/)).toBeVisible();
+    expect(screen.getByText("Needs your answer")).toBeVisible();
+    expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
+  });
+
   it("offers only available different-family profiles and records per-turn switching", async () => {
     const user = userEvent.setup();
     const onProfileChange = vi.fn();

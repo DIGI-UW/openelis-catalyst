@@ -237,6 +237,12 @@
   margin: 0.25rem 0 0;
 }
 
+/* A question for the reader, not a fault: informational, not alarming. */
+.query-turn__failure--asking {
+  border-left-color: var(--cds-support-info);
+  background: var(--cds-notification-background-info);
+}
+
 /*
  * Tier 1 of the three technical-detail tiers: plain words only. Identifiers,
  * digests and validator revisions belong to the Details panel, not here.

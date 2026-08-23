@@ -285,6 +285,7 @@ const notebookTurns = (
     failure: turn.failure
       ? {
           message: turn.failure.message,
+          code: turn.failure.code,
           checks: failureCheckDetails(turn.failure),
         }
       : null,

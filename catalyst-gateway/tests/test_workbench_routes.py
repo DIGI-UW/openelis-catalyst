@@ -1576,6 +1576,85 @@ def test_the_loops_instructions_to_itself_are_not_shown_as_advice(
     assert "Stop retrying" in named["generation.unchanged_candidate"]
 
 
+def test_asking_for_a_field_the_dataset_lacks_becomes_a_question(
+    tmp_path: Path,
+) -> None:
+    """Some failures are only answerable by the person who asked.
+
+    A repair loop that ends on unknown identifiers has not malfunctioned: the
+    request named something this dataset does not have, and no further attempt
+    can change that. Classified as a question and phrased as one, the reply is
+    a reworded instruction rather than a retry of the same request.
+    """
+    query = _rejected_query()
+    finding = {
+        "code": "catalog.unknown_column",
+        "stage": "catalog_identifiers",
+        "severity": "error",
+        "path": "$.sql",
+        "message": "SQL references fields absent from the approved catalog.",
+        "evidence": "patient_last_name",
+        "suggestedAction": "Replace or remove every field not in the catalog.",
+    }
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    query["diagnosticCandidate"]["attempts"] = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "finding_codes": [finding["code"]],
+            "findings": [finding],
+        }
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    assert failure["code"] == "needs_clarification"
+    assert failure["stage"].endswith("_findings")
+    # It names what is missing and asks for the one thing only a person knows.
+    assert "patient_last_name" in failure["message"]
+    assert "?" in failure["message"]
+    # Lint instructions are addressed to the model, not to the reader.
+    assert "catalog" not in failure["message"].lower()
+
+
+def test_a_mixed_failure_is_not_reduced_to_a_question(tmp_path: Path) -> None:
+    """Only a purely unanswerable failure becomes a question.
+
+    An unknown identifier alongside a finding the loop could still have fixed
+    is not a question -- calling it one would ask the person to resolve
+    something the pipeline gave up on.
+    """
+    query = _rejected_query()
+    unknown = {
+        "code": "catalog.unknown_column",
+        "stage": "catalog_identifiers",
+        "severity": "error",
+        "path": "$.sql",
+        "message": "SQL references fields absent from the approved catalog.",
+        "evidence": "patient_last_name",
+        "suggestedAction": "Replace or remove every field not in the catalog.",
+    }
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    attempt = query["diagnosticCandidate"]["attempts"][0]
+    attempt["findings"] = [*attempt["findings"], unknown]
+    attempt["finding_codes"] = [finding["code"] for finding in attempt["findings"]]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+
+    assert timeline["turns"][0]["failure"]["code"] == "generation_findings_unresolved"
+
+
 def test_shape_failures_stay_classified_as_output_contract(
     tmp_path: Path,
 ) -> None:

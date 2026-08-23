@@ -59,6 +59,8 @@ export interface NotebookTurn {
   };
   failure: {
     message: string;
+    /** The failure's own code; `needs_clarification` is a question, not a fault. */
+    code?: string;
     /** The named checks that failed, straight from the failure diagnostic. */
     checks?: { name: string; value: string }[];
   } | null;
@@ -165,6 +167,14 @@ const cellStatus = (turn: NotebookTurn): CellStatus => {
 };
 
 const rowLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
+
+/**
+ * The turn ended on something only the person who asked can settle — a field
+ * the data does not have. Nothing here malfunctioned, so the cell asks rather
+ * than reporting a fault.
+ */
+const asksTheReader = (turn: NotebookTurn) =>
+  turn.failure?.code === "needs_clarification";
 
 /**
  * Who wrote this cell's query, as its own channel.
@@ -562,8 +572,19 @@ export const TurnNotebook = ({
                 })}
 
               {turn.status === "failed" && (
-                <div className="query-turn__failure" role="status">
-                  <strong>Generation failed</strong>
+                <div
+                  className={
+                    asksTheReader(turn)
+                      ? "query-turn__failure query-turn__failure--asking"
+                      : "query-turn__failure"
+                  }
+                  role="status"
+                >
+                  <strong>
+                    {asksTheReader(turn)
+                      ? "Needs your answer"
+                      : "Generation failed"}
+                  </strong>
                   <p>
                     {turn.failure?.message ?? "The generation did not complete."}
                   </p>
