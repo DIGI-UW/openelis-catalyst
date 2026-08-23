@@ -988,15 +988,15 @@ describe("TurnNotebook", () => {
       failure: {
         code: "needs_clarification",
         message:
-          "This data has no “patient_last_name”. Which field is meant, " +
-          "or should the request be worded differently?",
+          "The model couldn't find “patient_last_name” here. Which field " +
+          "did you mean, or should the request be worded differently?",
       },
     };
     render(
       <TurnNotebook {...defaultProps} turns={[initialTurn, asking]} />,
     );
 
-    expect(screen.getByText(/Which field is meant/)).toBeVisible();
+    expect(screen.getByText(/Which field did you mean/)).toBeVisible();
     expect(screen.getByText("Needs your answer")).toBeVisible();
     expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
   });
@@ -1064,7 +1064,7 @@ describe("TurnNotebook", () => {
       outputVersions: [],
       failure: {
         code: "needs_clarification",
-        message: "This data has no “patient_last_name”. Which field is meant?",
+        message: "The model couldn't find “patient_last_name” here. Which field did you mean?",
       },
     };
     render(<TurnNotebook {...defaultProps} turns={[initialTurn, asking]} />);
