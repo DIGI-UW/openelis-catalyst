@@ -1399,6 +1399,119 @@ def test_session_without_a_profile_uses_the_configured_default(
     assert response.json()["profileId"] == configured
 
 
+def test_unresolved_findings_are_named_and_classified_as_semantics(
+    tmp_path: Path,
+) -> None:
+    """A failure the lint explained must say what the lint said.
+
+    Repair exhaustion on a real finding is a semantic failure, not a
+    structured-output failure: the model honoured its contract every time and
+    the request was still unsatisfiable. The stage/code must say so, and the
+    finding that explains it -- code, path, evidence -- must reach the failure
+    block, where it is read instead of the evidence document.
+    """
+    query = _rejected_query()
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    assert failure["code"] == "generation_findings_unresolved"
+    # The role that reported it varies with the profile; the stage names the
+    # kind of failure, which is the part that has to be stable.
+    assert failure["stage"].endswith("_findings")
+    details = failure["diagnostic"]["details"]
+    named = {detail["name"]: detail["value"] for detail in details}
+    assert "policy.unbound_predicate_literal" in named
+    detail = named["policy.unbound_predicate_literal"]
+    assert "$.sql" in detail
+    assert "named parameters" in detail
+    # The message a person reads names the finding, not the pipeline stage.
+    assert "structured-output contract" not in failure["message"]
+    assert "named parameters" in failure["message"]
+    # A lint finding's suggested action is about the query, so it is advice.
+    assert "Replace the literal" in failure["message"]
+
+
+def test_the_loops_instructions_to_itself_are_not_shown_as_advice(
+    tmp_path: Path,
+) -> None:
+    """A suggested action is only advice if a person can act on it.
+
+    The correction loop raises findings about its own run, and their suggested
+    actions tell the model what to return next -- "stop retrying", "return one
+    complete JSON candidate". Printed in the cell they read as instructions to
+    the reader, who has no such lever. The finding itself still says what
+    happened.
+    """
+    query = _rejected_query()
+    finding = {
+        "code": "generation.unchanged_candidate",
+        "stage": "query_correct",
+        "severity": "error",
+        "path": "$",
+        "message": "The model repeated an unchanged candidate after feedback.",
+        "evidence": "candidate output matched an earlier attempt",
+        "suggestedAction": "Stop retrying and reject this generation run.",
+    }
+    query["diagnosticCandidate"].pop("candidate")
+    query["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    query["diagnosticCandidate"]["attempts"] = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "finding_codes": [finding["code"]],
+            "findings": [finding],
+        }
+    ]
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    assert failure["message"] == finding["message"]
+    assert "Stop retrying" not in failure["message"]
+    # It is still recorded, where someone reading the diagnostic can see it.
+    named = {
+        detail["name"]: detail["value"] for detail in failure["diagnostic"]["details"]
+    }
+    assert "Stop retrying" in named["generation.unchanged_candidate"]
+
+
+def test_shape_failures_stay_classified_as_output_contract(
+    tmp_path: Path,
+) -> None:
+    """A model that cannot produce the contract is a different failure.
+
+    No lint findings means nothing semantic was learned -- the output never
+    became a candidate. That keeps the contract wording and the shape code, so
+    the two cases stay distinguishable to anyone reading a turn.
+    """
+    query = _rejected_query()
+    query["diagnosticCandidate"] = {"executable": False, "rawOutput": "not json"}
+    client, _ = _client(tmp_path, query)
+
+    session = _create_session(client)
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    failure = timeline["turns"][0]["failure"]
+
+    # Whatever the role, this is not the semantic case: nothing was learned
+    # about the request, so the contract wording is the honest one.
+    assert failure["code"] != "generation_findings_unresolved"
+    assert not failure["stage"].endswith("_findings")
+    assert "structured-output contract" in failure["message"]
+
+
 def test_failed_turn_names_its_failed_checks_in_the_failure_block(
     tmp_path: Path,
 ) -> None:
