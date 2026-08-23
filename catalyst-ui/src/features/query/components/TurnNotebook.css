@@ -104,6 +104,11 @@
   border-left-color: var(--cds-border-strong-01);
 }
 
+/* Waiting on an answer is its own outcome: informational, never red. */
+.query-turn[data-status="asking"] .query-turn__disclosure {
+  border-left-color: var(--cds-support-info);
+}
+
 .query-turn[data-current="true"] .query-turn__disclosure {
   border-left-width: 4px;
 }
@@ -131,6 +136,11 @@
 .query-turn[data-status="not-run"] .query-turn__dot {
   border-color: var(--cds-border-strong-01);
   background: var(--cds-layer-01);
+}
+
+.query-turn[data-status="asking"] .query-turn__dot {
+  border-color: var(--cds-support-info);
+  background: var(--cds-support-info);
 }
 
 /* Authorship, legible while collapsed. */
@@ -223,8 +233,12 @@
 }
 
 .query-turn__superseded {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   color: var(--cds-text-secondary);
   font-size: var(--cds-helper-text-01-font-size, 0.75rem);
+  gap: 0.5rem;
 }
 
 .query-turn__failure {

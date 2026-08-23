@@ -159,9 +159,12 @@ const selectedVersionOf = (turn: NotebookTurn): NotebookVersion | null =>
  * whose generation failed never reaches a run, so it reports the same red as a
  * failed run rather than an absent one.
  */
-type CellStatus = "succeeded" | "failed" | "not-run";
+type CellStatus = "succeeded" | "failed" | "not-run" | "asking";
 
 const cellStatus = (turn: NotebookTurn): CellStatus => {
+  // Collapsed, a cell is read by its colour and one word. A turn waiting on an
+  // answer is not a fault, and must not be shown as one at either size.
+  if (asksTheReader(turn)) return "asking";
   if (turn.status === "failed") return "failed";
   if (turn.execution?.status === "failed") return "failed";
   if (turn.execution?.status === "succeeded") return "succeeded";
@@ -220,6 +223,7 @@ const isUnreviewed = (turn: NotebookTurn, version: NotebookVersion | null) => {
 };
 
 const cellOutcome = (turn: NotebookTurn) => {
+  if (asksTheReader(turn)) return "needs your answer";
   if (turn.status === "failed") return "generation failed";
   if (turn.status === "requested") return "generating…";
   const execution = turn.execution;

@@ -2684,11 +2684,8 @@ class CatalystService:
                 rejected_by_reviewer=True,
             )
 
-        diagnostic = outcome.get("diagnosticCandidate")
-        candidate = (
-            diagnostic.get("candidate") if isinstance(diagnostic, dict) else None
-        )
-        if not isinstance(candidate, dict) or not candidate.get("sql"):
+        candidate = self._diagnostic_candidate(outcome)
+        if candidate is None or not candidate.get("sql"):
             return None
         return self._retain(
             candidate,
@@ -2738,6 +2735,17 @@ class CatalystService:
             validation=validation,
             rejected_by_reviewer=rejected_by_reviewer,
         )
+
+    @staticmethod
+    def _diagnostic_candidate(outcome: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The candidate a failed generation left behind, if it left one."""
+        if not isinstance(outcome, dict):
+            return None
+        diagnostic = outcome.get("diagnosticCandidate")
+        candidate = (
+            diagnostic.get("candidate") if isinstance(diagnostic, dict) else None
+        )
+        return candidate if isinstance(candidate, dict) else None
 
     @staticmethod
     def _generation_attempts(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -3022,24 +3030,16 @@ class CatalystService:
                 provenance,
             )
 
-        diagnostic = outcome.get("diagnosticCandidate")
-        candidate = (
-            diagnostic.get("candidate") if isinstance(diagnostic, dict) else None
-        )
-        attempts: list[dict[str, Any]] = []
-        if isinstance(diagnostic, dict):
-            attempts = [
-                dict(attempt)
-                for attempt in diagnostic.get("attempts") or []
-                if isinstance(attempt, dict)
-            ]
+        candidate = CatalystService._diagnostic_candidate(outcome)
         provenance = dict(outcome.get("provenance") or {})
         provenance["sourceContract"] = contract_version
         provenance["sourceStatus"] = outcome.get("status")
         provenance["hubTraceId"] = provenance.get("traceId")
-        provenance["generationAttempts"] = attempts
+        provenance["generationAttempts"] = [
+            dict(attempt) for attempt in CatalystService._generation_attempts(outcome)
+        ]
         provenance["generationValidation"] = dict(outcome.get("validation") or {})
-        if not isinstance(candidate, dict) or not isinstance(candidate.get("sql"), str):
+        if candidate is None or not isinstance(candidate.get("sql"), str):
             return None, [], provenance
         return (
             {

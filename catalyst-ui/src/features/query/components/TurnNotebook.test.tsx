@@ -1053,6 +1053,31 @@ describe("TurnNotebook", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not flag a cell that asks a question as a failed one", () => {
+    // Collapsed, the thread is read by colour and by one word. A turn waiting
+    // on an answer that shows red and says "generation failed" is the failed
+    // cell this was meant to stop being -- whatever the open cell then says.
+    const asking = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        code: "needs_clarification",
+        message: "This data has no “patient_last_name”. Which field is meant?",
+      },
+    };
+    render(<TurnNotebook {...defaultProps} turns={[initialTurn, asking]} />);
+
+    const cell = screen
+      .getByRole("region", { name: "Iterative query notebook" })
+      .querySelector(`[data-status="asking"]`);
+    expect(cell).not.toBeNull();
+    expect(within(cell as HTMLElement).getByText("needs your answer"))
+      .toBeVisible();
+    expect(screen.queryByText("generation failed")).not.toBeInTheDocument();
+  });
+
   it("offers only available different-family profiles and records per-turn switching", async () => {
     const user = userEvent.setup();
     const onProfileChange = vi.fn();
