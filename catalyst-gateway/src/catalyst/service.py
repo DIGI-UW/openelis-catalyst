@@ -2810,8 +2810,10 @@ class CatalystService:
         """The unknown identifiers, put back as a question.
 
         The finding's own wording instructs a model to obey a catalog. What
-        the reader needs is the name that does not exist and an invitation to
-        supply the one that does.
+        the reader needs is the name the query referenced and an invitation to
+        say what was meant. The exhaustion proves only that the *model* found
+        no such column -- the concept may well exist under another name -- so
+        the question reports the model's failure, never a fact about the data.
         """
         names = [
             stripped
@@ -2826,10 +2828,9 @@ class CatalystService:
             if len(names) == 1
             else ", ".join(f"“{name}”" for name in names)
         )
-        verb = "is" if len(names) == 1 else "are"
         return (
-            f"This data has no {subject}. Which field {verb} meant, "
-            "or should the request be worded differently?"
+            f"The model couldn't find {subject} here. Which field did you "
+            "mean, or should the request be worded differently?"
         )
 
     @classmethod

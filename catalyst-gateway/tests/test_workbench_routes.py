@@ -1620,9 +1620,13 @@ def test_asking_for_a_field_the_dataset_lacks_becomes_a_question(
 
     assert failure["code"] == "needs_clarification"
     assert failure["stage"].endswith("_findings")
-    # It names what is missing and asks for the one thing only a person knows.
+    # It names what the query referenced and asks; the exhaustion only proves
+    # the *model* found no such column, not that the data lacks the concept --
+    # so the message states the first fact and never claims the second.
     assert "patient_last_name" in failure["message"]
     assert "?" in failure["message"]
+    assert "couldn't find" in failure["message"]
+    assert "This data has no" not in failure["message"]
     # Lint instructions are addressed to the model, not to the reader.
     assert "catalog" not in failure["message"].lower()
 
