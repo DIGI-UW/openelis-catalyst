@@ -98,6 +98,8 @@ interface TurnNotebookProps {
   onGenerate: () => void;
   /** Open the Details panel scoped to this turn, on a chosen tab. */
   onOpenDetails: (turnId: string, tab?: DetailsTab) => void;
+  /** Take the candidate a failed turn retained into the editor. */
+  onEditAttempt?: (versionId: string) => void;
   /** Promote this turn's result into the Datasets library. */
   onSaveDataset?: () => void;
   /**
@@ -240,6 +242,7 @@ export const TurnNotebook = ({
   onProfileChange,
   onGenerate,
   onOpenDetails,
+  onEditAttempt,
   onSaveDataset,
   activeCell = null,
   draftDivergent = false,
@@ -527,16 +530,36 @@ export const TurnNotebook = ({
 
               {turn.outputVersions
                 .filter((output) => !output.selected && output.version)
-                .map((output, index) => (
-                  <p
-                    className="query-turn__superseded"
-                    key={`${output.version!.versionId}-${index}`}
-                  >
-                    {turn.status === "failed" && output.role === "writer"
-                      ? "Structured writer output — not selected"
-                      : `${output.role} output — superseded`}
-                  </p>
-                ))}
+                .map((output, index) => {
+                  const retained =
+                    turn.status === "failed" && output.role === "writer";
+                  return (
+                    <p
+                      className="query-turn__superseded"
+                      key={`${output.version!.versionId}-${index}`}
+                    >
+                      {retained
+                        ? "Structured writer output — not selected"
+                        : `${output.role} output — superseded`}
+                      {/*
+                        The attempt a failed turn kept is the shortest route
+                        back to a working query, so the cell that reports the
+                        failure is where it can be picked up.
+                      */}
+                      {retained && onEditAttempt && (
+                        <button
+                          type="button"
+                          className="query-turn__footer-link"
+                          onClick={() =>
+                            onEditAttempt(output.version!.versionId)
+                          }
+                        >
+                          Edit this attempt
+                        </button>
+                      )}
+                    </p>
+                  );
+                })}
 
               {turn.status === "failed" && (
                 <div className="query-turn__failure" role="status">

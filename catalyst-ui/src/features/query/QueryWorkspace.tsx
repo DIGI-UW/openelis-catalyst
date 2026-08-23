@@ -905,14 +905,31 @@ export const QueryWorkspace = ({
     setWorkbenchError(null);
   };
 
+  // One way to put a stored version into the editor, whichever button asked.
+  const loadVersionIntoEditor = (version: WorkbenchQueryVersion) => {
+    setWorkbenchSql(editorReadySql(version.sql));
+    setWorkbenchParameters(
+      version.parameters.map((parameter) => ({ ...parameter })),
+    );
+    setWorkbenchError(null);
+  };
+
   const restoreCurrentWorkbenchVersion = () => {
     const current = workbenchSession?.currentVersion;
     if (!current) return;
-    setWorkbenchSql(editorReadySql(current.sql));
-    setWorkbenchParameters(
-      current.parameters.map((parameter) => ({ ...parameter })),
+    loadVersionIntoEditor(current);
+  };
+
+  // The candidate a failed turn retained: taking it into the editor is the
+  // one click between a failure and a query someone can fix.
+  const editRetainedAttempt = (versionId: string) => {
+    const attempt = workbenchSession?.versions.find(
+      (version) => version.versionId === versionId,
     );
-    setWorkbenchError(null);
+    if (!attempt) return;
+    loadVersionIntoEditor(attempt);
+    setEditorOpen(true);
+    setSqlEditorFocusRequestId((current) => current + 1);
   };
 
   // Putting the editor away is going back to looking at the result, so the draft
@@ -1642,6 +1659,7 @@ export const QueryWorkspace = ({
           onProfileChange={setProfileId}
           onGenerate={generateNextWorkbenchQuery}
           onOpenDetails={openDetails}
+          onEditAttempt={editRetainedAttempt}
           onSaveDataset={() => openDatasetReview.current?.()}
           activeCell={
             showEditor ? (
