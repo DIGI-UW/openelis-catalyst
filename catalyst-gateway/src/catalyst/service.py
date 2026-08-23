@@ -2740,27 +2740,47 @@ class CatalystService:
         )
 
     @staticmethod
-    def _unresolved_findings(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
-        """The lint findings the generation loop never resolved.
-
-        These name a specific defect in a specific place -- an unknown column,
-        an unbound literal -- and are the only part of a failed turn that tells
-        someone what to do next. They live on the last attempt of the
-        diagnostic candidate, which is where the loop gave up.
-        """
+    def _generation_attempts(outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """Each attempt the generation loop made, oldest first."""
         if not isinstance(outcome, dict):
             return []
         diagnostic = outcome.get("diagnosticCandidate")
         attempts = diagnostic.get("attempts") if isinstance(diagnostic, dict) else None
-        if not isinstance(attempts, list) or not attempts:
-            return []
-        last = attempts[-1]
-        findings = last.get("findings") if isinstance(last, dict) else None
         return [
-            finding
-            for finding in (findings if isinstance(findings, list) else [])
-            if isinstance(finding, dict) and finding.get("code")
+            attempt
+            for attempt in (attempts if isinstance(attempts, list) else [])
+            if isinstance(attempt, dict)
         ]
+
+    @classmethod
+    def _unresolved_findings(
+        cls, outcome: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        """The findings about the query that the loop never resolved.
+
+        These name a specific defect in a specific place -- an unknown column,
+        an unbound literal -- and are the only part of a failed turn that tells
+        someone what to do next.
+
+        The last attempt is usually not where they are. A loop that found a bad
+        identifier spends its remaining attempts patching it, and those attempts
+        report on the patching: an anchor that matched twice, output that was
+        not a candidate. Those are facts about the machinery, and they bury the
+        identifier that is still wrong. So the newest attempt that said anything
+        about the query is the one that still stands.
+        """
+        for attempt in reversed(cls._generation_attempts(outcome)):
+            findings = attempt.get("findings")
+            about_query = [
+                finding
+                for finding in (findings if isinstance(findings, list) else [])
+                if isinstance(finding, dict)
+                and finding.get("code")
+                and str(finding.get("stage") or "") not in _LOOP_STAGES
+            ]
+            if about_query:
+                return about_query
+        return []
 
     @classmethod
     def _unanswerable_without_asking(cls, outcome: dict[str, Any] | None) -> bool:
@@ -2805,6 +2825,20 @@ class CatalystService:
         )
 
     @classmethod
+    def _attempts_summary(cls, outcome: dict[str, Any] | None) -> str | None:
+        """What to say when every attempt was about the machinery.
+
+        There is no finding to quote and the outcome's own wording is contract
+        boilerplate. What is true, and enough to act on beside a retained
+        attempt, is that the model tried this many times and did not get there.
+        """
+        attempts = len(cls._generation_attempts(outcome))
+        if attempts < 1:
+            return None
+        times = "attempt" if attempts == 1 else "attempts"
+        return f"The model did not produce a usable query in {attempts} {times}."
+
+    @classmethod
     def _failure_summary(cls, outcome: dict[str, Any] | None, fallback: str) -> str:
         """What a person reads when a turn fails.
 
@@ -2817,14 +2851,10 @@ class CatalystService:
                 return question
         findings = cls._unresolved_findings(outcome)
         if not findings:
-            return fallback
+            return cls._attempts_summary(outcome) or fallback
         first = findings[0]
         parts = [str(first.get("message") or "").strip()]
-        action = (
-            ""
-            if str(first.get("stage") or "") in _LOOP_STAGES
-            else str(first.get("suggestedAction") or "").strip()
-        )
+        action = str(first.get("suggestedAction") or "").strip()
         if action and action not in parts[0]:
             parts.append(action)
         summary = " ".join(part for part in parts if part)
@@ -2846,12 +2876,17 @@ class CatalystService:
             return []
         validation = outcome.get("validation")
         checks = validation.get("checks") if isinstance(validation, dict) else None
+        # The stage check that only restates the outcome's own message would
+        # put the generic wording back under the summary that replaced it.
+        outcome_message = str(outcome.get("message") or "").strip()
         details: list[dict[str, Any]] = []
         for check in checks if isinstance(checks, list) else []:
             if not isinstance(check, dict) or check.get("status") == "passed":
                 continue
             status = str(check.get("status") or "failed")
             message = check.get("message")
+            if outcome_message and str(message or "").strip() == outcome_message:
+                continue
             value = (
                 f"{status} — {message}"
                 if isinstance(message, str) and message
