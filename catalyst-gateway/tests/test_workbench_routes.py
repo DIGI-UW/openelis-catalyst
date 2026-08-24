@@ -2675,3 +2675,81 @@ def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
     assert validation["status"] == "invalid"
     codes = {finding["ruleCode"] for finding in validation["findings"]}
     assert any("relation" in code or "catalog" in code for code in codes), codes
+
+
+# --- pin controls ----------------------------------------------------------
+
+
+def test_a_person_pins_guidance_from_the_composer(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["guidance"][0]["text"] == "Exclude do_not_perform rows."
+    assert body["guidance"][0]["source"] == "human"
+    assert body["guidance"][0]["state"] == "active"
+
+
+def test_a_session_carries_its_active_guidance(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Names live on the patient dimension.",
+        },
+    )
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+
+    assert [entry["text"] for entry in reloaded["guidance"]] == [
+        "Names live on the patient dimension."
+    ]
+
+
+def test_unpinning_stops_delivery_and_keeps_the_record(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    pinned = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "temporary",
+        },
+    ).json()["guidance"][0]
+
+    response = client.delete(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+        f"/guidance/{pinned['entryId']}"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["guidance"] == []
+
+
+def test_blank_guidance_is_refused_with_a_clear_error(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "   ",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "invalid_request"

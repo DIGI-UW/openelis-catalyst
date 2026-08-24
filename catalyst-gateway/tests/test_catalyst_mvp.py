@@ -485,7 +485,7 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
 
 def test_loads_and_checks_all_normative_schemas():
     registry = ContractRegistry.load(CONTRACTS)
-    assert len(registry.schemas) == 29
+    assert len(registry.schemas) == 31
     assert set(registry.schemas) == {
         "catalyst-data-sources-v1.schema.json",
         "catalyst-execute-request-v1.schema.json",
@@ -510,6 +510,8 @@ def test_loads_and_checks_all_normative_schemas():
         "catalyst-workbench-editor-snapshot-record-v1.schema.json",
         "catalyst-workbench-finding-v1.schema.json",
         "catalyst-workbench-generation-evidence-v1.schema.json",
+        "catalyst-workbench-guidance-v1.schema.json",
+        "catalyst-workbench-guidance-request-v1.schema.json",
         "catalyst-workbench-session-request-v1.schema.json",
         "catalyst-workbench-session-v1.schema.json",
         "catalyst-workbench-turn-request-v1.schema.json",

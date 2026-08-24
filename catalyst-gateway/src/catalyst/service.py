@@ -3185,8 +3185,59 @@ class CatalystService:
             "unresolvedPaths": unresolved_paths,
         }
 
+    def pin_workbench_guidance(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> ServiceResponse:
+        """Pin one instruction to a session, exactly as written."""
+        try:
+            self.contracts.validate(
+                "catalyst-workbench-guidance-request-v1.schema.json", payload
+            )
+        except ContractError as invalid:
+            return self._workbench_error(422, "invalid_request", str(invalid))
+        session = self.workbench_store.get_session(session_id)
+        if session is None:
+            return self._workbench_error(404, "session_not_found", session_id)
+        text = str(payload["text"])
+        if not text.strip():
+            return self._workbench_error(
+                422, "invalid_request", "guidance text must not be blank"
+            )
+        try:
+            self.workbench_store.pin_guidance(
+                session_id,
+                text=text,
+                source=str(payload.get("source", "human")),
+                origin_turn_id=payload.get("originTurnId"),
+                supersedes=payload.get("supersedes"),
+            )
+        except KeyError:
+            return self._workbench_error(404, "session_not_found", session_id)
+        except ValueError as invalid:
+            return self._workbench_error(422, "invalid_request", str(invalid))
+        restored = self.workbench_store.get_session(session_id)
+        assert restored is not None
+        return ServiceResponse(201, self._present_workbench_session(restored))
+
+    def unpin_workbench_guidance(
+        self, session_id: str, entry_id: str
+    ) -> ServiceResponse:
+        """Stop delivering an entry. Its text and history stay."""
+        if self.workbench_store.get_session(session_id) is None:
+            return self._workbench_error(404, "session_not_found", session_id)
+        try:
+            self.workbench_store.unpin_guidance(session_id, entry_id)
+        except KeyError:
+            return self._workbench_error(404, "guidance_not_found", entry_id)
+        restored = self.workbench_store.get_session(session_id)
+        assert restored is not None
+        return ServiceResponse(200, self._present_workbench_session(restored))
+
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)
+        presented["guidance"] = self.workbench_store.active_guidance(
+            str(session["sessionId"])
+        )
         # Last-turn-wins, matching turn targeting: a reload must land on the
         presented["dataSourceId"] = self._session_data_source_id(session)
         presented["draftSeed"] = None
