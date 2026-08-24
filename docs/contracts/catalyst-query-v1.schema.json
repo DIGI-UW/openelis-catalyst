@@ -702,11 +702,16 @@
           ],
           "properties": {
             "baseClassification": {
-              "enum": ["reused", "promoted_human", "unresolved"]
+              "enum": ["not_applicable", "reused", "promoted_human", "unresolved"]
             },
             "observedBase": {"$ref": "#/$defs/nullableVersionRef"},
             "effectiveBaseVersion": {"$ref": "#/$defs/nullableVersionRef"},
-            "editorDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            "editorDigest": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              ]
+            }
           }
         },
         "writer": {
