@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalyst-workbench-guidance-v1.schema.json",
+  "title": "Catalyst workbench session guidance entry",
+  "description": "One durable instruction a person pinned to a session. Delivered to the writer verbatim: never summarised, rewritten, or normalised. Entries are append-only; removing or replacing one appends a lifecycle event rather than editing history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "entryId",
+    "sessionId",
+    "order",
+    "text",
+    "textDigest",
+    "source",
+    "originTurnId",
+    "acceptedBy",
+    "state",
+    "createdAt",
+    "events"
+  ],
+  "properties": {
+    "contractVersion": { "const": "catalyst.workbench.guidance.v1" },
+    "entryId": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "order": {
+      "description": "Server-assigned position. Delivery order, and the tie-break when guidance conflicts: later wins.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "text": {
+      "description": "Exactly what the person wrote or accepted.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "textDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source": {
+      "description": "Pinned in the composer, or accepted from a finding on a failed turn.",
+      "enum": ["human", "system"]
+    },
+    "originTurnId": {
+      "description": "The turn whose finding was accepted; null for a composer pin.",
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "acceptedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["human"] },
+        "actorId": { "type": ["string", "null"] }
+      }
+    },
+    "state": {
+      "description": "Only an active entry is delivered. History is kept either way.",
+      "enum": ["active", "unpinned", "superseded"]
+    },
+    "supersededBy": {
+      "type": ["string", "null"]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "events": {
+      "description": "Append-only lifecycle: pinned, then any unpin or supersede.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["eventId", "action", "occurredAt"],
+        "properties": {
+          "eventId": { "type": "string", "format": "uuid" },
+          "action": { "enum": ["pinned", "unpinned", "superseded"] },
+          "occurredAt": { "type": "string", "format": "date-time" },
+          "actor": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["human"] },
+              "actorId": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}
