@@ -398,3 +398,58 @@ async def test_lint_is_never_reached_for_a_terminal_writer_answer():
 
     assert result["status"] == "needs_clarification"
     lint.assert_not_called()
+
+
+async def _run_scope(question: str, values: list[str]) -> dict:
+    """Run the catalog-scope preflight alone: no model response is queued."""
+    extension = _extension()
+    extension["catalog"]["views"][0]["semanticDimensions"] = [
+        {
+            "field": "test_name",
+            "semanticType": "analyte",
+            "values": [{"canonical": value, "aliases": []} for value in values],
+        }
+    ]
+    request = EngineRequest(
+        catalyst_query=extension,
+        messages=[{"role": "user", "content": question}],
+        profile=_reviewed_profile(),
+    )
+    with patch.object(query_engine, "_backend_chat", side_effect=_queued_backend([])):
+        results = [
+            payload
+            async for kind, payload in execute_query_profile(request)
+            if kind == "result"
+        ]
+    assert len(results) == 1
+    return json.loads(results[0])
+
+
+@pytest.mark.asyncio
+async def test_a_result_name_nothing_resembles_is_still_unsupported():
+    result = await _run_scope("Show dengue results", ["Malaria", "Haemoglobin"])
+
+    assert result["status"] == "unsupported"
+    assert "dengue" in result["message"]
+    assert not result["_hubEvidence"]["modelInvocations"]
+
+
+@pytest.mark.asyncio
+async def test_a_result_name_the_catalog_answers_under_other_names_asks():
+    """Refusing here would be a claim about the data the check cannot support.
+
+    Nothing is called 'HIV', but two recorded results are HIV results. The
+    honest deterministic answer names them and asks, and it must stay one
+    preflight decision with no model call behind it.
+    """
+    result = await _run_scope(
+        "Show recent HIV results",
+        ["CD4 count", "HIV viral load", "Current WHO HIV stage", "Malaria"],
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert "HIV viral load" in result["clarification"]
+    assert "Current WHO HIV stage" in result["clarification"]
+    assert "Malaria" not in result["clarification"]
+    assert "sql" not in result
+    assert not result["_hubEvidence"]["modelInvocations"]

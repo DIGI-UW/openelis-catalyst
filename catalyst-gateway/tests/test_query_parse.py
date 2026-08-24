@@ -12,7 +12,9 @@ from src.catalyst.query_parse import (
     _decode_exact_object,
     _parse_and_apply_patch,
     _parse_candidate,
+    _related_analyte_values,
     _semantic_binding_failures,
+    _unknown_result_analyte,
 )
 from src.catalyst.query_schemas import QueryContractError, QueryPatchError
 
@@ -138,3 +140,47 @@ def test_parse_and_apply_patch_rejects_out_of_scope_path():
     # Anchor occurs, but the allowed-path set excludes /sql -> out of scope.
     with pytest.raises(QueryPatchError, match="outside the permitted scope"):
         _parse_and_apply_patch(patch, base, findings, [])
+
+
+def _analyte_extension(values: list[str]) -> dict:
+    extension = _extension()
+    extension["catalog"]["views"][0]["semanticDimensions"] = [
+        {
+            "field": "test_name",
+            "semanticType": "analyte",
+            "values": [{"canonical": value, "aliases": []} for value in values],
+        }
+    ]
+    return extension
+
+
+def test_a_subject_no_catalog_value_resembles_is_unknown():
+    extension = _analyte_extension(["Malaria", "Haemoglobin"])
+
+    assert _unknown_result_analyte("Show dengue results", extension) == "dengue"
+    assert _related_analyte_values("dengue", extension) == []
+
+
+def test_a_subject_that_names_part_of_real_values_is_ambiguous_not_absent():
+    """'HIV results' is a category the catalog answers under three names.
+
+    A deterministic string check can see that no value is called exactly
+    'HIV'; it cannot see that the data therefore lacks HIV results, because
+    the values that do exist are named after the individual tests.
+    """
+    extension = _analyte_extension(
+        ["CD4 count", "CD4%", "HIV viral load", "Current WHO HIV stage", "Malaria"]
+    )
+
+    assert _unknown_result_analyte("Show recent HIV results", extension) == "HIV"
+    assert _related_analyte_values("HIV", extension) == [
+        "Current WHO HIV stage",
+        "HIV viral load",
+    ]
+
+
+def test_relatedness_is_word_based_not_a_bare_substring():
+    """'CD4' must not be dragged in by an unrelated value that merely spells it."""
+    extension = _analyte_extension(["Uncd4ed nonsense", "CD4 count"])
+
+    assert _related_analyte_values("CD4", extension) == ["CD4 count"]
