@@ -1097,3 +1097,74 @@ describe("Dashboard Builder Ask shell", () => {
     });
   });
 });
+
+
+  it("pins session guidance beside the composer and it survives reloads", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    const entry = {
+      entryId: "g-1",
+      text: "Exclude do_not_perform requests.",
+      source: "human",
+      active: true,
+    };
+    client.pinWorkbenchGuidance = vi
+      .fn()
+      .mockResolvedValue({ ...session, guidance: [entry] });
+    client.unpinWorkbenchGuidance = vi
+      .fn()
+      .mockResolvedValue({ ...session, guidance: [] });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await user.type(
+      await screen.findByRole("textbox", { name: "Pin session guidance" }),
+      "Exclude do_not_perform requests.",
+    );
+    await user.click(screen.getByRole("button", { name: "Pin" }));
+
+    // The pinned instruction is visible, verbatim, with a way to unpin it.
+    expect(
+      await screen.findByText("Exclude do_not_perform requests."),
+    ).toBeVisible();
+    expect(client.pinWorkbenchGuidance).toHaveBeenCalledWith(
+      session.sessionId,
+      "Exclude do_not_perform requests.",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Unpin: Exclude do_not_perform/ }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Exclude do_not_perform requests."),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows guidance already pinned on a restored session", async () => {
+    const client = api();
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      guidance: [
+        {
+          entryId: "g-9",
+          text: "Always exclude cancelled orders.",
+          source: "human",
+          active: true,
+        },
+      ],
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    expect(
+      await screen.findByText("Always exclude cancelled orders."),
+    ).toBeVisible();
+  });
