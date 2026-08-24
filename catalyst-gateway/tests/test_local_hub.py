@@ -7,6 +7,8 @@ import hashlib
 import json
 from unittest.mock import patch
 
+from src.catalyst.session_context import SESSION_CONTEXT_CONTRACT
+
 import httpx
 import pytest
 
@@ -186,7 +188,11 @@ async def test_discovery_uses_hub_profile_evidence_and_hides_unavailable_profile
     profiles = await hub.list_query_profiles()
     await hub.aclose()
 
-    assert profiles == [_profile()]
+    # The in-process engine reads the Phase 1 layered context, so discovery
+    # advertises it; Catalyst withholds the layer from a Hub that does not.
+    assert profiles == [
+        {**_profile(), "supported_request_contracts": [SESSION_CONTEXT_CONTRACT]}
+    ]
     assert profiles[0]["profileEvidence"]["writer"]["modelId"] == WRITER
     assert profiles[0]["profileEvidence"]["reviewer"]["modelId"] == REVIEWER
 
@@ -257,3 +263,28 @@ def test_turn_and_storage_snapshots_retain_hub_profile_evidence():
     assert snapshot["reviewer"]["modelId"] == REVIEWER
     assert descriptor["detail"]["writer"]["modelId"] == WRITER
     assert descriptor["detail"]["reviewer"]["modelId"] == REVIEWER
+
+
+@pytest.mark.asyncio
+async def test_the_local_hub_advertises_the_session_context_it_can_read(
+    monkeypatch,
+) -> None:
+    """The in-process engine reads the Phase 1 shape, so it says so.
+
+    Without the advertisement Catalyst withholds the layer, and nothing would
+    ever receive the guidance a person pinned.
+    """
+    from src.catalyst.session_context import SESSION_CONTEXT_CONTRACT
+
+    hub = LocalHub(hub_base_url="http://hub")
+
+    async def _document():
+        return (
+            [{"id": "catalyst-query-checked", "available": True}],
+            {"contract_version": "med-agent-hub.backend-model-inventory.v1"},
+        )
+
+    monkeypatch.setattr(hub, "_profile_document", _document)
+    profiles = await hub.list_query_profiles()
+
+    assert profiles[0]["supported_request_contracts"] == [SESSION_CONTEXT_CONTRACT]

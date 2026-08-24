@@ -27,7 +27,11 @@ from .policy import (
     validate_query_invariants,
 )
 from .request import QUERY_PROFILE_ID, build_query_request, build_revision_query_request
-from .session_context import build_session_context, select_verified_examples
+from .session_context import (
+    SESSION_CONTEXT_CONTRACT,
+    build_session_context,
+    select_verified_examples,
+)
 from .sql_layout import sql_layout_matches
 from .storage import (
     ExecutionDecision,
@@ -1401,18 +1405,24 @@ class CatalystService:
                 effective_base=resolution["effectiveBaseVersion"],
                 editor_snapshot=snapshot,
             )
-            revision["sessionContext"] = build_session_context(
-                guidance=store.active_guidance(session_id),
-                omitted_guidance=store.guidance_omitted_by_cap(session_id),
-                verified_examples=select_verified_examples(
-                    self._verified_examples(session, prior_turns),
-                    instruction=instruction,
-                    source_id=self._session_data_source_id(session),
-                    catalog_version=runtime_catalog.catalog_version,
-                    exclude_turn_id=resolution["turnId"],
-                ),
-                relevant_failure=self._relevant_prior_failure(prior_turns),
-            )
+            # Catalyst deploys ahead of the Hub, so the new layer is
+            # negotiated: a Hub that has not advertised it is not sent it,
+            # rather than being handed a context it may silently ignore.
+            if SESSION_CONTEXT_CONTRACT in (
+                selected_profile.get("supported_request_contracts") or []
+            ):
+                revision["sessionContext"] = build_session_context(
+                    guidance=store.active_guidance(session_id),
+                    omitted_guidance=store.guidance_omitted_by_cap(session_id),
+                    verified_examples=select_verified_examples(
+                        self._verified_examples(session, prior_turns),
+                        instruction=instruction,
+                        source_id=self._session_data_source_id(session),
+                        catalog_version=runtime_catalog.catalog_version,
+                        exclude_turn_id=resolution["turnId"],
+                    ),
+                    relevant_failure=self._relevant_prior_failure(prior_turns),
+                )
             request = build_revision_query_request(
                 instruction,
                 runtime_catalog,

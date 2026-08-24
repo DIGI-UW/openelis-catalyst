@@ -15,6 +15,9 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
+SESSION_CONTEXT_CONTRACT = "catalyst.query.session-context.v1"
+"""What a Hub must advertise before Catalyst sends the layered context."""
+
 LAYER_ORDER: tuple[str, ...] = (
     "guidance",
     "verifiedExamples",

@@ -265,6 +265,7 @@ class FakeHub:
                 "id": PROFILE_ID,
                 "label": "Catalyst query checked",
                 "available": True,
+                "supported_request_contracts": ["catalyst.query.session-context.v1"],
                 "required_models": ["qwen2.5-coder-14b", "gemma-e4b"],
                 "role_models": {
                     "query_generate": "qwen2.5-coder-14b",
@@ -2845,3 +2846,59 @@ def test_the_request_records_what_the_caps_left_out(tmp_path: Path) -> None:
     assert len(context["guidance"]["entries"]) == 20
     assert context["omissions"][0]["reason"] == "active_entry_cap"
     assert len(context["omissions"][0]["itemIds"]) == 1
+
+
+class HubWithoutSessionContext(FailingFollowupHub):
+    """A Hub that has not been taught the Phase 1 request shape."""
+
+    async def list_query_profiles(self) -> list[dict]:
+        profiles = await super().list_query_profiles()
+        for profile in profiles:
+            profile.pop("supported_request_contracts", None)
+        return profiles
+
+
+def test_a_hub_that_cannot_read_the_new_shape_is_not_sent_it(
+    tmp_path: Path,
+) -> None:
+    """Catalyst deploys before the Hub does, so the new layer is negotiated.
+
+    Sending a context the Hub does not understand risks it being ignored
+    silently -- or worse, echoed back as if it had been honoured.
+    """
+    hub = HubWithoutSessionContext(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    assert "sessionContext" not in revision

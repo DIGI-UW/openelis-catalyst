@@ -14,6 +14,7 @@ from typing import Any, Optional
 import httpx
 
 from .hub import HubError
+from .session_context import SESSION_CONTEXT_CONTRACT
 from .query_engine import EngineProfile, EngineRequest, execute_query_profile
 
 _QUERY_PROFILES_PATH = "/v1/hub/query-profiles"
@@ -109,7 +110,17 @@ class LocalHub:
         profiles, _backend = await self._profile_document()
         # The Hub reports availability using its live router catalog. Never
         # expose stale configured-but-missing profiles to Catalyst's UI.
-        return [profile for profile in profiles if profile.get("available") is True]
+        available = [
+            profile for profile in profiles if profile.get("available") is True
+        ]
+        # Generation runs in this process, against an engine that reads the
+        # Phase 1 layered context, so every profile it offers can be sent it.
+        # Catalyst withholds the layer from anything that does not say so.
+        for profile in available:
+            profile.setdefault(
+                "supported_request_contracts", [SESSION_CONTEXT_CONTRACT]
+            )
+        return available
 
     async def generate_query(self, request: dict[str, Any]) -> dict[str, Any]:
         profile_id = str(request.get("model") or "")
