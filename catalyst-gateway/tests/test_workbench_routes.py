@@ -2611,3 +2611,67 @@ def test_a_clarification_leaves_the_working_query_alone(tmp_path: Path) -> None:
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
     ).json()
     assert reloaded["currentVersionId"] == base["versionId"]
+
+
+def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
+    tmp_path: Path,
+) -> None:
+    """One reviewed surface, or the model is governed and the person is not.
+
+    Before Phase 1 the writer was restricted to the approved views while a
+    hand-written query was checked only against everything the database
+    happened to expose, so a person could join a relation the model was never
+    told existed -- and did.
+    """
+    catalog = Catalog(
+        data_source="openelis-demo",
+        catalog_version="2026.07",
+        schema_version="analytics-v1",
+        dialect="postgresql",
+        context_source_id="catalog:openelis-demo:2026.07",
+        views=[
+            {
+                "name": "analytics.lab_results",
+                "version": "1",
+                "grain": "one row per result",
+                "approved": True,
+                "fields": [
+                    {"name": "test_name", "type": "string", "description": "Test"},
+                ],
+            },
+            {
+                "name": "public.raw_side_table",
+                "version": "1",
+                "grain": "readable, but never reviewed",
+                "approved": False,
+                "fields": [
+                    {"name": "test_name", "type": "string", "description": "Test"},
+                ],
+            },
+        ],
+        freshness={},
+        approved_names=frozenset({"analytics.lab_results"}),
+    )
+    client, _ = _client(tmp_path, _ready_query(), catalog=catalog)
+    session = _create_session(client)
+    base = session["currentVersion"]
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
+        json={
+            "contractVersion": "catalyst.workbench.version.request.v1",
+            "sql": "SELECT test_name FROM public.raw_side_table",
+            "parameters": [],
+            "expectedColumns": [
+                {"name": "test_name", "logicalType": "string", "nullable": True}
+            ],
+            "parentVersionId": base["versionId"],
+            "parentQueryDigest": base["queryDigest"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    validation = response.json()["latestValidation"]
+
+    assert validation["status"] == "invalid"
+    codes = {finding["ruleCode"] for finding in validation["findings"]}
+    assert any("relation" in code or "catalog" in code for code in codes), codes

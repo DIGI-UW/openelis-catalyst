@@ -3260,7 +3260,7 @@ class CatalystService:
             }
             for violation in self.sql_policy.evaluate(
                 query,
-                available_relations=catalog.available_relation_names,
+                available_relations=catalog.approved_view_names,
             )
         )
         request = build_query_request(
@@ -3393,7 +3393,7 @@ class CatalystService:
         validate_query_invariants(query, request)
         violations = self.sql_policy.evaluate(
             query,
-            available_relations=catalog.available_relation_names,
+            available_relations=catalog.approved_view_names,
         )
         if violations:
             raise QueryInvariantError(violations)
