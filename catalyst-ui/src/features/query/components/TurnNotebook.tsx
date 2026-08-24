@@ -159,12 +159,12 @@ const selectedVersionOf = (turn: NotebookTurn): NotebookVersion | null =>
  * whose generation failed never reaches a run, so it reports the same red as a
  * failed run rather than an absent one.
  */
-type CellStatus = "succeeded" | "failed" | "not-run" | "asking";
+type CellStatus = "succeeded" | "failed" | "not-run" | "answered";
 
 const cellStatus = (turn: NotebookTurn): CellStatus => {
   // Collapsed, a cell is read by its colour and one word. A turn waiting on an
   // answer is not a fault, and must not be shown as one at either size.
-  if (asksTheReader(turn)) return "asking";
+  if (asksTheReader(turn)) return "answered";
   if (turn.status === "failed") return "failed";
   if (turn.execution?.status === "failed") return "failed";
   if (turn.execution?.status === "succeeded") return "succeeded";
@@ -174,12 +174,18 @@ const cellStatus = (turn: NotebookTurn): CellStatus => {
 const rowLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
 
 /**
- * The turn ended on something only the person who asked can settle — a field
- * the data does not have. Nothing here malfunctioned, so the cell asks rather
- * than reporting a fault.
+ * The writer ended the turn with words instead of a query: a question only the
+ * person who asked can settle, or a refusal because the data cannot answer it.
+ * Neither is a malfunction, so neither is drawn as one.
  */
-const asksTheReader = (turn: NotebookTurn) =>
-  turn.failure?.code === "needs_clarification";
+const writerAnswered = (turn: NotebookTurn): "asked" | "declined" | null => {
+  const code = turn.failure?.code;
+  if (code === "needs_clarification") return "asked";
+  if (code === "unsupported") return "declined";
+  return null;
+};
+
+const asksTheReader = (turn: NotebookTurn) => writerAnswered(turn) !== null;
 
 /**
  * Who wrote this cell's query, as its own channel.
@@ -223,7 +229,9 @@ const isUnreviewed = (turn: NotebookTurn, version: NotebookVersion | null) => {
 };
 
 const cellOutcome = (turn: NotebookTurn) => {
-  if (asksTheReader(turn)) return "needs your answer";
+  const answered = writerAnswered(turn);
+  if (answered === "asked") return "needs your answer";
+  if (answered === "declined") return "not supported";
   if (turn.status === "failed") return "generation failed";
   if (turn.status === "requested") return "generating…";
   const execution = turn.execution;
@@ -581,15 +589,17 @@ export const TurnNotebook = ({
                 <div
                   className={
                     asksTheReader(turn)
-                      ? "query-turn__failure query-turn__failure--asking"
+                      ? "query-turn__failure query-turn__failure--answered"
                       : "query-turn__failure"
                   }
                   role="status"
                 >
                   <strong>
-                    {asksTheReader(turn)
+                    {writerAnswered(turn) === "asked"
                       ? "Needs your answer"
-                      : "Generation failed"}
+                      : writerAnswered(turn) === "declined"
+                        ? "Not supported by this data"
+                        : "Generation failed"}
                   </strong>
                   <p>
                     {turn.failure?.message ?? "The generation did not complete."}
