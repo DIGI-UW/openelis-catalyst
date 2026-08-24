@@ -319,3 +319,82 @@ async def test_collaborative_review_contract_failure_preserves_raw_and_writer():
     assert collaboration["writer"]["disposition"] == "retained_unselected"
     assert collaboration["reviewer"]["decision"] == "failed"
     assert collaboration["reviewer"]["disposition"] == "diagnostic_only"
+
+
+# --- the writer's non-ready outcomes ---------------------------------------
+#
+# Asking and declining are terminal answers, not failures. They cost one writer
+# call: no lint, no repair loop, no reviewer, no SQL. The prompt has always
+# asked for this; until the wire carried the branches, the only legal move on
+# an ungroundable request was to invent an identifier.
+
+
+@pytest.mark.asyncio
+async def test_a_clarification_is_one_call_that_carries_the_question():
+    question = "Which date window and which result types did you mean?"
+    result = await _run(
+        _reviewed_profile(),
+        [{"status": "needs_clarification", "clarification": question}],
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert result["clarification"] == question
+    assert "sql" not in result
+    # One writer call and nothing else: no reviewer, no repair attempt.
+    assert len(result["_hubEvidence"]["modelInvocations"]) == 1
+    assert result["_hubEvidence"]["modelInvocations"][0]["role"] == "writer"
+
+
+@pytest.mark.asyncio
+async def test_an_unsupported_answer_is_one_call_that_carries_the_reason():
+    reason = "This data holds no home address for a patient."
+    result = await _run(
+        _reviewed_profile(),
+        [{"status": "unsupported", "message": reason}],
+    )
+
+    assert result["status"] == "unsupported"
+    assert result["message"] == reason
+    assert "sql" not in result
+    assert len(result["_hubEvidence"]["modelInvocations"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_non_ready_answer_is_never_linted():
+    """Lint judges SQL; there is none, so it must not run at all.
+
+    The contract requires an unsupported answer to carry
+    validation.status "rejected" -- it produced no executable query -- so the
+    proof that lint stayed out is that no lint check was recorded, and that
+    the outcome is the writer's `unsupported` rather than the Gateway's
+    `rejected`.
+    """
+    result = await _run(
+        _writer_only_profile(),
+        [{"status": "unsupported", "message": "No such data."}],
+    )
+
+    assert result["status"] == "unsupported"
+    names = [check["name"] for check in result["validation"]["checks"]]
+    assert not [name for name in names if name.startswith("query_lint")], names
+
+
+@pytest.mark.asyncio
+async def test_lint_is_never_reached_for_a_terminal_writer_answer():
+    """Not merely that lint found nothing -- that it was never asked.
+
+    Today lint returns no findings for a candidate with no SQL, so the run
+    would end on one call either way. Depending on that is fragile: a future
+    rule that errors on missing SQL would turn every clarification into three
+    retries and a failed turn.
+    """
+    with patch.object(
+        query_engine, "lint_candidate", side_effect=AssertionError("lint ran")
+    ) as lint:
+        result = await _run(
+            _writer_only_profile(),
+            [{"status": "needs_clarification", "clarification": "Which window?"}],
+        )
+
+    assert result["status"] == "needs_clarification"
+    lint.assert_not_called()
