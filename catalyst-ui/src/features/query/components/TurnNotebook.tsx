@@ -90,6 +90,9 @@ interface TurnNotebookProps {
   selectedProfileId: string;
   grounding: NotebookGrounding;
   editorEmpty: boolean;
+  /** The session holds no query, so an empty editor is the right state:
+   *  the writer asked or declined and this turn is the person's reply. */
+  revisesNothing?: boolean;
   editorState?: "ready" | "empty" | "unresolved";
   busy: boolean;
   generating?: boolean;
@@ -257,6 +260,7 @@ export const TurnNotebook = ({
   selectedProfileId,
   grounding,
   editorEmpty,
+  revisesNothing = false,
   editorState = editorEmpty ? "empty" : "ready",
   busy,
   generating = false,
@@ -412,7 +416,7 @@ export const TurnNotebook = ({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (editorEmpty || busy || noRevisionProfiles) return;
+    if ((editorEmpty && !revisesNothing) || busy || noRevisionProfiles) return;
     onGenerate();
   };
 
@@ -423,7 +427,7 @@ export const TurnNotebook = ({
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
-    if (editorEmpty || busy || noRevisionProfiles) return;
+    if ((editorEmpty && !revisesNothing) || busy || noRevisionProfiles) return;
     onGenerate();
   };
 
@@ -923,7 +927,7 @@ export const TurnNotebook = ({
             )}
             <Button
               type="submit"
-              disabled={editorEmpty || busy || noRevisionProfiles}
+              disabled={(editorEmpty && !revisesNothing) || busy || noRevisionProfiles}
               aria-describedby={
                 noRevisionProfiles
                   ? "catalyst-followup-profile-unavailable"

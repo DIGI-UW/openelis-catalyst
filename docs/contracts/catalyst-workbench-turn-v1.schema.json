@@ -306,10 +306,18 @@
             "maxLength": 8000
           },
           "editorSnapshot": {
-            "$ref": "catalyst-workbench-editor-snapshot-record-v1.schema.json"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "catalyst-workbench-editor-snapshot-record-v1.schema.json"
+              }
+            ]
           },
           "snapshotClassification": {
             "enum": [
+              "not_applicable",
               "reused",
               "promoted_human",
               "unresolved"
@@ -633,6 +641,55 @@
           }
         }
       }
+    },
+    {
+      "$comment": "A turn that answers the writer's question revises no editor content and is based on no version; any other turn revises exactly one snapshot.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "editorSnapshot": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "editorSnapshot"
+            ]
+          },
+          "then": {
+            "properties": {
+              "snapshotClassification": {
+                "const": "not_applicable"
+              },
+              "effectiveBaseVersion": {
+                "type": "null"
+              },
+              "manualVersion": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "snapshotClassification": {
+                "const": "not_applicable"
+              }
+            },
+            "required": [
+              "snapshotClassification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "editorSnapshot": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   ],
   "$defs": {

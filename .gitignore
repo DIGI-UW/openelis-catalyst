@@ -53,3 +53,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build metadata produced by an editable install.
+*.egg-info/

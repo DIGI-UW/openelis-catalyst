@@ -1037,9 +1037,15 @@ export const QueryWorkspace = ({
       workbenchBusy ||
       !workbenchSession ||
       !api.createWorkbenchTurn ||
-      !selectedRevisionProfileId ||
-      !workbenchSql.trim()
+      !selectedRevisionProfileId
     ) return;
+    // A session whose writer asked a question or declined holds no query, so
+    // there is no editor to require -- the instruction is the person's reply.
+    // Unsaved editor text still counts as a query: a hand edit that resolves
+    // to no version is exactly what the snapshot exists to carry.
+    const revisesNothing =
+      !workbenchSession.currentVersion && !workbenchSql.trim();
+    if (!revisesNothing && !workbenchSql.trim()) return;
     if (!followupInstruction.trim()) {
       setWorkbenchError("Enter a follow-up instruction for the current query.");
       document.getElementById("catalyst-followup")?.focus();
@@ -1075,11 +1081,13 @@ export const QueryWorkspace = ({
             queryDigest: baseVersion.queryDigest,
           }
         : null,
-      editorSnapshot: {
-        contractVersion: "catalyst.workbench.editor-snapshot.v1",
-        ...content,
-        editorDigest,
-      },
+      editorSnapshot: revisesNothing
+        ? null
+        : {
+            contractVersion: "catalyst.workbench.editor-snapshot.v1",
+            ...content,
+            editorDigest,
+          },
     };
 
     try {
@@ -1646,6 +1654,7 @@ export const QueryWorkspace = ({
           selectedProfileId={selectedRevisionProfileId}
           grounding={activeGrounding!}
           editorEmpty={!workbenchSql.trim()}
+          revisesNothing={!workbenchSession?.currentVersion && !workbenchSql.trim()}
           editorState={
             workbenchSession.currentVersion
               ? "ready"

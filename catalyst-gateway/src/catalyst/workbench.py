@@ -81,7 +81,7 @@ def build_revision_context(
     base_classification: str,
     observed_base: Mapping[str, Any] | None,
     effective_base: Mapping[str, Any] | None,
-    editor_snapshot: Mapping[str, Any],
+    editor_snapshot: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """Build bounded, digest-bound context without rows or historical SQL copies."""
 
@@ -116,12 +116,16 @@ def build_revision_context(
         }
         for turn in omitted
     ]
-    editor_digest = str(editor_snapshot["editorDigest"])
+    # A turn answering the writer's question revises nothing: there is no
+    # editor content, so evidence can only be looked up under the base.
+    editor_digest = (
+        str(editor_snapshot["editorDigest"]) if editor_snapshot is not None else None
+    )
     # Validations and executions are recorded against the stored version's
     # digest. When the snapshot resolves to that version, the editor's own
     # digest is a different string for the same query -- the editor may hold it
     # laid out -- so evidence has to be looked up under the version.
-    evidence_digests = {editor_digest}
+    evidence_digests = {editor_digest} if editor_digest is not None else set()
     if isinstance(effective_base, Mapping) and effective_base.get("queryDigest"):
         evidence_digests.add(str(effective_base["queryDigest"]))
     matching_validations = [
@@ -296,7 +300,9 @@ def build_revision_context(
         "effectiveBaseVersion": (
             dict(effective_base) if effective_base is not None else None
         ),
-        "editorSnapshot": dict(editor_snapshot),
+        "editorSnapshot": (
+            dict(editor_snapshot) if editor_snapshot is not None else None
+        ),
         "instructionHistory": history,
         "validationContext": validation_context,
         "executionContext": execution_context,

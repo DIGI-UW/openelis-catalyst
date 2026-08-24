@@ -1311,21 +1311,34 @@ class CatalystService:
             instruction = str(payload["instruction"])
             if not instruction.strip():
                 raise ContractError("Instruction must contain non-whitespace text.")
-            snapshot = dict(payload["editorSnapshot"])
-            expected_digest = workbench_query_digest(
-                snapshot["sql"],
-                list(snapshot["parameters"]),
-                list(snapshot["expectedColumns"]),
+            declared_snapshot = payload["editorSnapshot"]
+            snapshot = (
+                dict(declared_snapshot) if declared_snapshot is not None else None
             )
-            if snapshot["editorDigest"] != expected_digest:
-                return self._workbench_error(
-                    422,
-                    "editor_snapshot_digest_mismatch",
-                    "editorDigest does not match the exact editor content.",
+            if snapshot is not None:
+                expected_digest = workbench_query_digest(
+                    snapshot["sql"],
+                    list(snapshot["parameters"]),
+                    list(snapshot["expectedColumns"]),
                 )
+                if snapshot["editorDigest"] != expected_digest:
+                    return self._workbench_error(
+                        422,
+                        "editor_snapshot_digest_mismatch",
+                        "editorDigest does not match the exact editor content.",
+                    )
             session = store.get_session(session_id)
             if session is None:
                 raise WorkbenchNotFoundError("Workbench session was not found.")
+            if snapshot is None and session.get("currentVersionId") is not None:
+                # Omitting the editor on a session that has a query would hide
+                # whatever the person had typed and regenerate from nothing.
+                return self._workbench_error(
+                    422,
+                    "editor_snapshot_required",
+                    "This session has a current query, so the turn must carry "
+                    "the exact editor content it revises.",
+                )
             prior_turns = store.list_turns(session_id)["turns"]
             requested_source = payload.get("dataSourceId")
             session_source_id = self._session_data_source_id(session)

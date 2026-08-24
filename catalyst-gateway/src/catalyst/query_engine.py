@@ -845,7 +845,11 @@ def _collaboration_for_response(
             "baseClassification": revision["baseClassification"],
             "observedBase": deepcopy(revision["observedBase"]),
             "effectiveBaseVersion": deepcopy(revision["effectiveBaseVersion"]),
-            "editorDigest": revision["editorSnapshot"]["editorDigest"],
+            "editorDigest": (
+                revision["editorSnapshot"]["editorDigest"]
+                if revision["editorSnapshot"] is not None
+                else None
+            ),
         }
     return value
 
