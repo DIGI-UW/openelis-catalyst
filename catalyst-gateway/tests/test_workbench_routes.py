@@ -265,6 +265,7 @@ class FakeHub:
                 "id": PROFILE_ID,
                 "label": "Catalyst query checked",
                 "available": True,
+                "supported_request_contracts": ["catalyst.query.session-context.v1"],
                 "required_models": ["qwen2.5-coder-14b", "gemma-e4b"],
                 "role_models": {
                     "query_generate": "qwen2.5-coder-14b",
@@ -2675,3 +2676,229 @@ def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
     assert validation["status"] == "invalid"
     codes = {finding["ruleCode"] for finding in validation["findings"]}
     assert any("relation" in code or "catalog" in code for code in codes), codes
+
+
+# --- pin controls ----------------------------------------------------------
+
+
+def test_a_person_pins_guidance_from_the_composer(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["guidance"][0]["text"] == "Exclude do_not_perform rows."
+    assert body["guidance"][0]["source"] == "human"
+    assert body["guidance"][0]["state"] == "active"
+
+
+def test_a_session_carries_its_active_guidance(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Names live on the patient dimension.",
+        },
+    )
+
+    reloaded = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+
+    assert [entry["text"] for entry in reloaded["guidance"]] == [
+        "Names live on the patient dimension."
+    ]
+
+
+def test_unpinning_stops_delivery_and_keeps_the_record(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+    pinned = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "temporary",
+        },
+    ).json()["guidance"][0]
+
+    response = client.delete(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+        f"/guidance/{pinned['entryId']}"
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["guidance"] == []
+
+
+def test_blank_guidance_is_refused_with_a_clear_error(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, _ready_query())
+    session = _create_session(client)
+
+    response = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "   ",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_pinned_guidance_reaches_the_writer_on_the_next_turn(
+    tmp_path: Path,
+) -> None:
+    """A composer pin becomes active on the next turn, not retroactively."""
+    hub = FailingFollowupHub(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    context = revision["sessionContext"]
+    assert [item["text"] for item in context["guidance"]["entries"]] == [
+        "Exclude do_not_perform rows."
+    ]
+    # The initial turn ran before the pin existed and must not have carried it.
+    initial = hub.requests[0]["catalystQuery"]
+    assert "sessionContext" not in initial or not initial["sessionContext"].get(
+        "guidance"
+    )
+
+
+def test_the_request_records_what_the_caps_left_out(tmp_path: Path) -> None:
+    hub = FailingFollowupHub(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    for index in range(21):
+        client.post(
+            f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+            json={
+                "contractVersion": "catalyst.workbench.guidance.request.v1",
+                "text": f"entry {index}",
+            },
+        )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    context = hub.requests[-1]["catalystQuery"]["revision"]["sessionContext"]
+    assert len(context["guidance"]["entries"]) == 20
+    assert context["omissions"][0]["reason"] == "active_entry_cap"
+    assert len(context["omissions"][0]["itemIds"]) == 1
+
+
+class HubWithoutSessionContext(FailingFollowupHub):
+    """A Hub that has not been taught the Phase 1 request shape."""
+
+    async def list_query_profiles(self) -> list[dict]:
+        profiles = await super().list_query_profiles()
+        for profile in profiles:
+            profile.pop("supported_request_contracts", None)
+        return profiles
+
+
+def test_a_hub_that_cannot_read_the_new_shape_is_not_sent_it(
+    tmp_path: Path,
+) -> None:
+    """Catalyst deploys before the Hub does, so the new layer is negotiated.
+
+    Sending a context the Hub does not understand risks it being ignored
+    silently -- or worse, echoed back as if it had been honoured.
+    """
+    hub = HubWithoutSessionContext(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    assert "sessionContext" not in revision

@@ -32,6 +32,8 @@ NORMATIVE_SCHEMAS = (
     "catalyst-workbench-editor-snapshot-record-v1.schema.json",
     "catalyst-workbench-execute-request-v1.schema.json",
     "catalyst-workbench-finding-v1.schema.json",
+    "catalyst-workbench-guidance-v1.schema.json",
+    "catalyst-workbench-guidance-request-v1.schema.json",
     "catalyst-workbench-session-request-v1.schema.json",
     "catalyst-workbench-session-v1.schema.json",
     "catalyst-workbench-turn-request-v1.schema.json",

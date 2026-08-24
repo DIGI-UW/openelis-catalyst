@@ -614,6 +614,24 @@ class WorkbenchStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS catalyst_workbench_guidance (
+                    entry_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    entry_order INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    text_digest TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    origin_turn_id TEXT,
+                    accepted_by_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    superseded_by TEXT,
+                    events_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (session_id, entry_order),
+                    FOREIGN KEY (session_id)
+                        REFERENCES catalyst_workbench_sessions(session_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS catalyst_workbench_query_versions (
                     version_id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -856,7 +874,234 @@ class WorkbenchStore:
                 """,
                 (_timestamp(self._now()),),
             )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO catalyst_workbench_schema_migrations (
+                    migration_version, applied_at
+                ) VALUES (5, ?)
+                """,
+                (_timestamp(self._now()),),
+            )
             self._recover_orphaned_turns()
+
+    # ---------------------------------------------------------- guidance
+    #
+    # What a person pins so the writer stops having to be told twice. Entries
+    # are append-only: unpinning or replacing one appends a lifecycle event
+    # and leaves the text where it was, because a turn's evidence must keep
+    # meaning what it meant when it ran.
+
+    GUIDANCE_DELIVERY_CAP = 20
+    """Active entries delivered to the writer. History is not capped."""
+
+    def pin_guidance(
+        self,
+        session_id: str,
+        *,
+        text: str,
+        source: str,
+        origin_turn_id: str | None = None,
+        supersedes: str | None = None,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Pin one instruction to a session, exactly as written."""
+        if not text.strip():
+            raise ValueError("guidance text must not be blank")
+        if source not in {"human", "system"}:
+            raise ValueError(f"unknown guidance source {source!r}")
+        timestamp = _timestamp(self._now())
+        entry_id = f"guidance-{uuid.uuid4()}"
+        actor = {"type": "human", "actorId": actor_id}
+        with self._transaction() as connection:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM catalyst_workbench_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                is None
+            ):
+                raise KeyError(session_id)
+            row = connection.execute(
+                """
+                SELECT COALESCE(MAX(entry_order), 0) AS highest
+                FROM catalyst_workbench_guidance WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+            order = int(row["highest"]) + 1
+            events = [
+                {
+                    "eventId": str(uuid.uuid4()),
+                    "action": "pinned",
+                    "occurredAt": timestamp,
+                    "actor": actor,
+                }
+            ]
+            connection.execute(
+                """
+                INSERT INTO catalyst_workbench_guidance (
+                    entry_id, session_id, entry_order, text, text_digest,
+                    source, origin_turn_id, accepted_by_json, state,
+                    superseded_by, events_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+                """,
+                (
+                    entry_id,
+                    session_id,
+                    order,
+                    text,
+                    utf8_sha256(text),
+                    source,
+                    origin_turn_id,
+                    json.dumps(actor),
+                    json.dumps(events),
+                    timestamp,
+                ),
+            )
+            if supersedes is not None:
+                self._close_guidance(
+                    connection,
+                    session_id,
+                    supersedes,
+                    action="superseded",
+                    timestamp=timestamp,
+                    actor=actor,
+                    superseded_by=entry_id,
+                )
+        return self.guidance_entry(session_id, entry_id)
+
+    def unpin_guidance(
+        self, session_id: str, entry_id: str, *, actor_id: str | None = None
+    ) -> dict[str, Any]:
+        """Stop delivering an entry. Its text and history stay."""
+        timestamp = _timestamp(self._now())
+        with self._transaction() as connection:
+            self._close_guidance(
+                connection,
+                session_id,
+                entry_id,
+                action="unpinned",
+                timestamp=timestamp,
+                actor={"type": "human", "actorId": actor_id},
+                superseded_by=None,
+            )
+        return self.guidance_entry(session_id, entry_id)
+
+    def _close_guidance(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        entry_id: str,
+        *,
+        action: str,
+        timestamp: str,
+        actor: dict[str, Any],
+        superseded_by: str | None,
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT events_json FROM catalyst_workbench_guidance
+            WHERE session_id = ? AND entry_id = ?
+            """,
+            (session_id, entry_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError(entry_id)
+        events = [
+            *json.loads(row["events_json"]),
+            {
+                "eventId": str(uuid.uuid4()),
+                "action": action,
+                "occurredAt": timestamp,
+                "actor": actor,
+            },
+        ]
+        connection.execute(
+            """
+            UPDATE catalyst_workbench_guidance
+            SET state = ?, superseded_by = ?, events_json = ?
+            WHERE session_id = ? AND entry_id = ?
+            """,
+            (
+                "superseded" if action == "superseded" else "unpinned",
+                superseded_by,
+                json.dumps(events),
+                session_id,
+                entry_id,
+            ),
+        )
+
+    def guidance_entry(self, session_id: str, entry_id: str) -> dict[str, Any]:
+        row = self._connection.execute(
+            """
+            SELECT * FROM catalyst_workbench_guidance
+            WHERE session_id = ? AND entry_id = ?
+            """,
+            (session_id, entry_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError(entry_id)
+        return self._guidance_row(row)
+
+    def guidance_history(self, session_id: str) -> list[dict[str, Any]]:
+        """Every entry ever pinned to this session, in order."""
+        rows = self._connection.execute(
+            """
+            SELECT * FROM catalyst_workbench_guidance
+            WHERE session_id = ? ORDER BY entry_order
+            """,
+            (session_id,),
+        ).fetchall()
+        return [self._guidance_row(row) for row in rows]
+
+    def active_guidance(self, session_id: str) -> list[dict[str, Any]]:
+        """The entries delivered to the writer, oldest first.
+
+        Past the cap the oldest active entries stop being delivered; the
+        omission is recorded where the request is assembled, and nothing is
+        deleted here.
+        """
+        rows = self._connection.execute(
+            """
+            SELECT * FROM catalyst_workbench_guidance
+            WHERE session_id = ? AND state = 'active' ORDER BY entry_order
+            """,
+            (session_id,),
+        ).fetchall()
+        entries = [self._guidance_row(row) for row in rows]
+        return entries[-self.GUIDANCE_DELIVERY_CAP :]
+
+    def guidance_omitted_by_cap(self, session_id: str) -> list[dict[str, Any]]:
+        """Active entries the cap keeps out of the delivered set."""
+        rows = self._connection.execute(
+            """
+            SELECT * FROM catalyst_workbench_guidance
+            WHERE session_id = ? AND state = 'active' ORDER BY entry_order
+            """,
+            (session_id,),
+        ).fetchall()
+        entries = [self._guidance_row(row) for row in rows]
+        if len(entries) <= self.GUIDANCE_DELIVERY_CAP:
+            return []
+        return entries[: -self.GUIDANCE_DELIVERY_CAP]
+
+    @staticmethod
+    def _guidance_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "contractVersion": "catalyst.workbench.guidance.v1",
+            "entryId": row["entry_id"],
+            "sessionId": row["session_id"],
+            "order": int(row["entry_order"]),
+            "text": row["text"],
+            "textDigest": row["text_digest"],
+            "source": row["source"],
+            "originTurnId": row["origin_turn_id"],
+            "acceptedBy": json.loads(row["accepted_by_json"]),
+            "state": row["state"],
+            "supersededBy": row["superseded_by"],
+            "createdAt": row["created_at"],
+            "events": json.loads(row["events_json"]),
+        }
 
     def create_session(
         self,

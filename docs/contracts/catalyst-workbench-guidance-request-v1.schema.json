@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalyst-workbench-guidance-request-v1.schema.json",
+  "title": "Pin one guidance entry to a session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "text"],
+  "properties": {
+    "contractVersion": { "const": "catalyst.workbench.guidance.request.v1" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "source": {
+      "description": "A composer pin, or a finding accepted from a failed turn.",
+      "enum": ["human", "system"]
+    },
+    "originTurnId": { "type": ["string", "null"], "format": "uuid" },
+    "supersedes": {
+      "description": "The entry this one replaces, when a person rewords guidance.",
+      "type": ["string", "null"]
+    }
+  }
+}

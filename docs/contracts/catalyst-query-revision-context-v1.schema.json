@@ -37,18 +37,30 @@
       "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
     },
     "baseClassification": {
-      "enum": ["reused", "promoted_human", "unresolved"]
+      "enum": [
+        "reused",
+        "promoted_human",
+        "unresolved"
+      ]
     },
     "observedBase": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "effectiveBaseVersion": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "editorSnapshot": {
@@ -58,18 +70,28 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 6,
-      "items": {"$ref": "#/$defs/historyItem"}
+      "items": {
+        "$ref": "#/$defs/historyItem"
+      }
     },
     "validationContext": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/validationContext"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/validationContext"
+        }
       ]
     },
     "executionContext": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/executionContext"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/executionContext"
+        }
       ]
     },
     "selection": {
@@ -77,13 +99,45 @@
     },
     "contextDigest": {
       "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
+    },
+    "sessionContext": {
+      "description": "The session's layered context: pinned guidance, verified examples from earlier turns, and the one prior failure on this revision line. Optional, so a request built before Phase 1 stays valid; every omission a cap caused is recorded inside it.",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "contractVersion",
+        "omissions"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "catalyst.query.session-context.v1"
+        },
+        "guidance": {
+          "type": "object"
+        },
+        "verifiedExamples": {
+          "type": "object"
+        },
+        "relevantFailure": {
+          "type": "object"
+        },
+        "omissions": {
+          "type": "array"
+        }
+      }
     }
   },
   "$defs": {
     "historyItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["turnId", "ordinal", "kind", "instruction", "instructionDigest"],
+      "required": [
+        "turnId",
+        "ordinal",
+        "kind",
+        "instruction",
+        "instructionDigest"
+      ],
       "properties": {
         "turnId": {
           "type": "string",
@@ -94,7 +148,10 @@
           "minimum": 1
         },
         "kind": {
-          "enum": ["initial", "followup"]
+          "enum": [
+            "initial",
+            "followup"
+          ]
         },
         "instruction": {
           "type": "string",
@@ -108,11 +165,21 @@
       "allOf": [
         {
           "if": {
-            "properties": {"kind": {"const": "followup"}},
-            "required": ["kind"]
+            "properties": {
+              "kind": {
+                "const": "followup"
+              }
+            },
+            "required": [
+              "kind"
+            ]
           },
           "then": {
-            "properties": {"instruction": {"maxLength": 8000}}
+            "properties": {
+              "instruction": {
+                "maxLength": 8000
+              }
+            }
           }
         }
       ]
@@ -120,7 +187,14 @@
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["findingId", "ruleCode", "severity", "stage", "path", "message"],
+      "required": [
+        "findingId",
+        "ruleCode",
+        "severity",
+        "stage",
+        "path",
+        "message"
+      ],
       "properties": {
         "findingId": {
           "type": "string",
@@ -131,7 +205,11 @@
           "minLength": 1
         },
         "severity": {
-          "enum": ["error", "warning", "info"]
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ]
         },
         "stage": {
           "type": "string",
@@ -173,7 +251,11 @@
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         },
         "status": {
-          "enum": ["invalid", "warning", "valid"]
+          "enum": [
+            "invalid",
+            "warning",
+            "valid"
+          ]
         },
         "validatorRevision": {
           "type": "string",
@@ -185,14 +267,21 @@
         "findings": {
           "type": "array",
           "maxItems": 50,
-          "items": {"$ref": "#/$defs/finding"}
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
         }
       }
     },
     "executionColumn": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ordinal", "name", "databaseType", "logicalType"],
+      "required": [
+        "ordinal",
+        "name",
+        "databaseType",
+        "logicalType"
+      ],
       "properties": {
         "ordinal": {
           "type": "integer",
@@ -215,7 +304,11 @@
     "rowCount": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["returned", "truncated", "truncationReason"],
+      "required": [
+        "returned",
+        "truncated",
+        "truncationReason"
+      ],
       "properties": {
         "returned": {
           "type": "integer",
@@ -225,7 +318,10 @@
           "type": "boolean"
         },
         "truncationReason": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 1000
         }
       }
@@ -233,14 +329,27 @@
     "databaseDiagnostic": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sqlstate", "severity", "message", "detail", "hint", "position"],
+      "required": [
+        "sqlstate",
+        "severity",
+        "message",
+        "detail",
+        "hint",
+        "position"
+      ],
       "properties": {
         "sqlstate": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 5
         },
         "severity": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 100
         },
         "message": {
@@ -248,15 +357,24 @@
           "maxLength": 4000
         },
         "detail": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 4000
         },
         "hint": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 4000
         },
         "position": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         }
       }
@@ -288,21 +406,37 @@
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         },
         "status": {
-          "enum": ["succeeded", "failed", "timed_out", "cancelled"]
+          "enum": [
+            "succeeded",
+            "failed",
+            "timed_out",
+            "cancelled"
+          ]
         },
         "validationStatus": {
-          "enum": ["not_run", "invalid", "warning", "valid"]
+          "enum": [
+            "not_run",
+            "invalid",
+            "warning",
+            "valid"
+          ]
         },
         "rowCount": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/rowCount"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rowCount"
+            }
           ]
         },
         "columns": {
           "type": "array",
           "maxItems": 128,
-          "items": {"$ref": "#/$defs/executionColumn"}
+          "items": {
+            "$ref": "#/$defs/executionColumn"
+          }
         },
         "warnings": {
           "type": "array",
@@ -315,8 +449,12 @@
         },
         "databaseDiagnostic": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/databaseDiagnostic"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/databaseDiagnostic"
+            }
           ]
         },
         "durationMs": {
@@ -328,10 +466,20 @@
     "validationRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["validationId", "versionId", "queryDigest"],
+      "required": [
+        "validationId",
+        "versionId",
+        "queryDigest"
+      ],
       "properties": {
-        "validationId": {"type": "string", "format": "uuid"},
-        "versionId": {"type": "string", "format": "uuid"},
+        "validationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "versionId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "queryDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         }
@@ -340,10 +488,20 @@
     "executionRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["executionId", "versionId", "queryDigest"],
+      "required": [
+        "executionId",
+        "versionId",
+        "queryDigest"
+      ],
       "properties": {
-        "executionId": {"type": "string", "format": "uuid"},
-        "versionId": {"type": "string", "format": "uuid"},
+        "executionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "versionId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "queryDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         }
@@ -395,7 +553,9 @@
         "omittedHistory": {
           "type": "array",
           "maxItems": 1000,
-          "items": {"$ref": "#/$defs/omittedHistoryRef"}
+          "items": {
+            "$ref": "#/$defs/omittedHistoryRef"
+          }
         },
         "omittedHistoryDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
@@ -405,11 +565,27 @@
     "omittedHistoryRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["turnId", "ordinal", "kind", "instructionDigest"],
+      "required": [
+        "turnId",
+        "ordinal",
+        "kind",
+        "instructionDigest"
+      ],
       "properties": {
-        "turnId": {"type": "string", "format": "uuid"},
-        "ordinal": {"type": "integer", "minimum": 1},
-        "kind": {"enum": ["initial", "followup"]},
+        "turnId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "initial",
+            "followup"
+          ]
+        },
         "instructionDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         }
@@ -437,14 +613,22 @@
         },
         "validationRef": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/validationRef"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/validationRef"
+            }
           ]
         },
         "executionRef": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/executionRef"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/executionRef"
+            }
           ]
         },
         "omissions": {
