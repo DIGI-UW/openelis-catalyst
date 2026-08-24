@@ -816,6 +816,23 @@
           "type": ["string", "null"],
           "pattern": "^[a-f0-9]{64}$"
         },
+        "tokenAccounting": {
+          "description": "Exact token evidence for this invocation's fully rendered request, counted with the model's own template and tokenizer before the call; null when the Hub could not count.",
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["tokenizer", "contextWindow", "outputReserve", "promptTokens"],
+              "properties": {
+                "tokenizer": {"type": "string", "minLength": 1},
+                "contextWindow": {"type": "integer", "minimum": 1},
+                "outputReserve": {"type": "integer", "minimum": 0},
+                "promptTokens": {"type": "integer", "minimum": 0}
+              }
+            }
+          ]
+        },
         "outcome": {
           "enum": [
             "succeeded",

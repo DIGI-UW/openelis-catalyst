@@ -154,7 +154,7 @@ async def _backend_chat(
     temperature: float,
     dry_multiplier: float,
     max_tokens: Optional[int],
-) -> str:
+) -> tuple[str, Optional[Mapping[str, Any]]]:
     """Call a named Hub query role; caller-provided model settings are ignored."""
 
     payload: Dict[str, Any] = {"messages": messages}
@@ -170,7 +170,10 @@ async def _backend_chat(
     content = message.get("content") if isinstance(message, Mapping) else None
     if not isinstance(content, str) or not content.strip():
         raise QueryContractError("model response did not contain assistant content")
-    return content.strip()
+    accounting = (
+        message.get("token_accounting") if isinstance(message, Mapping) else None
+    )
+    return content.strip(), accounting if isinstance(accounting, Mapping) else None
 
 
 def _evidence_digest(value: Any) -> str:
@@ -347,7 +350,7 @@ async def _invoke_backend(
     }
     invocations.append(invocation)
     try:
-        content = await _backend_chat(
+        answered = await _backend_chat(
             client,
             profile_id,
             profile_role,
@@ -357,6 +360,14 @@ async def _invoke_backend(
             temperature=temperature,
             dry_multiplier=dry_multiplier,
             max_tokens=max_tokens,
+        )
+        # Test doubles may still answer with a bare string; production answers
+        # (content, accounting). Either way each invocation keeps its own count.
+        content, accounting = (
+            answered if isinstance(answered, tuple) else (answered, None)
+        )
+        invocation["tokenAccounting"] = (
+            dict(accounting) if isinstance(accounting, Mapping) else None
         )
     except asyncio.CancelledError as exc:
         _finish_invocation(invocation, outcome="cancelled", failure=repr(exc))
@@ -983,6 +994,18 @@ def _attach_model_evidence(
         "modelInvocations": deepcopy(invocations),
         "totalModelInvocationDurationMs": sum(
             int(item["durationMs"]) for item in invocations
+        ),
+        # The writer's request is the one whose budget the turn lives or dies
+        # by; its count is the turn's token evidence.
+        "tokenAccounting": deepcopy(
+            next(
+                (
+                    item.get("tokenAccounting")
+                    for item in invocations
+                    if item.get("role") == "writer" and item.get("tokenAccounting")
+                ),
+                None,
+            )
         ),
     }
 

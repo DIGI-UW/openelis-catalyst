@@ -453,3 +453,69 @@ async def test_a_result_name_the_catalog_answers_under_other_names_asks():
     assert "Malaria" not in result["clarification"]
     assert "sql" not in result
     assert not result["_hubEvidence"]["modelInvocations"]
+
+
+@pytest.mark.asyncio
+async def test_the_hubs_token_count_travels_with_the_invocation():
+    """Exact token evidence rides from the Hub role call into the evidence.
+
+    The Hub counts the fully rendered request with the model's own tokenizer;
+    the engine's job is not to lose it: each invocation keeps its own
+    accounting and the result surfaces the writer's, which is the request
+    whose budget the turn lives or dies by.
+    """
+    accounting = {
+        "tokenizer": "gemma-4-12b",
+        "contextWindow": 24576,
+        "outputReserve": 1024,
+        "promptTokens": 2345,
+    }
+    responses = [
+        (json.dumps(_ready_candidate()), accounting),
+        (json.dumps(_approve_review()), {**accounting, "promptTokens": 999}),
+    ]
+
+    async def backend(client, profile_id, role, model, messages, **kwargs):
+        return responses.pop(0)
+
+    request = EngineRequest(
+        catalyst_query=_extension(),
+        messages=[{"role": "user", "content": QUESTION}],
+        profile=_reviewed_profile(),
+    )
+    with patch.object(query_engine, "_backend_chat", side_effect=backend):
+        results = [
+            payload
+            async for kind, payload in execute_query_profile(request)
+            if kind == "result"
+        ]
+    result = json.loads(results[0])
+
+    invocations = result["_hubEvidence"]["modelInvocations"]
+    assert invocations[0]["tokenAccounting"] == accounting
+    assert invocations[1]["tokenAccounting"]["promptTokens"] == 999
+    assert result["_hubEvidence"]["tokenAccounting"] == accounting
+
+
+@pytest.mark.asyncio
+async def test_a_hub_that_counted_nothing_is_reported_as_nothing():
+    """No accounting is absence in the evidence, never an invented shape."""
+
+    async def backend(client, profile_id, role, model, messages, **kwargs):
+        return json.dumps(_ready_candidate())
+
+    request = EngineRequest(
+        catalyst_query=_extension(),
+        messages=[{"role": "user", "content": QUESTION}],
+        profile=_writer_only_profile(),
+    )
+    with patch.object(query_engine, "_backend_chat", side_effect=backend):
+        results = [
+            payload
+            async for kind, payload in execute_query_profile(request)
+            if kind == "result"
+        ]
+    result = json.loads(results[0])
+
+    assert result["_hubEvidence"]["modelInvocations"][0]["tokenAccounting"] is None
+    assert result["_hubEvidence"]["tokenAccounting"] is None

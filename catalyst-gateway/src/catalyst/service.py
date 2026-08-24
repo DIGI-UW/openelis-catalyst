@@ -2624,6 +2624,7 @@ class CatalystService:
                 "responseDigest",
                 "failureDigest",
                 "outcome",
+                "tokenAccounting",
             )
             projected: list[dict[str, Any]] = []
             for item in supplied:

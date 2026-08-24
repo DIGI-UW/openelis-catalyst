@@ -214,9 +214,16 @@ def _policy_bearing_ready_query() -> dict:
 
 
 class FakeHub:
-    def __init__(self, query: dict, *, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        query: dict,
+        *,
+        error: Exception | None = None,
+        token_accounting: dict | None = None,
+    ) -> None:
         self.query = query
         self.error = error
+        self.token_accounting = token_accounting
         self.requests: list[dict] = []
 
     async def list_query_profiles(self) -> list[dict]:
@@ -347,6 +354,7 @@ class FakeHub:
                 "requestDigest": canonical_sha256(request),
                 "responseDigest": canonical_sha256(query),
                 "failureDigest": None,
+                "tokenAccounting": deepcopy(self.token_accounting),
                 "outcome": "succeeded",
             }
         ]
@@ -3089,3 +3097,31 @@ def test_a_turn_that_revised_nothing_must_carry_no_editor_content(
             "catalyst-workbench-turn-v1.schema.json",
             claims_nothing_but_carries_an_editor,
         )
+
+
+def test_the_turns_token_evidence_is_published_with_the_evidence(
+    tmp_path: Path,
+) -> None:
+    """The count the Hub made before the writer ran is readable afterwards."""
+    accounting = {
+        "tokenizer": "gemma-4-12b",
+        "contextWindow": 24576,
+        "outputReserve": 1024,
+        "promptTokens": 2345,
+    }
+    hub = FakeHub(_ready_query(), token_accounting=accounting)
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+
+    timeline = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()
+    turn = timeline["turns"][0]
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{turn['turnId']}/generation-evidence"
+    ).json()
+
+    assert evidence["tokenAccounting"] == accounting
+    writer = [i for i in evidence["invocations"] if i["role"] == "writer"][0]
+    assert writer["tokenAccounting"] == accounting
