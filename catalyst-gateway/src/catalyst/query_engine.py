@@ -72,6 +72,9 @@ from .query_parse import (
 
 logger = logging.getLogger(__name__)
 
+TERMINAL_WRITER_ANSWERS = frozenset({"needs_clarification", "unsupported"})
+"""Writer answers that carry no SQL and end the run on one call."""
+
 _PROVIDER_ID = os.getenv("CATALYST_MODEL_PROVIDER_ID", "med-agent-hub")
 _HUB_QUERY_PROFILE_URL = os.getenv(
     "CATALYST_HUB_QUERY_PROFILE_URL", "http://med-agent-hub:8080/v1/hub/query-profiles"
@@ -529,6 +532,11 @@ async def _generate(
                     extension,
                     label=f"query generation attempt {attempt}",
                 )
+                if parsed.get("status") in TERMINAL_WRITER_ANSWERS:
+                    # Asking or declining is an answer, not a draft. There is
+                    # no SQL to lint, repair, or review, so the run ends on
+                    # this one call with the writer's own words intact.
+                    return parsed, attempt, binding_normalized, history
                 bound = _bind_question_date_literals(parsed, question)
                 normalized_this_attempt = normalized_this_attempt or bound != parsed
                 parsed = bound
@@ -1130,7 +1138,18 @@ async def execute_query_profile(
                     for lint_attempt in exc.history
                 )
         else:
-            if not _candidate_matches_catalog(candidate, canonical_target):
+            if candidate.get("status") in TERMINAL_WRITER_ANSWERS:
+                # The writer asked or declined. There is no query to echo a
+                # catalog target, to review, or to run: finalize its own words.
+                result = _finalize(
+                    question,
+                    extension,
+                    candidate,
+                    [],
+                    profile_id=request.profile.id,
+                )
+                steps.append({"role": "query_generate", "status": candidate["status"]})
+            elif not _candidate_matches_catalog(candidate, canonical_target):
                 result = _rejected(
                     question,
                     extension,

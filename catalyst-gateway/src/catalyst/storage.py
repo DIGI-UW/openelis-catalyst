@@ -1495,6 +1495,7 @@ class WorkbenchStore:
                 "generationRunId": row["generation_run_id"],
                 "occurredAt": timestamp,
             }
+            turn["writerOutcome"] = "ready"
             turn.update(
                 status="completed",
                 hubTraceId=hub_trace_id,
@@ -1652,6 +1653,7 @@ class WorkbenchStore:
         invocations: list[dict[str, Any]] | None = None,
         retained_writer: dict[str, Any] | None = None,
         retained_writer_validation: dict[str, Any] | None = None,
+        writer_outcome: str | None = None,
         details: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         timestamp = _timestamp(self._now())
@@ -1722,6 +1724,8 @@ class WorkbenchStore:
                 "generationRunId": row["generation_run_id"],
                 "occurredAt": timestamp,
             }
+            if writer_outcome is not None:
+                turn["writerOutcome"] = writer_outcome
             turn.update(
                 status="failed",
                 outputVersions=stored_outputs,

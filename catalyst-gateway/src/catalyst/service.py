@@ -1020,6 +1020,7 @@ class CatalystService:
                 retained_writer=attempt.candidate,
                 retained_writer_validation=attempt.validation,
                 details=self._failure_details(generation.body),
+                writer_outcome=self._terminal_writer_answer(generation.body),
             )
             restored = store.get_session(session["sessionId"])
             assert restored is not None
@@ -1190,6 +1191,7 @@ class CatalystService:
                     failed=True,
                 ),
                 details=self._failure_details(generation.body),
+                writer_outcome=self._terminal_writer_answer(generation.body),
             )
 
         restored = store.get_session(session["sessionId"])
@@ -1506,6 +1508,7 @@ class CatalystService:
                         attempt.validation if attempt else None
                     ),
                     details=self._failure_details(query),
+                    writer_outcome=self._terminal_writer_answer(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -1534,6 +1537,7 @@ class CatalystService:
                         failed=True,
                     ),
                     details=self._failure_details(query),
+                    writer_outcome=self._terminal_writer_answer(query),
                 )
                 return self._workbench_terminal_turn_response(
                     store, session_id, failed["turnId"]
@@ -2622,6 +2626,9 @@ class CatalystService:
             if terminal_role in {"writer", "reviewer"}
             else ("reviewer" if reviewer else "writer")
         )
+        answered = cls._terminal_writer_answer(outcome_body)
+        if answered is not None:
+            return f"{role}_decision", answered
         transport_outcomes = {"timed_out", "cancelled", "transport_failed"}
         if outcome not in transport_outcomes and cls._unresolved_findings(outcome_body):
             # The request was understood and could not be satisfied: a
@@ -2790,6 +2797,19 @@ class CatalystService:
                 return about_query
         return []
 
+    @staticmethod
+    def _terminal_writer_answer(outcome: dict[str, Any] | None) -> str | None:
+        """The writer's own terminal answer, when it gave one.
+
+        `needs_clarification` and `unsupported` are answers the writer chose
+        and stated; they are not inferred from findings and not the Gateway's
+        `rejected`.
+        """
+        if not isinstance(outcome, dict):
+            return None
+        status = outcome.get("status")
+        return str(status) if status in {"needs_clarification", "unsupported"} else None
+
     @classmethod
     def _unanswerable_without_asking(cls, outcome: dict[str, Any] | None) -> bool:
         """Every unresolved finding names something the dataset does not have.
@@ -2854,6 +2874,15 @@ class CatalystService:
         A finding says which identifier is wrong and how to fix it; the
         pipeline stage says only that a pipeline exists.
         """
+        answered = cls._terminal_writer_answer(outcome)
+        if answered is not None:
+            # The writer's own text is the answer; storing anything else here
+            # would put words in its mouth.
+            spoken = outcome.get(
+                "clarification" if answered == "needs_clarification" else "message"
+            )
+            if isinstance(spoken, str) and spoken.strip():
+                return spoken
         if cls._unanswerable_without_asking(outcome):
             question = cls._clarifying_question(outcome)
             if question is not None:
@@ -3231,7 +3260,7 @@ class CatalystService:
             }
             for violation in self.sql_policy.evaluate(
                 query,
-                available_relations=catalog.available_relation_names,
+                available_relations=catalog.approved_view_names,
             )
         )
         request = build_query_request(
@@ -3364,7 +3393,7 @@ class CatalystService:
         validate_query_invariants(query, request)
         violations = self.sql_policy.evaluate(
             query,
-            available_relations=catalog.available_relation_names,
+            available_relations=catalog.approved_view_names,
         )
         if violations:
             raise QueryInvariantError(violations)

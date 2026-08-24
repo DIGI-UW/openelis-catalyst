@@ -40,10 +40,16 @@
       "const": "catalyst.workbench.turn.v1"
     },
     "dataSourceId": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "catalogVersion": {
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "sessionId": {
       "type": "string",
@@ -58,10 +64,16 @@
       "minimum": 1
     },
     "kind": {
-      "enum": ["initial", "followup"]
+      "enum": [
+        "initial",
+        "followup"
+      ]
     },
     "origin": {
-      "enum": ["recorded", "synthesized_legacy"]
+      "enum": [
+        "recorded",
+        "synthesized_legacy"
+      ]
     },
     "instruction": {
       "type": "string",
@@ -76,18 +88,31 @@
     },
     "observedBase": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "editorSnapshot": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-editor-snapshot-record-v1.schema.json"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-editor-snapshot-record-v1.schema.json"
+        }
       ]
     },
     "snapshotClassification": {
-      "enum": ["not_applicable", "reused", "promoted_human", "unresolved"]
+      "enum": [
+        "not_applicable",
+        "reused",
+        "promoted_human",
+        "unresolved"
+      ]
     },
     "unresolvedPaths": {
       "type": "array",
@@ -99,35 +124,57 @@
     },
     "effectiveBaseVersion": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "manualVersion": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "revisionContext": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-query-revision-context-v1.schema.json"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-query-revision-context-v1.schema.json"
+        }
       ]
     },
     "hubRequestDigest": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
+        }
       ]
     },
     "catalystTraceId": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1,
       "maxLength": 500
     },
     "hubTraceId": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1,
       "maxLength": 500
     },
@@ -136,26 +183,43 @@
     },
     "recoveryReferences": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/recoveryReferences"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/recoveryReferences"
+        }
       ]
     },
     "status": {
-      "enum": ["requested", "completed", "failed"]
+      "enum": [
+        "requested",
+        "completed",
+        "failed"
+      ]
     },
     "outputVersions": {
       "type": "array",
       "uniqueItems": true,
-      "items": {"$ref": "#/$defs/outputVersion"}
+      "items": {
+        "$ref": "#/$defs/outputVersion"
+      }
     },
     "selectedVersionId": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "uuid"
     },
     "resultingCurrentVersion": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+        }
       ]
     },
     "events": {
@@ -163,15 +227,23 @@
       "minItems": 1,
       "maxItems": 2,
       "prefixItems": [
-        {"$ref": "#/$defs/requestedEvent"}
+        {
+          "$ref": "#/$defs/requestedEvent"
+        }
       ],
-      "items": {"$ref": "#/$defs/terminalEvent"},
+      "items": {
+        "$ref": "#/$defs/terminalEvent"
+      },
       "uniqueItems": true
     },
     "failure": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/failure"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/failure"
+        }
       ]
     },
     "createdAt": {
@@ -181,33 +253,67 @@
     "updatedAt": {
       "type": "string",
       "format": "date-time"
+    },
+    "writerOutcome": {
+      "description": "Which terminal answer the writer gave. Absent on turns recorded before Phase 1; `rejected` is the Gateway's and never appears here.",
+      "enum": [
+        "ready",
+        "needs_clarification",
+        "unsupported"
+      ]
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": {"kind": {"const": "initial"}},
-        "required": ["kind"]
+        "properties": {
+          "kind": {
+            "const": "initial"
+          }
+        },
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
-          "observedBase": {"type": "null"},
-          "editorSnapshot": {"type": "null"},
-          "snapshotClassification": {"const": "not_applicable"},
-          "unresolvedPaths": {"maxItems": 0},
-          "effectiveBaseVersion": {"type": "null"},
-          "manualVersion": {"type": "null"},
-          "revisionContext": {"type": "null"}
+          "observedBase": {
+            "type": "null"
+          },
+          "editorSnapshot": {
+            "type": "null"
+          },
+          "snapshotClassification": {
+            "const": "not_applicable"
+          },
+          "unresolvedPaths": {
+            "maxItems": 0
+          },
+          "effectiveBaseVersion": {
+            "type": "null"
+          },
+          "manualVersion": {
+            "type": "null"
+          },
+          "revisionContext": {
+            "type": "null"
+          }
         }
       },
       "else": {
         "properties": {
-          "instruction": {"maxLength": 8000},
+          "instruction": {
+            "maxLength": 8000
+          },
           "editorSnapshot": {
             "$ref": "catalyst-workbench-editor-snapshot-record-v1.schema.json"
           },
           "snapshotClassification": {
-            "enum": ["reused", "promoted_human", "unresolved"]
+            "enum": [
+              "reused",
+              "promoted_human",
+              "unresolved"
+            ]
           },
           "revisionContext": {
             "$ref": "catalyst-query-revision-context-v1.schema.json"
@@ -217,13 +323,24 @@
           },
           "profileSnapshot": {
             "allOf": [
-              {"$ref": "#/$defs/profileSnapshot"},
+              {
+                "$ref": "#/$defs/profileSnapshot"
+              },
               {
                 "properties": {
-                  "profileName": {"type": "string", "minLength": 1},
-                  "writer": {"$ref": "#/$defs/writerSnapshot"},
-                  "reviewer": {"$ref": "#/$defs/reviewerSnapshot"},
-                  "omissions": {"maxItems": 0}
+                  "profileName": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "writer": {
+                    "$ref": "#/$defs/writerSnapshot"
+                  },
+                  "reviewer": {
+                    "$ref": "#/$defs/reviewerSnapshot"
+                  },
+                  "omissions": {
+                    "maxItems": 0
+                  }
                 }
               }
             ]
@@ -233,8 +350,14 @@
     },
     {
       "if": {
-        "properties": {"origin": {"const": "recorded"}},
-        "required": ["origin"]
+        "properties": {
+          "origin": {
+            "const": "recorded"
+          }
+        },
+        "required": [
+          "origin"
+        ]
       },
       "then": {
         "properties": {
@@ -243,16 +366,29 @@
             "minLength": 1,
             "maxLength": 500
           },
-          "recoveryReferences": {"type": "null"},
+          "recoveryReferences": {
+            "type": "null"
+          },
           "profileSnapshot": {
             "allOf": [
-              {"$ref": "#/$defs/profileSnapshot"},
+              {
+                "$ref": "#/$defs/profileSnapshot"
+              },
               {
                 "properties": {
-                  "profileName": {"type": "string", "minLength": 1},
-                  "writer": {"$ref": "#/$defs/writerSnapshot"},
-                  "reviewer": {"$ref": "#/$defs/reviewerSnapshot"},
-                  "omissions": {"maxItems": 0}
+                  "profileName": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "writer": {
+                    "$ref": "#/$defs/writerSnapshot"
+                  },
+                  "reviewer": {
+                    "$ref": "#/$defs/reviewerSnapshot"
+                  },
+                  "omissions": {
+                    "maxItems": 0
+                  }
                 }
               }
             ]
@@ -261,16 +397,28 @@
       },
       "else": {
         "properties": {
-          "kind": {"const": "initial"},
-          "catalystTraceId": {"type": "null"},
-          "recoveryReferences": {"$ref": "#/$defs/recoveryReferences"},
+          "kind": {
+            "const": "initial"
+          },
+          "catalystTraceId": {
+            "type": "null"
+          },
+          "recoveryReferences": {
+            "$ref": "#/$defs/recoveryReferences"
+          },
           "events": {
             "prefixItems": [
               {
                 "allOf": [
-                  {"$ref": "#/$defs/requestedEvent"},
                   {
-                    "properties": {"ownerInstanceId": {"const": "legacy_synthesis"}}
+                    "$ref": "#/$defs/requestedEvent"
+                  },
+                  {
+                    "properties": {
+                      "ownerInstanceId": {
+                        "const": "legacy_synthesis"
+                      }
+                    }
                   }
                 ]
               }
@@ -281,8 +429,14 @@
     },
     {
       "if": {
-        "properties": {"snapshotClassification": {"const": "reused"}},
-        "required": ["snapshotClassification"]
+        "properties": {
+          "snapshotClassification": {
+            "const": "reused"
+          }
+        },
+        "required": [
+          "snapshotClassification"
+        ]
       },
       "then": {
         "properties": {
@@ -292,15 +446,25 @@
           "effectiveBaseVersion": {
             "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
           },
-          "manualVersion": {"type": "null"},
-          "unresolvedPaths": {"maxItems": 0}
+          "manualVersion": {
+            "type": "null"
+          },
+          "unresolvedPaths": {
+            "maxItems": 0
+          }
         }
       }
     },
     {
       "if": {
-        "properties": {"snapshotClassification": {"const": "promoted_human"}},
-        "required": ["snapshotClassification"]
+        "properties": {
+          "snapshotClassification": {
+            "const": "promoted_human"
+          }
+        },
+        "required": [
+          "snapshotClassification"
+        ]
       },
       "then": {
         "properties": {
@@ -310,46 +474,85 @@
           "manualVersion": {
             "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
           },
-          "unresolvedPaths": {"maxItems": 0}
+          "unresolvedPaths": {
+            "maxItems": 0
+          }
         }
       }
     },
     {
       "if": {
-        "properties": {"snapshotClassification": {"const": "unresolved"}},
-        "required": ["snapshotClassification"]
+        "properties": {
+          "snapshotClassification": {
+            "const": "unresolved"
+          }
+        },
+        "required": [
+          "snapshotClassification"
+        ]
       },
       "then": {
         "properties": {
-          "effectiveBaseVersion": {"type": "null"},
-          "manualVersion": {"type": "null"},
-          "unresolvedPaths": {"minItems": 1}
+          "effectiveBaseVersion": {
+            "type": "null"
+          },
+          "manualVersion": {
+            "type": "null"
+          },
+          "unresolvedPaths": {
+            "minItems": 1
+          }
         }
       }
     },
     {
       "if": {
-        "properties": {"status": {"const": "requested"}},
-        "required": ["status"]
+        "properties": {
+          "status": {
+            "const": "requested"
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "then": {
         "properties": {
-          "outputVersions": {"maxItems": 0},
-          "selectedVersionId": {"type": "null"},
-          "events": {"maxItems": 1},
-          "failure": {"type": "null"}
+          "outputVersions": {
+            "maxItems": 0
+          },
+          "selectedVersionId": {
+            "type": "null"
+          },
+          "events": {
+            "maxItems": 1
+          },
+          "failure": {
+            "type": "null"
+          }
         }
       }
     },
     {
       "if": {
-        "properties": {"status": {"const": "completed"}},
-        "required": ["status"]
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "then": {
         "properties": {
-          "outputVersions": {"minItems": 1},
-          "selectedVersionId": {"type": "string", "format": "uuid"},
+          "outputVersions": {
+            "minItems": 1
+          },
+          "selectedVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "resultingCurrentVersion": {
             "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
           },
@@ -359,28 +562,52 @@
               {},
               {
                 "type": "object",
-                "properties": {"status": {"const": "completed"}},
-                "required": ["status"]
+                "properties": {
+                  "status": {
+                    "const": "completed"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
               }
             ]
           },
-          "failure": {"type": "null"}
+          "failure": {
+            "type": "null"
+          }
         }
       }
     },
     {
       "if": {
-        "properties": {"status": {"const": "failed"}},
-        "required": ["status"]
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "then": {
         "properties": {
-          "selectedVersionId": {"type": "null"},
+          "selectedVersionId": {
+            "type": "null"
+          },
           "outputVersions": {
             "items": {
               "allOf": [
-                {"$ref": "#/$defs/outputVersion"},
-                {"properties": {"selected": {"const": false}}}
+                {
+                  "$ref": "#/$defs/outputVersion"
+                },
+                {
+                  "properties": {
+                    "selected": {
+                      "const": false
+                    }
+                  }
+                }
               ]
             }
           },
@@ -390,12 +617,20 @@
               {},
               {
                 "type": "object",
-                "properties": {"status": {"const": "failed"}},
-                "required": ["status"]
+                "properties": {
+                  "status": {
+                    "const": "failed"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
               }
             ]
           },
-          "failure": {"$ref": "#/$defs/failure"}
+          "failure": {
+            "$ref": "#/$defs/failure"
+          }
         }
       }
     }
@@ -404,16 +639,28 @@
     "generationEvidenceRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contractVersion", "evidenceId", "evidenceDigest", "detailPath"],
+      "required": [
+        "contractVersion",
+        "evidenceId",
+        "evidenceDigest",
+        "detailPath"
+      ],
       "properties": {
         "contractVersion": {
           "const": "catalyst.workbench.generation-evidence-ref.v1"
         },
-        "evidenceId": {"type": "string", "format": "uuid"},
+        "evidenceId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "evidenceDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         },
-        "detailPath": {"type": "string", "minLength": 1, "maxLength": 2000}
+        "detailPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
       }
     },
     "recoveryReferences": {
@@ -433,46 +680,108 @@
         "contractVersion": {
           "const": "catalyst.workbench.legacy-recovery-references.v1"
         },
-        "sessionId": {"type": "string", "format": "uuid"},
-        "sessionEvidenceRef": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sessionEvidenceRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
         "orderedVersionIds": {
           "type": "array",
           "maxItems": 10000,
           "uniqueItems": true,
-          "items": {"type": "string", "format": "uuid"}
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "persistedCurrentVersion": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "catalyst-workbench-turn-request-v1.schema.json#/$defs/versionRef"
+            }
           ]
         },
-        "draftSeedEvidenceRef": {"type": ["string", "null"], "minLength": 1, "maxLength": 4000},
-        "rawGenerationEvidenceRef": {"type": ["string", "null"], "minLength": 1, "maxLength": 4000},
-        "generationOutcomeEvidenceRef": {"type": ["string", "null"], "minLength": 1, "maxLength": 4000}
+        "draftSeedEvidenceRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "rawGenerationEvidenceRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "generationOutcomeEvidenceRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4000
+        }
       }
     },
     "configScalar": {
-      "type": ["string", "number", "integer", "boolean", "null"]
+      "type": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ]
     },
     "configValue": {
       "oneOf": [
-        {"$ref": "#/$defs/configScalar"},
+        {
+          "$ref": "#/$defs/configScalar"
+        },
         {
           "type": "array",
           "maxItems": 32,
-          "items": {"$ref": "#/$defs/configScalar"}
+          "items": {
+            "$ref": "#/$defs/configScalar"
+          }
         }
       ]
     },
     "promptReference": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["promptId", "version", "promptRef", "promptDigest"],
+      "required": [
+        "promptId",
+        "version",
+        "promptRef",
+        "promptDigest"
+      ],
       "properties": {
-        "promptId": {"type": "string", "minLength": 1, "maxLength": 500},
-        "version": {"type": "string", "minLength": 1, "maxLength": 500},
-        "promptRef": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "promptId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "promptRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
         "promptDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         }
@@ -490,34 +799,75 @@
         "systemPrompt"
       ],
       "properties": {
-        "role": {"enum": ["writer", "reviewer"]},
-        "providerId": {"type": "string", "minLength": 1, "maxLength": 500},
-        "modelClass": {"type": "string", "minLength": 1, "maxLength": 500},
-        "modelId": {"type": "string", "minLength": 1, "maxLength": 500},
+        "role": {
+          "enum": [
+            "writer",
+            "reviewer"
+          ]
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "modelClass": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
         "config": {
           "type": "object",
           "maxProperties": 32,
-          "propertyNames": {"type": "string", "minLength": 1, "maxLength": 100},
-          "additionalProperties": {"$ref": "#/$defs/configValue"}
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/configValue"
+          }
         },
-        "systemPrompt": {"$ref": "#/$defs/promptReference"}
+        "systemPrompt": {
+          "$ref": "#/$defs/promptReference"
+        }
       }
     },
     "writerSnapshot": {
       "allOf": [
-        {"$ref": "#/$defs/roleSnapshot"},
         {
-          "properties": {"role": {"const": "writer"}},
-          "required": ["role"]
+          "$ref": "#/$defs/roleSnapshot"
+        },
+        {
+          "properties": {
+            "role": {
+              "const": "writer"
+            }
+          },
+          "required": [
+            "role"
+          ]
         }
       ]
     },
     "reviewerSnapshot": {
       "allOf": [
-        {"$ref": "#/$defs/roleSnapshot"},
         {
-          "properties": {"role": {"const": "reviewer"}},
-          "required": ["role"]
+          "$ref": "#/$defs/roleSnapshot"
+        },
+        {
+          "properties": {
+            "role": {
+              "const": "reviewer"
+            }
+          },
+          "required": [
+            "role"
+          ]
         }
       ]
     },
@@ -532,21 +882,40 @@
         "omissions"
       ],
       "properties": {
-        "profileId": {"type": "string", "minLength": 1, "maxLength": 500},
-        "profileName": {"type": ["string", "null"], "minLength": 1, "maxLength": 500},
+        "profileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "profileName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 500
+        },
         "profileDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         },
         "writer": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/writerSnapshot"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/writerSnapshot"
+            }
           ]
         },
         "reviewer": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/reviewerSnapshot"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/reviewerSnapshot"
+            }
           ]
         },
         "omissions": {
@@ -579,17 +948,48 @@
         "generationEvidenceRef"
       ],
       "properties": {
-        "versionId": {"type": "string", "format": "uuid"},
+        "versionId": {
+          "type": "string",
+          "format": "uuid"
+        },
         "queryDigest": {
           "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
         },
-        "parentVersionId": {"type": ["string", "null"], "format": "uuid"},
-        "role": {"enum": ["writer", "reviewer"]},
-        "authorType": {"enum": ["model", "model_repair"]},
-        "contractValid": {"const": true},
-        "validationId": {"type": ["string", "null"], "format": "uuid"},
-        "selected": {"type": "boolean"},
-        "generationEvidenceRef": {"$ref": "#/$defs/generationEvidenceRef"}
+        "parentVersionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "role": {
+          "enum": [
+            "writer",
+            "reviewer"
+          ]
+        },
+        "authorType": {
+          "enum": [
+            "model",
+            "model_repair"
+          ]
+        },
+        "contractValid": {
+          "const": true
+        },
+        "validationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "generationEvidenceRef": {
+          "$ref": "#/$defs/generationEvidenceRef"
+        }
       }
     },
     "requestedEvent": {
@@ -603,22 +1003,55 @@
         "occurredAt"
       ],
       "properties": {
-        "eventId": {"type": "string", "format": "uuid"},
-        "status": {"const": "requested"},
-        "generationRunId": {"type": "string", "format": "uuid"},
-        "ownerInstanceId": {"type": "string", "minLength": 1},
-        "occurredAt": {"type": "string", "format": "date-time"}
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "const": "requested"
+        },
+        "generationRunId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ownerInstanceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "terminalEvent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["eventId", "status", "generationRunId", "occurredAt"],
+      "required": [
+        "eventId",
+        "status",
+        "generationRunId",
+        "occurredAt"
+      ],
       "properties": {
-        "eventId": {"type": "string", "format": "uuid"},
-        "status": {"enum": ["completed", "failed"]},
-        "generationRunId": {"type": "string", "format": "uuid"},
-        "occurredAt": {"type": "string", "format": "date-time"}
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "generationRunId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "failure": {
@@ -650,34 +1083,74 @@
             "legacy_generation"
           ]
         },
-        "code": {"type": "string", "minLength": 1},
-        "message": {"type": "string", "minLength": 1, "maxLength": 4000},
-        "evidenceAvailable": {"type": "boolean"},
-        "rawEvidenceRef": {"type": ["string", "null"], "minLength": 1},
-        "diagnostic": {"$ref": "#/$defs/failureDiagnostic"}
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "evidenceAvailable": {
+          "type": "boolean"
+        },
+        "rawEvidenceRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/failureDiagnostic"
+        }
       },
       "allOf": [
         {
           "if": {
-            "properties": {"evidenceAvailable": {"const": true}},
-            "required": ["evidenceAvailable"]
+            "properties": {
+              "evidenceAvailable": {
+                "const": true
+              }
+            },
+            "required": [
+              "evidenceAvailable"
+            ]
           },
           "then": {
             "properties": {
-              "rawEvidenceRef": {"type": "string", "minLength": 1}
+              "rawEvidenceRef": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "else": {
-            "properties": {"rawEvidenceRef": {"type": "null"}}
+            "properties": {
+              "rawEvidenceRef": {
+                "type": "null"
+              }
+            }
           }
         },
         {
           "if": {
-            "properties": {"stage": {"const": "orphan_recovery"}},
-            "required": ["stage"]
+            "properties": {
+              "stage": {
+                "const": "orphan_recovery"
+              }
+            },
+            "required": [
+              "stage"
+            ]
           },
           "then": {
-            "properties": {"code": {"const": "generation_interrupted"}}
+            "properties": {
+              "code": {
+                "const": "generation_interrupted"
+              }
+            }
           }
         }
       ]
@@ -685,22 +1158,38 @@
     "failureDiagnostic": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contractVersion", "retryable", "details"],
+      "required": [
+        "contractVersion",
+        "retryable",
+        "details"
+      ],
       "properties": {
         "contractVersion": {
           "const": "catalyst.workbench.turn-failure-diagnostic.v1"
         },
-        "retryable": {"type": "boolean"},
+        "retryable": {
+          "type": "boolean"
+        },
         "details": {
           "type": "array",
           "maxItems": 32,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "value"],
+            "required": [
+              "name",
+              "value"
+            ],
             "properties": {
-              "name": {"type": "string", "minLength": 1, "maxLength": 100},
-              "value": {"type": "string", "maxLength": 4000}
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 4000
+              }
             }
           }
         }

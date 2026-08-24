@@ -114,3 +114,58 @@ def test_review_wire_keeps_approve_and_reject_usable():
     assert "message" in branches["reject"]["required"]
     # An approval carries no candidate to apply.
     assert "candidate" not in branches["approve"]["properties"]
+
+
+# --- the writer's three terminal outcomes ----------------------------------
+#
+# The prompt has always told the writer to ask rather than invent an
+# identifier it cannot ground, while the wire pinned status to "ready" and made
+# asking impossible. Faced with a request the data could not answer, the only
+# legal move left was to fabricate, and it did. The wire now carries all three
+# terminal outcomes the contract already defines.
+
+
+def _generation_branches() -> dict[str, Mapping[str, Any]]:
+    schema = GENERATION_FORMAT["json_schema"]["schema"]
+    return {
+        branch["properties"]["status"]["const"]: branch for branch in schema["oneOf"]
+    }
+
+
+def test_generation_wire_offers_exactly_the_three_writer_outcomes():
+    assert set(_generation_branches()) == {
+        "ready",
+        "needs_clarification",
+        "unsupported",
+    }
+
+
+def test_a_ready_branch_still_has_to_carry_a_complete_query():
+    ready = _generation_branches()["ready"]
+    assert set(ready["required"]) == {
+        "status",
+        "target",
+        "sql",
+        "parameters",
+        "expectedColumns",
+    }
+
+
+def test_asking_a_question_carries_the_question_and_no_sql():
+    branch = _generation_branches()["needs_clarification"]
+    assert set(branch["required"]) == {"status", "clarification"}
+    # Closed, so the grammar itself cannot emit SQL on this branch.
+    assert branch["additionalProperties"] is False
+    assert "sql" not in branch["properties"]
+
+
+def test_declining_carries_the_reason_and_no_sql():
+    branch = _generation_branches()["unsupported"]
+    assert set(branch["required"]) == {"status", "message"}
+    assert branch["additionalProperties"] is False
+    assert "sql" not in branch["properties"]
+
+
+def test_the_gateways_rejection_is_not_a_writer_branch():
+    """`rejected` is the Gateway's for policy, contract, or reviewer failure."""
+    assert "rejected" not in _generation_branches()

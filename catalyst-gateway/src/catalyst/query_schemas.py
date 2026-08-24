@@ -234,23 +234,59 @@ def _grammar_safe_defs(defs: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+# The wire contract for generation, as the writer's three terminal outcomes.
+# Each is a closed object, for the same reason review is: llama.cpp's
+# schema-to-grammar converter drops `not` and branch-local `required`, so a
+# branch has to be unable to express the other statuses rather than forbidden
+# from doing so.
+#
+# Pinning this to "ready" alone is what forced invention. The prompt tells the
+# writer to ask rather than invent an identifier it cannot ground, and the wire
+# gave it no way to ask; a request the data could not answer left fabrication
+# as the only legal move.
 BACKEND_GENERATION_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "status",
-        "target",
-        "sql",
-        "parameters",
-        "expectedColumns",
+    "oneOf": [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "status",
+                "target",
+                "sql",
+                "parameters",
+                "expectedColumns",
+            ],
+            "properties": {
+                "status": {"const": "ready"},
+                "target": {"$ref": "#/$defs/target"},
+                "sql": deepcopy(CANDIDATE_SCHEMA["properties"]["sql"]),
+                "parameters": deepcopy(CANDIDATE_SCHEMA["properties"]["parameters"]),
+                "expectedColumns": deepcopy(
+                    CANDIDATE_SCHEMA["properties"]["expectedColumns"]
+                ),
+            },
+        },
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status", "clarification"],
+            "properties": {
+                "status": {"const": "needs_clarification"},
+                "clarification": deepcopy(
+                    CANDIDATE_SCHEMA["properties"]["clarification"]
+                ),
+            },
+        },
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status", "message"],
+            "properties": {
+                "status": {"const": "unsupported"},
+                "message": deepcopy(CANDIDATE_SCHEMA["properties"]["message"]),
+            },
+        },
     ],
-    "properties": {
-        "status": {"const": "ready"},
-        "target": {"$ref": "#/$defs/target"},
-        "sql": deepcopy(CANDIDATE_SCHEMA["properties"]["sql"]),
-        "parameters": deepcopy(CANDIDATE_SCHEMA["properties"]["parameters"]),
-        "expectedColumns": deepcopy(CANDIDATE_SCHEMA["properties"]["expectedColumns"]),
-    },
     "$defs": _grammar_safe_defs(CANDIDATE_SCHEMA["$defs"]),
 }
 

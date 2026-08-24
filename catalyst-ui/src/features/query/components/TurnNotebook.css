@@ -104,8 +104,8 @@
   border-left-color: var(--cds-border-strong-01);
 }
 
-/* Waiting on an answer is its own outcome: informational, never red. */
-.query-turn[data-status="asking"] .query-turn__disclosure {
+/* The writer answered in words: informational, never red. */
+.query-turn[data-status="answered"] .query-turn__disclosure {
   border-left-color: var(--cds-support-info);
 }
 
@@ -138,7 +138,7 @@
   background: var(--cds-layer-01);
 }
 
-.query-turn[data-status="asking"] .query-turn__dot {
+.query-turn[data-status="answered"] .query-turn__dot {
   border-color: var(--cds-support-info);
   background: var(--cds-support-info);
 }
@@ -252,7 +252,7 @@
 }
 
 /* A question for the reader, not a fault: informational, not alarming. */
-.query-turn__failure--asking {
+.query-turn__failure--answered {
   border-left-color: var(--cds-support-info);
   background: var(--cds-notification-background-info);
 }

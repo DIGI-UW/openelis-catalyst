@@ -1071,7 +1071,7 @@ describe("TurnNotebook", () => {
 
     const cell = screen
       .getByRole("region", { name: "Iterative query notebook" })
-      .querySelector(`[data-status="asking"]`);
+      .querySelector(`[data-status="answered"]`);
     expect(cell).not.toBeNull();
     expect(within(cell as HTMLElement).getByText("needs your answer"))
       .toBeVisible();
@@ -1240,5 +1240,29 @@ describe("TurnNotebook", () => {
     // is the only .cm-editor on the page, and it is not inside a cell.
     const editors = [...container.querySelectorAll(".cm-editor")];
     expect(editors.filter((el) => el.closest(".query-turn__sql"))).toHaveLength(0);
+  });
+
+  it("presents a writer's refusal as an answer, not a fault", () => {
+    // `unsupported` is the writer saying the data cannot answer this. Nothing
+    // malfunctioned, so it must not read as a failed generation either.
+    const declined = {
+      ...followupTurn,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      failure: {
+        code: "unsupported",
+        message: "This data holds no home address for a patient.",
+      },
+    };
+    render(<TurnNotebook {...defaultProps} turns={[initialTurn, declined]} />);
+
+    const cell = screen
+      .getByRole("region", { name: "Iterative query notebook" })
+      .querySelector(`[data-status="answered"]`);
+    expect(cell).not.toBeNull();
+    expect(screen.getByText("Not supported by this data")).toBeVisible();
+    expect(screen.getByText(/no home address/)).toBeVisible();
+    expect(screen.queryByText("generation failed")).not.toBeInTheDocument();
   });
 });
