@@ -2794,6 +2794,18 @@ class WorkbenchStore:
             totalInvocationDurationMs=sum(
                 int(invocation.get("durationMs") or 0) for invocation in invocations
             ),
+            # The writer's rendered request is the one the turn's budget is
+            # about; its count is the turn's token evidence, absent when the
+            # Hub could not count -- absence is honest, an estimate is not.
+            tokenAccounting=next(
+                (
+                    deepcopy(invocation.get("tokenAccounting"))
+                    for invocation in invocations
+                    if invocation.get("role") == "writer"
+                    and invocation.get("tokenAccounting")
+                ),
+                None,
+            ),
             finalSelection={
                 "status": turn["status"],
                 "selectedVersion": turn["resultingCurrentVersion"]

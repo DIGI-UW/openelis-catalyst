@@ -110,6 +110,23 @@
       "type": ["integer", "null"],
       "minimum": 0
     },
+    "tokenAccounting": {
+      "description": "Exact token evidence for the fully rendered request, counted with the model's own template and tokenizer before the call; null when the Hub could not count -- absence is honest, a character estimate is not.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tokenizer", "contextWindow", "outputReserve", "promptTokens"],
+          "properties": {
+            "tokenizer": {"type": "string", "minLength": 1},
+            "contextWindow": {"type": "integer", "minimum": 1},
+            "outputReserve": {"type": "integer", "minimum": 0},
+            "promptTokens": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
     "candidates": {
       "type": "array",
       "maxItems": 32,
@@ -654,6 +671,23 @@
             {"type": "null"},
             {"$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"}
           ]
+        },
+        "tokenAccounting": {
+              "description": "Exact token evidence for the fully rendered request, counted with the model's own template and tokenizer before the call; null when the Hub could not count -- absence is honest, a character estimate is not.",
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["tokenizer", "contextWindow", "outputReserve", "promptTokens"],
+                  "properties": {
+                    "tokenizer": {"type": "string", "minLength": 1},
+                    "contextWindow": {"type": "integer", "minimum": 1},
+                    "outputReserve": {"type": "integer", "minimum": 0},
+                    "promptTokens": {"type": "integer", "minimum": 0}
+                  }
+                }
+              ]
         },
         "outcome": {
           "enum": [
