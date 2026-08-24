@@ -389,9 +389,16 @@ def _phrase_in_question(question: str, phrase: str) -> bool:
 def _named_semantic_values(
     question: str, extension: Mapping[str, Any]
 ) -> list[dict[str, str]]:
-    """Resolve question terms only against catalog-supplied canonical values."""
-    matches: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+    """Resolve question terms only against catalog-supplied canonical values.
+
+    Longest match wins per text span: a short alias firing wholly inside a
+    longer phrase that belongs to a *different* value is that phrase's text,
+    not an independent mention. 'CD4 count' carries the alias 'CD4', and
+    without this rule "count CD4 percentage results" also demanded a bound
+    'CD4 count' -- rejecting a correct answer for an analyte the instruction
+    never named.
+    """
+    spans: list[tuple[int, int, str, str]] = []
     for view in extension["catalog"]["views"]:
         for dimension in view.get("semanticDimensions") or []:
             if dimension.get("semanticType") != "analyte":
@@ -399,13 +406,31 @@ def _named_semantic_values(
             field = str(dimension["field"])
             for value in dimension["values"]:
                 canonical = str(value["canonical"])
-                phrases = [canonical, *value.get("aliases", [])]
-                if not any(_phrase_in_question(question, phrase) for phrase in phrases):
-                    continue
-                key = (field.casefold(), canonical.casefold())
-                if key not in seen:
-                    matches.append({"field": field, "canonical": canonical})
-                    seen.add(key)
+                for phrase in (canonical, *value.get("aliases", [])):
+                    pattern = rf"(?<!\w){re.escape(str(phrase).strip())}(?!\w)"
+                    for hit in re.finditer(pattern, question, flags=re.IGNORECASE):
+                        spans.append((hit.start(), hit.end(), field, canonical))
+
+    def _shadowed(span: tuple[int, int, str, str]) -> bool:
+        start, end, _field, canonical = span
+        return any(
+            other_start <= start
+            and end <= other_end
+            and (other_end - other_start) > (end - start)
+            and other_canonical.casefold() != canonical.casefold()
+            for other_start, other_end, _f, other_canonical in spans
+        )
+
+    matches: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for span in spans:
+        if _shadowed(span):
+            continue
+        _start, _end, field, canonical = span
+        key = (field.casefold(), canonical.casefold())
+        if key not in seen:
+            matches.append({"field": field, "canonical": canonical})
+            seen.add(key)
     return matches
 
 
