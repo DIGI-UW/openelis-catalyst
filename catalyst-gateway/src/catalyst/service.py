@@ -7,6 +7,7 @@ import time
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from .analytics import (
@@ -26,6 +27,7 @@ from .policy import (
     validate_query_invariants,
 )
 from .request import QUERY_PROFILE_ID, build_query_request, build_revision_query_request
+from .session_context import build_session_context, select_verified_examples
 from .sql_layout import sql_layout_matches
 from .storage import (
     ExecutionDecision,
@@ -1398,6 +1400,18 @@ class CatalystService:
                 observed_base=resolution["observedBase"],
                 effective_base=resolution["effectiveBaseVersion"],
                 editor_snapshot=snapshot,
+            )
+            revision["sessionContext"] = build_session_context(
+                guidance=store.active_guidance(session_id),
+                omitted_guidance=store.guidance_omitted_by_cap(session_id),
+                verified_examples=select_verified_examples(
+                    self._verified_examples(session, prior_turns),
+                    instruction=instruction,
+                    source_id=self._session_data_source_id(session),
+                    catalog_version=runtime_catalog.catalog_version,
+                    exclude_turn_id=resolution["turnId"],
+                ),
+                relevant_failure=self._relevant_prior_failure(prior_turns),
             )
             request = build_revision_query_request(
                 instruction,
@@ -3232,6 +3246,68 @@ class CatalystService:
         restored = self.workbench_store.get_session(session_id)
         assert restored is not None
         return ServiceResponse(200, self._present_workbench_session(restored))
+
+    @staticmethod
+    def _verified_examples(
+        session: Mapping[str, Any], prior_turns: Sequence[Mapping[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Queries this session already accepted, as example candidates.
+
+        A verified example is a kept version: a turn selected it and it
+        survived. Successful queries are examples, never guidance.
+        """
+        versions = {
+            str(version["versionId"]): version
+            for version in session.get("versions", [])
+        }
+        examples: list[dict[str, Any]] = []
+        for turn in prior_turns:
+            selected = turn.get("selectedVersionId")
+            version = versions.get(str(selected)) if selected else None
+            if version is None:
+                continue
+            examples.append(
+                {
+                    "turnId": str(turn["turnId"]),
+                    "instruction": str(turn.get("instruction") or ""),
+                    "sql": str(version["sql"]),
+                    "queryDigest": str(version["queryDigest"]),
+                    "sourceId": str(turn.get("dataSourceId") or ""),
+                    "catalogVersion": str(turn.get("catalogVersion") or ""),
+                }
+            )
+        return examples
+
+    @classmethod
+    def _relevant_prior_failure(
+        cls, prior_turns: Sequence[Mapping[str, Any]]
+    ) -> dict[str, Any] | None:
+        """The last failure on this revision line, if the last turn failed.
+
+        One failure, and only while it is still the thing that just happened:
+        once a turn succeeds, the earlier failure is history rather than the
+        mistake to avoid.
+        """
+        if not prior_turns:
+            return None
+        latest = max(prior_turns, key=lambda turn: int(turn.get("ordinal", 0)))
+        failure = latest.get("failure")
+        if latest.get("status") != "failed" or not isinstance(failure, dict):
+            return None
+        return {
+            "turnId": str(latest["turnId"]),
+            "instruction": str(latest.get("instruction") or ""),
+            "code": str(failure.get("code") or ""),
+            "message": str(failure.get("message") or ""),
+            "findings": deepcopy(cls._unresolved_findings_of(latest)),
+        }
+
+    @staticmethod
+    def _unresolved_findings_of(turn: Mapping[str, Any]) -> list[dict[str, Any]]:
+        failure = turn.get("failure")
+        diagnostic = failure.get("diagnostic") if isinstance(failure, dict) else None
+        details = diagnostic.get("details") if isinstance(diagnostic, dict) else None
+        return [detail for detail in (details or []) if isinstance(detail, dict)]
 
     def _present_workbench_session(self, session: dict[str, Any]) -> dict[str, Any]:
         presented = deepcopy(session)

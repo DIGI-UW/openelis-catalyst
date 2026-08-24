@@ -2753,3 +2753,95 @@ def test_blank_guidance_is_refused_with_a_clear_error(tmp_path: Path) -> None:
 
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_pinned_guidance_reaches_the_writer_on_the_next_turn(
+    tmp_path: Path,
+) -> None:
+    """A composer pin becomes active on the next turn, not retroactively."""
+    hub = FailingFollowupHub(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform rows.",
+        },
+    )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    context = revision["sessionContext"]
+    assert [item["text"] for item in context["guidance"]["entries"]] == [
+        "Exclude do_not_perform rows."
+    ]
+    # The initial turn ran before the pin existed and must not have carried it.
+    initial = hub.requests[0]["catalystQuery"]
+    assert "sessionContext" not in initial or not initial["sessionContext"].get(
+        "guidance"
+    )
+
+
+def test_the_request_records_what_the_caps_left_out(tmp_path: Path) -> None:
+    hub = FailingFollowupHub(_ready_query(), _ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    for index in range(21):
+        client.post(
+            f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
+            json={
+                "contractVersion": "catalyst.workbench.guidance.request.v1",
+                "text": f"entry {index}",
+            },
+        )
+
+    client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Group by medication name",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": workbench_query_digest(
+                    base["sql"], base["parameters"], base["expectedColumns"]
+                ),
+            },
+        },
+    )
+
+    context = hub.requests[-1]["catalystQuery"]["revision"]["sessionContext"]
+    assert len(context["guidance"]["entries"]) == 20
+    assert context["omissions"][0]["reason"] == "active_entry_cap"
+    assert len(context["omissions"][0]["itemIds"]) == 1
