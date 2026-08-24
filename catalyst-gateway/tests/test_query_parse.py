@@ -184,3 +184,42 @@ def test_relatedness_is_word_based_not_a_bare_substring():
     extension = _analyte_extension(["Uncd4ed nonsense", "CD4 count"])
 
     assert _related_analyte_values("CD4", extension) == ["CD4 count"]
+
+
+def test_a_short_alias_does_not_fire_inside_another_values_longer_phrase():
+    """'CD4 percentage' is about CD4%, not about CD4 count.
+
+    'CD4 count' carries the alias 'CD4', and a bare word-boundary match sees
+    that inside 'CD4 percentage' -- so asking to count CD4 percentages
+    demanded a bound 'CD4 count' the instruction never mentioned, and a
+    correct answer was rejected. A match wholly inside a longer match that
+    belongs to a different value yields to it.
+    """
+    extension = _extension()
+    extension["catalog"]["views"][0]["semanticDimensions"] = [
+        {
+            "field": "concept_name",
+            "semanticType": "analyte",
+            "values": [
+                {"canonical": "CD4 count", "aliases": ["CD4 absolute count", "CD4"]},
+                {"canonical": "CD4%", "aliases": ["CD4 percent", "CD4 percentage"]},
+            ],
+        }
+    ]
+
+    from src.catalyst.query_parse import _named_semantic_values
+
+    only_percent = _named_semantic_values(
+        "Now count CD4 percentage results by patient instead.", extension
+    )
+    assert [m["canonical"] for m in only_percent] == ["CD4%"]
+
+    # Standing alone, the short alias still means what it says.
+    bare = _named_semantic_values("Count CD4 results by patient.", extension)
+    assert [m["canonical"] for m in bare] == ["CD4 count"]
+
+    # Named beside each other, both are required, as before.
+    both = _named_semantic_values(
+        "Only CD4 count and CD4 percentage results.", extension
+    )
+    assert sorted(m["canonical"] for m in both) == ["CD4 count", "CD4%"]
