@@ -805,6 +805,63 @@ describe("Dashboard Builder Ask shell", () => {
     ).toHaveValue("Split it by test type");
   });
 
+  it("answers the writer's question when there is no query to revise", async () => {
+    const user = userEvent.setup();
+    const client = api();
+    // The opening turn asked instead of answering, so the session holds no
+    // version and the editor is empty -- there is nothing to snapshot.
+    const asked = {
+      ...timeline.turns[0]!,
+      status: "failed" as const,
+      selectedVersionId: null,
+      outputVersions: [],
+      resultingCurrentVersion: null,
+      writerOutcome: "needs_clarification" as const,
+      failure: {
+        stage: "writer_output_contract",
+        code: "needs_clarification",
+        message: "Which date window and which result types did you mean?",
+      },
+    };
+    client.getWorkbenchSession = vi.fn().mockResolvedValue({
+      ...session,
+      currentVersionId: null,
+      currentVersion: null,
+      versions: [],
+      executions: [],
+    });
+    client.getWorkbenchTurns = vi
+      .fn()
+      .mockResolvedValue({ ...timeline, currentVersion: null, turns: [asked] });
+    client.createWorkbenchTurn = vi.fn().mockResolvedValue({
+      ...timeline.turns[0]!,
+      turnId: "66666666-6666-4666-8666-666666666666",
+      ordinal: 2,
+      kind: "followup" as const,
+      instruction: "The last 90 days, and only CD4 count.",
+    });
+    window.localStorage.setItem(
+      "catalyst.workbench.activeSessionId",
+      session.sessionId,
+    );
+    render(<QueryWorkspace api={client} />);
+
+    await screen.findByText(/Which date window/);
+    await user.type(
+      await screen.findByRole("textbox", { name: "Follow-up instruction" }),
+      "The last 90 days, and only CD4 count.",
+    );
+    await user.click(screen.getByRole("button", { name: "Generate next query" }));
+
+    await waitFor(() => expect(client.createWorkbenchTurn).toHaveBeenCalled());
+    const [, request] = (client.createWorkbenchTurn as ReturnType<typeof vi.fn>)
+      .mock.calls[0]!;
+    expect(request.instruction).toBe("The last 90 days, and only CD4 count.");
+    // Nothing was revised, so nothing is claimed to have been.
+    expect(request.editorSnapshot).toBeNull();
+    expect(request.observedBase).toBeNull();
+  });
+
   it("files a turn that produced no version by when it happened", async () => {
     const client = api();
     const edited: WorkbenchQueryVersion = {

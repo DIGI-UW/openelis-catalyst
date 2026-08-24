@@ -17,7 +17,7 @@ from src.catalyst.analytics import (
     ManualAnalyticsResult,
 )
 from src.catalyst.catalog import Catalog
-from src.catalyst.contracts import ContractRegistry
+from src.catalyst.contracts import ContractError, ContractRegistry
 from src.catalyst.digest import canonical_sha256, utf8_sha256
 from src.catalyst.hub import HubError
 from src.catalyst.policy import SqlPolicy
@@ -2902,3 +2902,190 @@ def test_a_hub_that_cannot_read_the_new_shape_is_not_sent_it(
 
     revision = hub.requests[-1]["catalystQuery"]["revision"]
     assert "sessionContext" not in revision
+
+
+# --- answering the writer's question ---------------------------------------
+
+
+def test_a_clarification_can_be_answered_and_produces_the_first_query(
+    tmp_path: Path,
+) -> None:
+    """The writer asked, so there is no query yet -- the answer still lands.
+
+    A session whose opening turn asked a question holds no version, so the
+    person answering has nothing to snapshot. The turn carries no editor
+    content and the answer produces the session's first query.
+    """
+    hub = FakeHub(_clarification_query("Which date window did you mean?"))
+    client, _ = _client(tmp_path, _clarification_query(), hub=hub)
+    session = _create_session(client)
+    assert session["currentVersion"] is None
+
+    hub.query = _ready_query()
+    answered = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "The last 90 days, and only CD4 count.",
+            "profileId": PROFILE_ID,
+            "observedBase": None,
+            "editorSnapshot": None,
+        },
+    )
+
+    assert answered.status_code == 201, answered.text
+    turn = answered.json()
+    assert turn["status"] == "completed"
+    assert turn["snapshotClassification"] == "not_applicable"
+    assert turn["editorSnapshot"] is None
+    assert turn["effectiveBaseVersion"] is None
+    assert turn["selectedVersionId"] is not None
+    assert turn["resultingCurrentVersion"]["versionId"] == turn["selectedVersionId"]
+
+    revision = hub.requests[-1]["catalystQuery"]["revision"]
+    assert revision["editorSnapshot"] is None
+    assert revision["baseClassification"] == "not_applicable"
+    # The original question stays the history; the answer is the current
+    # instruction. Together they are what the writer has to work from.
+    assert [entry["instruction"] for entry in revision["instructionHistory"]] == [
+        QUESTION
+    ]
+    assert revision["currentInstruction"] == "The last 90 days, and only CD4 count."
+
+
+def test_an_absent_snapshot_is_refused_when_the_session_has_a_query(
+    tmp_path: Path,
+) -> None:
+    """Only a session with nothing to snapshot may omit the editor content.
+
+    Dropping the snapshot on a session that has a current version would hide a
+    human edit and silently regenerate from scratch, so it is a contract error
+    rather than a shortcut.
+    """
+    hub = FakeHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    assert session["currentVersion"] is not None
+    turns_url = f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    before = client.get(turns_url).json()
+
+    response = client.post(
+        turns_url,
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Only include finalized observations",
+            "profileId": PROFILE_ID,
+            "observedBase": None,
+            "editorSnapshot": None,
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "editor_snapshot_required"
+    assert client.get(turns_url).json() == before
+
+
+def _answered_question_turn(tmp_path: Path) -> dict:
+    """A real published turn that answered the writer's question.
+
+    Taken from the route rather than hand-built, so the fixture cannot drift
+    away from what the Gateway actually publishes.
+    """
+    hub = FakeHub(_clarification_query())
+    client, _ = _client(tmp_path, _clarification_query(), hub=hub)
+    session = _create_session(client)
+    hub.query = _ready_query()
+    answered = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "The last 90 days, and only CD4 count.",
+            "profileId": PROFILE_ID,
+            "observedBase": None,
+            "editorSnapshot": None,
+        },
+    )
+    assert answered.status_code == 201, answered.text
+    return answered.json()
+
+
+_A_VERSION_REF = {
+    "versionId": "00000000-0000-0000-0000-0000000000b1",
+    "queryDigest": "a" * 64,
+}
+
+
+def _a_real_snapshot_record(tmp_path: Path, turn: dict) -> dict:
+    """A snapshot record the Gateway itself published, re-addressed to `turn`.
+
+    Hand-building one risks tripping the record's own rules instead of the
+    correlation under test, which is exactly the confound this avoids.
+    """
+    donor = tmp_path / "donor"
+    donor.mkdir()
+    hub = FakeHub(_ready_query())
+    client, _ = _client(donor, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    revised = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Only include finalized observations",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": base["queryDigest"],
+            },
+        },
+    )
+    assert revised.status_code == 201, revised.text
+    record = deepcopy(revised.json()["editorSnapshot"])
+    record["sessionId"] = turn["sessionId"]
+    record["turnId"] = turn["turnId"]
+    return record
+
+
+def test_a_turn_that_revised_nothing_must_carry_no_editor_content(
+    tmp_path: Path,
+) -> None:
+    """An absent editor and a based-on-nothing turn are one fact, not two.
+
+    Each rejected shape below is otherwise complete and satisfies every other
+    rule in the turn contract -- including the observed-base rule that a
+    revising turn must name what it observed -- so only the correlation
+    between the editor and the classification can be what refuses it.
+    """
+    contracts = ContractRegistry.load(CONTRACTS)
+    answered = _answered_question_turn(tmp_path)
+
+    contracts.validate("catalyst-workbench-turn-v1.schema.json", answered)
+
+    revised_nothing_but_claims_a_base = {
+        **answered,
+        "snapshotClassification": "reused",
+        "observedBase": _A_VERSION_REF,
+        "effectiveBaseVersion": _A_VERSION_REF,
+    }
+    with pytest.raises(ContractError, match="not_applicable"):
+        contracts.validate(
+            "catalyst-workbench-turn-v1.schema.json",
+            revised_nothing_but_claims_a_base,
+        )
+
+    claims_nothing_but_carries_an_editor = {
+        **answered,
+        "editorSnapshot": _a_real_snapshot_record(tmp_path, answered),
+    }
+    with pytest.raises(ContractError, match="editorSnapshot"):
+        contracts.validate(
+            "catalyst-workbench-turn-v1.schema.json",
+            claims_nothing_but_carries_an_editor,
+        )

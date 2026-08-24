@@ -38,6 +38,7 @@
     },
     "baseClassification": {
       "enum": [
+        "not_applicable",
         "reused",
         "promoted_human",
         "unresolved"
@@ -64,7 +65,11 @@
       ]
     },
     "editorSnapshot": {
-      "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json"
+      "description": "The exact editor content this turn revises. Null when the session holds no query yet -- the writer's previous answer was a question or a refusal, so there is nothing to snapshot and this turn is the reply.",
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "catalyst-workbench-editor-snapshot-v1.schema.json"}
+      ]
     },
     "instructionHistory": {
       "type": "array",

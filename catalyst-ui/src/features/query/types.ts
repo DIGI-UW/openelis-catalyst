@@ -530,7 +530,7 @@ export interface WorkbenchTurnRequest {
   profileId: string;
   dataSourceId?: string;
   observedBase: WorkbenchVersionRef | null;
-  editorSnapshot: WorkbenchEditorSnapshot;
+  editorSnapshot: WorkbenchEditorSnapshot | null;
 }
 
 export interface WorkbenchPromptReference {
