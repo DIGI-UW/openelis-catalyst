@@ -497,8 +497,9 @@ export interface WorkbenchSession {
     sql: string;
     parameters: BoundParameter[];
     unresolvedPaths: string[];
-    guidance?: WorkbenchGuidanceEntry[];
-} | null;
+  } | null;
+  /** Standing instructions pinned to this session, verbatim, in pin order. */
+  guidance?: WorkbenchGuidanceEntry[];
   browserState: Record<string, unknown>;
   provenance: Record<string, unknown>;
   status: string;

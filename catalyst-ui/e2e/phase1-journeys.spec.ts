@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // The three Phase 1 deployed-proof journeys (roadmap G6), run against a live
 // stack with the selected team. Deployment and user-flow checks, not model
@@ -15,14 +15,14 @@ const live = () =>
     "Live-stack journey; set PLAYWRIGHT_LIVE=true with PLAYWRIGHT_BASE_URL.",
   );
 
-async function openHivSession(page) {
+async function openHivSession(page: Page) {
   await page.goto("/?dataSource=openmrs-hiv");
   await expect(page.getByText("Catalyst", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Model profile")).toBeEnabled();
   await page.getByLabel("Model profile").selectOption(PROFILE);
 }
 
-async function ask(page, question: string) {
+async function ask(page: Page, question: string) {
   await page.getByLabel("Question").fill(question);
   await page.getByRole("button", { name: "Generate query" }).click();
 }
