@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from src.catalyst.session_context import (
     LAYER_ORDER,
     build_session_context,
@@ -226,3 +228,75 @@ def test_selection_is_deterministic_when_overlap_ties() -> None:
     )
 
     assert [item["turnId"] for item in first] == [item["turnId"] for item in second]
+
+
+# --- token accounting ------------------------------------------------------
+#
+# A profile declares its window, its output reserve, and the exact tokenizer.
+# The fully rendered messages are counted against them before the model is
+# called, so overflow is a refusal rather than a silent truncation that
+# quietly drops the guidance a person pinned.
+
+
+def test_accounting_reports_the_counted_prompt_against_the_declared_window() -> None:
+    from src.catalyst.session_context import account_for_tokens
+
+    accounting = account_for_tokens(
+        rendered="a b c d",
+        profile={"contextWindow": 100, "outputReserve": 10, "tokenizer": "gemma-4"},
+        included_item_ids=["guidance-1"],
+        omissions=[],
+        count_tokens=lambda text: len(text.split()),
+    )
+
+    assert accounting["promptTokens"] == 4
+    assert accounting["contextWindow"] == 100
+    assert accounting["outputReserve"] == 10
+    assert accounting["tokenizer"] == "gemma-4"
+    assert accounting["includedItemIds"] == ["guidance-1"]
+    assert accounting["fits"] is True
+
+
+def test_a_prompt_that_leaves_no_room_for_the_reply_does_not_fit() -> None:
+    from src.catalyst.session_context import account_for_tokens
+
+    accounting = account_for_tokens(
+        rendered="a b c d e f g h i j",
+        profile={"contextWindow": 12, "outputReserve": 5, "tokenizer": "gemma-4"},
+        included_item_ids=[],
+        omissions=[],
+        count_tokens=lambda text: len(text.split()),
+    )
+
+    assert accounting["fits"] is False
+
+
+def test_a_profile_without_an_exact_tokenizer_cannot_be_counted() -> None:
+    """A character-count substitute is the thing the roadmap forbids."""
+    from src.catalyst.session_context import TokenAccountingError, account_for_tokens
+
+    with pytest.raises(TokenAccountingError, match="tokenizer"):
+        account_for_tokens(
+            rendered="a b",
+            profile={"contextWindow": 100, "outputReserve": 10},
+            included_item_ids=[],
+            omissions=[],
+            count_tokens=lambda text: len(text.split()),
+        )
+
+
+def test_every_omission_travels_with_its_reason() -> None:
+    from src.catalyst.session_context import account_for_tokens
+
+    accounting = account_for_tokens(
+        rendered="a",
+        profile={"contextWindow": 100, "outputReserve": 10, "tokenizer": "gemma-4"},
+        included_item_ids=[],
+        omissions=[
+            {"layer": "guidance", "itemIds": ["g1"], "reason": "active_entry_cap"}
+        ],
+        count_tokens=lambda text: len(text.split()),
+    )
+
+    assert accounting["omittedItemIds"] == ["g1"]
+    assert accounting["omissions"][0]["reason"] == "active_entry_cap"

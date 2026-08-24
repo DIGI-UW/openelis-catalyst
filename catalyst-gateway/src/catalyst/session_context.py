@@ -145,3 +145,51 @@ def build_session_context(
         }
     context["omissions"] = omissions
     return context
+
+
+class TokenAccountingError(ValueError):
+    """The request cannot be counted, so it must not be sent."""
+
+
+def account_for_tokens(
+    *,
+    rendered: str,
+    profile: Mapping[str, Any],
+    included_item_ids: Sequence[str],
+    omissions: Sequence[Mapping[str, Any]],
+    count_tokens: Any,
+) -> dict[str, Any]:
+    """Count the fully rendered messages against the profile's declared window.
+
+    Counting happens before the model is called, so an overflow is a refusal
+    rather than a silent truncation -- the failure mode that would drop the
+    guidance a person pinned and leave the turn looking like it honoured it.
+
+    A profile that names no exact tokenizer cannot be counted at all. A
+    character-count substitute is precisely what the roadmap forbids, because
+    it is wrong in the direction that matters: it under-counts the dense,
+    punctuation-heavy JSON this context is made of.
+    """
+    tokenizer = profile.get("tokenizer")
+    if not isinstance(tokenizer, str) or not tokenizer:
+        raise TokenAccountingError(
+            "profile declares no exact tokenizer; the request cannot be counted"
+        )
+    window = int(profile["contextWindow"])
+    reserve = int(profile["outputReserve"])
+    prompt_tokens = int(count_tokens(rendered))
+    omitted_ids = [
+        str(item_id)
+        for omission in omissions
+        for item_id in omission.get("itemIds", [])
+    ]
+    return {
+        "tokenizer": tokenizer,
+        "contextWindow": window,
+        "outputReserve": reserve,
+        "promptTokens": prompt_tokens,
+        "includedItemIds": list(included_item_ids),
+        "omittedItemIds": omitted_ids,
+        "omissions": [dict(omission) for omission in omissions],
+        "fits": prompt_tokens + reserve <= window,
+    }
