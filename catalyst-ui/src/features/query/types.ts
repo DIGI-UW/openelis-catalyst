@@ -471,6 +471,14 @@ export interface WorkbenchSessionList {
   sessions: WorkbenchSessionSummary[];
 }
 
+export interface WorkbenchGuidanceEntry {
+  entryId: string;
+  text: string;
+  source: string;
+  active?: boolean;
+  originTurnId?: string | null;
+}
+
 export interface WorkbenchSession {
   contractVersion: "catalyst.workbench.session.v1";
   sessionId: string;
@@ -490,6 +498,8 @@ export interface WorkbenchSession {
     parameters: BoundParameter[];
     unresolvedPaths: string[];
   } | null;
+  /** Standing instructions pinned to this session, verbatim, in pin order. */
+  guidance?: WorkbenchGuidanceEntry[];
   browserState: Record<string, unknown>;
   provenance: Record<string, unknown>;
   status: string;

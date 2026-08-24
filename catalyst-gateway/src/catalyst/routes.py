@@ -136,6 +136,23 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
             await service.ask_workbench_session_question(session_id, payload)
         )
 
+    @app.post("/v1/catalyst/workbench/sessions/{session_id}/guidance")
+    async def pin_workbench_guidance(
+        session_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        payload = await _request_object(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        return _json_response(service.pin_workbench_guidance(session_id, payload))
+
+    @app.delete("/v1/catalyst/workbench/sessions/{session_id}/guidance/{guidance_id}")
+    async def unpin_workbench_guidance(
+        session_id: str,
+        guidance_id: str,
+    ) -> JSONResponse:
+        return _json_response(service.unpin_workbench_guidance(session_id, guidance_id))
+
     @app.get("/v1/catalyst/workbench/sessions/{session_id}/turns")
     async def get_workbench_turns(session_id: str) -> JSONResponse:
         return _json_response(service.get_workbench_turns(session_id))
@@ -173,20 +190,6 @@ def install_catalyst_routes(app: FastAPI, service: CatalystService) -> None:
         return _json_response(
             await service.create_workbench_version(session_id, payload)
         )
-
-    @app.post("/v1/catalyst/workbench/sessions/{session_id}/guidance")
-    async def pin_workbench_guidance(
-        session_id: str,
-        request: Request,
-    ) -> JSONResponse:
-        payload = await _request_object(request)
-        if isinstance(payload, JSONResponse):
-            return payload
-        return _json_response(service.pin_workbench_guidance(session_id, payload))
-
-    @app.delete("/v1/catalyst/workbench/sessions/{session_id}/guidance/{entry_id}")
-    async def unpin_workbench_guidance(session_id: str, entry_id: str) -> JSONResponse:
-        return _json_response(service.unpin_workbench_guidance(session_id, entry_id))
 
     @app.post("/v1/catalyst/workbench/versions/{version_id}/validate")
     async def validate_workbench_version(version_id: str) -> JSONResponse:

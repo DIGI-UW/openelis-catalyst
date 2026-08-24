@@ -79,6 +79,14 @@ export interface CatalystApi {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<WorkbenchSession>;
+  pinWorkbenchGuidance?(
+    sessionId: string,
+    text: string,
+  ): Promise<WorkbenchSession>;
+  unpinWorkbenchGuidance?(
+    sessionId: string,
+    entryId: string,
+  ): Promise<WorkbenchSession>;
   createWorkbenchTurn?(
     sessionId: string,
     request: WorkbenchTurnRequest,
@@ -445,6 +453,36 @@ export const createCatalystApi = ({
       return body as unknown as WorkbenchSession;
     },
 
+    async pinWorkbenchGuidance(sessionId, text) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/guidance`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contractVersion: "catalyst.workbench.guidance.request.v1",
+            text,
+          }),
+        },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
+    async unpinWorkbenchGuidance(sessionId, entryId) {
+      const response = await fetcher(
+        `${root}/workbench/sessions/${encodeURIComponent(sessionId)}` +
+          `/guidance/${encodeURIComponent(entryId)}`,
+        { method: "DELETE" },
+      );
+      const body = await parseJson(response);
+      if (!hasContractVersion(body, "catalyst.workbench.session.v1")) {
+        throw new CatalystApiError(errorMessage(body, response.status), response.status);
+      }
+      return body as unknown as WorkbenchSession;
+    },
     async createWorkbenchTurn(sessionId, request, signal) {
       const response = await fetcher(
         `${root}/workbench/sessions/${encodeURIComponent(sessionId)}/turns`,

@@ -3125,3 +3125,68 @@ def test_the_turns_token_evidence_is_published_with_the_evidence(
     assert evidence["tokenAccounting"] == accounting
     writer = [i for i in evidence["invocations"] if i["role"] == "writer"][0]
     assert writer["tokenAccounting"] == accounting
+
+
+# --- session guidance over HTTP ---------------------------------------------
+
+
+def test_guidance_pins_over_http_and_survives_a_reload(tmp_path: Path) -> None:
+    """The pin is a product feature, not an in-process convenience.
+
+    The G4 service methods existed but no route mounted them, so neither the
+    UI nor the validation runner could pin -- the feature was unshipped.
+    """
+    hub = FakeHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    url = f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance"
+
+    pinned = client.post(
+        url,
+        json={
+            "contractVersion": "catalyst.workbench.guidance.request.v1",
+            "text": "Exclude do_not_perform requests.",
+        },
+    )
+    assert pinned.status_code == 201, pinned.text
+    entries = pinned.json()["guidance"]
+    assert [e["text"] for e in entries] == ["Exclude do_not_perform requests."]
+
+    # A reload sees the same pin -- it lives on the session, not the page.
+    restored = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert [e["text"] for e in restored["guidance"]] == [
+        "Exclude do_not_perform requests."
+    ]
+
+    # And the next generation is handed it verbatim.
+    base = restored["currentVersion"]
+    followup = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "Regroup by gender as well.",
+            "profileId": PROFILE_ID,
+            "observedBase": {
+                "versionId": base["versionId"],
+                "queryDigest": base["queryDigest"],
+            },
+            "editorSnapshot": {
+                "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                "sql": base["sql"],
+                "parameters": base["parameters"],
+                "expectedColumns": base["expectedColumns"],
+                "editorDigest": base["queryDigest"],
+            },
+        },
+    )
+    assert followup.status_code == 201, followup.text
+    context = hub.requests[-1]["catalystQuery"]["revision"]["sessionContext"]
+    assert [g["text"] for g in context["guidance"]["entries"]] == [
+        "Exclude do_not_perform requests."
+    ]
+
+    unpinned = client.delete(f"{url}/{entries[0]['entryId']}")
+    assert unpinned.status_code == 200, unpinned.text
+    assert unpinned.json()["guidance"] == []
