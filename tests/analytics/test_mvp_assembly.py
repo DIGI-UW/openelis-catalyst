@@ -144,6 +144,7 @@ class MvpComposeContractTests(unittest.TestCase):
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
                 "HAPI_HTTPS_PORT",
+                "SUPERSET_PORT",
             ),
             "mvp-health.sh": (
                 "GATEWAY_PORT",

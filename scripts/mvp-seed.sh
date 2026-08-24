@@ -22,6 +22,7 @@ data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
 hapi_https_port_override="${HAPI_HTTPS_PORT:-}"
+superset_port_override="${SUPERSET_PORT:-}"
 
 if [ ! -f "${ENV_FILE}" ]; then
   ENV_FILE="${ROOT_DIR}/env.recommended"
@@ -68,6 +69,9 @@ if [ -n "${openelis_https_port_override}" ]; then
 fi
 if [ -n "${hapi_https_port_override}" ]; then
   export HAPI_HTTPS_PORT="${hapi_https_port_override}"
+fi
+if [ -n "${superset_port_override}" ]; then
+  export SUPERSET_PORT="${superset_port_override}"
 fi
 
 if [ "${MVP_RESOLVE_MODEL_CONFIG_ONLY:-false}" = "true" ]; then
