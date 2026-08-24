@@ -480,6 +480,33 @@ def _unknown_result_analyte(question: str, extension: Mapping[str, Any]) -> str 
     return subject
 
 
+def _related_analyte_values(subject: str, extension: Mapping[str, Any]) -> list[str]:
+    """Catalog analyte values that share a word with an unmatched subject.
+
+    A subject no value is *called* may still be what several values are
+    *about*: "HIV" names no test, but "HIV viral load" and "Current WHO HIV
+    stage" are both HIV results. Matching on whole words rather than a bare
+    substring keeps an unrelated value that merely spells the subject inside
+    a longer word from being offered.
+    """
+    wanted = set(re.findall(r"[a-z0-9]+", subject.casefold()))
+    if not wanted:
+        return []
+    related: set[str] = set()
+    for view in extension["catalog"]["views"]:
+        for dimension in view.get("semanticDimensions") or []:
+            if dimension.get("semanticType") != "analyte":
+                continue
+            for value in dimension["values"]:
+                canonical = str(value["canonical"])
+                for phrase in (canonical, *value.get("aliases", [])):
+                    words = set(re.findall(r"[a-z0-9]+", str(phrase).casefold()))
+                    if wanted & words:
+                        related.add(canonical)
+                        break
+    return sorted(related)
+
+
 def _semantic_binding_failures(
     candidate: Mapping[str, Any],
     question: str,

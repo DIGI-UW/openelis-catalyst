@@ -67,6 +67,7 @@ from .query_parse import (
     _semantic_binding_failures,
     _semantic_checks,
     _semantic_lint_findings,
+    _related_analyte_values,
     _unknown_result_analyte,
 )
 
@@ -1022,21 +1023,37 @@ async def execute_query_profile(
 
     unknown_analyte = _unknown_result_analyte(question, extension)
     if unknown_analyte:
-        message = (
-            "The approved catalog does not contain a grounded analyte matching "
-            f"{unknown_analyte!r}."
-        )
+        # No value is *called* this. Whether the data therefore lacks it is a
+        # different question: a subject that several values are about is a
+        # category to disambiguate, not an absence to report. Only a subject
+        # nothing resembles is genuinely outside the catalog.
+        related = _related_analyte_values(unknown_analyte, extension)
+        if related:
+            offered = ", ".join(related)
+            message = (
+                f"{unknown_analyte!r} is not one of the recorded result names. "
+                f"Did you mean {offered}, or something else?"
+            )
+            answer = {"status": "needs_clarification", "clarification": message}
+            check_status = "warned"
+        else:
+            message = (
+                "The approved catalog does not contain a grounded analyte "
+                f"matching {unknown_analyte!r}."
+            )
+            answer = {"status": "unsupported", "message": message}
+            check_status = "failed"
         result = _finalize(
             question,
             extension,
-            {"status": "unsupported", "message": message},
-            [{"name": "catalog_scope", "status": "failed", "message": message}],
+            answer,
+            [{"name": "catalog_scope", "status": check_status, "message": message}],
             profile_id=request.profile.id,
         )
         steps.append(
             {
                 "role": "catalog_scope",
-                "status": "unsupported",
+                "status": answer["status"],
                 "subject": unknown_analyte,
             }
         )
