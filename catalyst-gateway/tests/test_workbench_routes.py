@@ -3190,3 +3190,56 @@ def test_guidance_pins_over_http_and_survives_a_reload(tmp_path: Path) -> None:
     unpinned = client.delete(f"{url}/{entries[0]['entryId']}")
     assert unpinned.status_code == 200, unpinned.text
     assert unpinned.json()["guidance"] == []
+
+
+def test_a_rejected_answer_on_an_answered_clarification_base_persists(
+    tmp_path: Path,
+) -> None:
+    """The response echo must accept the base kinds requests can carry.
+
+    The revision-context contract learned `not_applicable` when answered
+    clarifications shipped; the response-side collaboration echo did not, so
+    a reviewed rejection on such a base failed contract validation at
+    persistence -- destroying the turn's evidence and mis-charging an
+    infrastructure defect to the model team. Caught live by the comparison's
+    triage gate.
+    """
+    # A contract-valid collaboration echo, except for the base kind that
+    # answered-clarification turns carry -- isolating the enum under test.
+    rejected = _rejected_query()
+    rejected["modelCollaboration"] = {
+        **_collaborative_query()["modelCollaboration"],
+        "base": {
+            "baseClassification": "not_applicable",
+            "observedBase": None,
+            "effectiveBaseVersion": None,
+            "editorDigest": None,
+        },
+    }
+    hub = FakeHub(_clarification_query())
+    client, _ = _client(tmp_path, _clarification_query(), hub=hub)
+    session = _create_session(client)
+    assert session["currentVersion"] is None
+
+    hub.query = rejected
+    answered = client.post(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+        json={
+            "contractVersion": "catalyst.workbench.turn.request.v1",
+            "instruction": "The last 90 days only.",
+            "profileId": PROFILE_ID,
+            "observedBase": None,
+            "editorSnapshot": None,
+        },
+    )
+
+    assert answered.status_code == 201, answered.text
+    turn = answered.json()
+    failure = turn.get("failure") or {}
+    # The rejection is the model team's result, not a persistence casualty.
+    assert failure.get("stage") != "gateway_persistence", failure
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{turn['turnId']}/generation-evidence"
+    ).json()
+    assert evidence.get("invocations"), "the writer's invocations must survive"
