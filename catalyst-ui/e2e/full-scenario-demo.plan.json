@@ -27,7 +27,9 @@
       "duration": 3.5,
       "kicker": "STEP 1",
       "heading": "Ask in plain language",
-      "lines": ["\"Show viral load results since 2026-01-01…\""]
+      "lines": [
+        "\"Show viral load results since 2026-01-01…\""
+      ]
     },
     {
       "type": "clip",
@@ -59,11 +61,20 @@
       "caption": "The result is saved as a governed Dataset, with its query and provenance."
     },
     {
+      "type": "clip",
+      "from": "dataset-saved-1",
+      "to": "guidance-pinned",
+      "kind": "read",
+      "caption": "Standing guidance is pinned to the session — every later turn must honor it."
+    },
+    {
       "type": "card",
       "duration": 3.5,
       "kicker": "STEP 2",
       "heading": "Refine in conversation",
-      "lines": ["The follow-up edits the exact query that just ran."]
+      "lines": [
+        "The follow-up edits the exact query that just ran."
+      ]
     },
     {
       "type": "clip",
@@ -92,7 +103,9 @@
       "duration": 3.5,
       "kicker": "STEP 3",
       "heading": "Build the widgets",
-      "lines": ["A table and a grouped bar, each bound to a saved Dataset."]
+      "lines": [
+        "A table and a grouped bar, each bound to a saved Dataset."
+      ]
     },
     {
       "type": "clip",
@@ -106,7 +119,9 @@
       "duration": 3.5,
       "kicker": "STEP 4",
       "heading": "Publish the dashboard",
-      "lines": ["Catalyst writes a native Superset bundle, deterministically."]
+      "lines": [
+        "Catalyst writes a native Superset bundle, deterministically."
+      ]
     },
     {
       "type": "clip",

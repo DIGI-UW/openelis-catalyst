@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import { DemoMilestones } from "./support/demo-milestones";
-import { openComposer } from "./support/open-composer";
 import { runSupersetImport } from "./support/superset-import";
 
 /*
@@ -78,8 +77,15 @@ test("plain-language question to a published Superset dashboard", async ({
     // label to clear before moving on.
     await expect(page.getByRole("button", { name: "Saving…" })).toHaveCount(0);
     await dwell(1_500);
-    const close = page.getByRole("button", { name: "Close review panel" });
-    if (await close.count()) await close.click();
+    // Close the review DIALOG through its own button: the workspace's
+    // "Close review panel" control sits behind the dialog's backdrop, so a
+    // click on it never lands while the panel is open.
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close" })
+      .first()
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   };
 
   /** Build one widget over a saved dataset. */
@@ -146,11 +152,46 @@ test("plain-language question to a published Superset dashboard", async ({
   await saveDataset(DETAIL_DATASET);
   timing.mark("dataset-saved-1");
 
+  /** Reach the follow-up composer the way a person does.
+   *
+   * After the dataset-review detour the composer is tucked: its restore
+   * toggle is CSS-hidden and the top-right jump control only scrolls. The
+   * affordance that actually restores it is the floating "↓ back to [n] ·
+   * ask" pill, whose click sets the composer mode directly.
+   */
+  const ensureComposerOpen = async () => {
+    const composer = page.locator("#refine-openelis");
+    if ((await composer.getAttribute("data-mode")) === "full") return;
+    const jumpPill = page.locator(".turn-composer__jump");
+    const toggle = page.locator("#refine-openelis-toggle");
+    if (await jumpPill.isVisible()) await jumpPill.click();
+    else if (await toggle.isVisible()) await toggle.click();
+    await expect(composer).toHaveAttribute("data-mode", "full");
+  };
+
+  // ---- Act 1½: pin standing guidance ---------------------------------------
+  // On this catalog the writer reliably projects COUNT(*) without the alias
+  // its own structured output promises, and the advisory validation rejects
+  // the mismatch. Guidance pinning is the product's answer: a standing
+  // instruction every later turn must honor — and a beat worth showing.
+  const pinBox = page.getByPlaceholder(/Pin guidance/);
+  await pinBox.click();
+  await type(
+    pinBox,
+    "Alias aggregate columns explicitly, e.g. COUNT(*) AS count.",
+  );
+  await page.getByRole("button", { name: "Pin", exact: true }).click();
+  await expect(
+    page.getByText("Alias aggregate columns explicitly", { exact: false }).first(),
+  ).toBeVisible();
+  timing.mark("guidance-pinned");
+  await dwell(2_500);
+
   // ---- Act 2: refine in conversation ---------------------------------------
-  await openComposer(page);
+  await ensureComposerOpen();
   await type(
     page.getByRole("textbox", { name: "Follow-up instruction" }),
-    "Now count all results by test name instead, with the highest counts first",
+    "Now count the results by test name instead, highest count first",
   );
   timing.mark("followup-typed");
   await dwell(1_200);
@@ -211,8 +252,10 @@ test("plain-language question to a published Superset dashboard", async ({
   timing.mark("import-started");
   runSupersetImport();
   timing.mark("imported");
-  // The card reads the receipt on navigation.
-  await page.getByRole("button", { name: "Workbench" }).click();
+  // The library only refetches receipts on a fresh load — tab navigation
+  // keeps the stale publication state, so the flip never shows without it.
+  await page.reload();
+  await expect(page.getByText("Catalyst", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Dashboards" }).click();
   await expect(card.getByText("Imported", { exact: true })).toBeVisible({
     timeout: 60_000,
