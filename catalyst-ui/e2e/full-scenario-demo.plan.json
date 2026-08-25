@@ -7,170 +7,130 @@
   "segments": [
     {
       "type": "card",
-      "duration": 4.5,
+      "duration": 3.5,
       "kicker": "CATALYST",
-      "heading": "From a question to a dashboard",
-      "lines": [
-        "Two English sentences become governed SQL,",
-        "and the results become a live Superset dashboard."
-      ]
+      "heading": "From a question to a dashboard"
     },
     {
       "type": "clip",
       "from": "source-selected",
       "to": "question-typed",
-      "kind": "read",
-      "caption": "The Catalyst workbench, pointed at an OpenELIS laboratory database."
-    },
-    {
-      "type": "card",
-      "duration": 3.5,
-      "kicker": "STEP 1",
-      "heading": "Ask in plain language",
-      "lines": [
-        "\"Show viral load results since 2026-01-01…\""
-      ]
+      "kind": "read"
     },
     {
       "type": "clip",
       "from": "question-typed",
       "to": "generate-clicked",
       "kind": "read",
-      "caption": "No SQL is written by hand — the question is the input."
+      "caption": "No SQL written by hand."
     },
     {
       "type": "clip",
       "from": "generate-clicked",
       "to": "sql-ready-1",
       "kind": "wait",
-      "target_seconds": 8.0,
-      "caption": "A writer model drafts the SQL; a reviewer checks it against the approved catalog."
+      "target_seconds": 12.0,
+      "caption": "A writer model drafts; a reviewer checks it against the catalog."
     },
     {
       "type": "clip",
       "from": "sql-ready-1",
       "to": "dataset-1",
       "kind": "read",
-      "caption": "The draft is SQL you can read and edit — then it runs against the real database."
+      "caption": "Readable SQL — run against the real database."
     },
     {
       "type": "clip",
       "from": "dataset-1",
       "to": "dataset-saved-1",
       "kind": "read",
-      "caption": "The result is saved as a governed Dataset, with its query and provenance."
-    },
-    {
-      "type": "clip",
-      "from": "dataset-saved-1",
-      "to": "guidance-pinned",
-      "kind": "read",
-      "caption": "Standing guidance is pinned to the session — every later turn must honor it."
+      "caption": "Saved as a governed Dataset."
     },
     {
       "type": "card",
-      "duration": 3.5,
+      "duration": 3.0,
       "kicker": "STEP 2",
-      "heading": "Refine in conversation",
-      "lines": [
-        "The follow-up edits the exact query that just ran."
-      ]
+      "heading": "Refine"
     },
     {
       "type": "clip",
       "from": "followup-typed",
       "to": "generate-clicked-2",
-      "kind": "read",
-      "caption": "\"Now count all results by test name instead…\""
+      "kind": "read"
     },
     {
       "type": "clip",
       "from": "generate-clicked-2",
       "to": "sql-ready-2",
       "kind": "wait",
-      "target_seconds": 7.0,
-      "caption": "The models revise the current query rather than starting over."
+      "target_seconds": 11.0,
+      "caption": "The models revise the current query."
     },
     {
       "type": "clip",
       "from": "sql-ready-2",
       "to": "dataset-saved-2",
-      "kind": "read",
-      "caption": "The aggregate runs and is saved as a second Dataset."
+      "kind": "read"
     },
     {
       "type": "card",
-      "duration": 3.5,
+      "duration": 3.0,
       "kicker": "STEP 3",
-      "heading": "Build the widgets",
-      "lines": [
-        "A table and a grouped bar, each bound to a saved Dataset."
-      ]
+      "heading": "Widgets"
     },
     {
       "type": "clip",
       "from": "widget-table",
       "to": "widget-bar",
       "kind": "read",
-      "caption": "Widget types are constrained by what the Dataset's columns support."
+      "caption": "A table and a bar chart, bound to the saved Datasets."
     },
     {
       "type": "card",
-      "duration": 3.5,
+      "duration": 3.0,
       "kicker": "STEP 4",
-      "heading": "Publish the dashboard",
-      "lines": [
-        "Catalyst writes a native Superset bundle, deterministically."
-      ]
+      "heading": "Publish"
     },
     {
       "type": "clip",
       "from": "widget-bar",
       "to": "bundle-ready",
-      "kind": "read",
-      "caption": "Both widgets on one dashboard — published as a Superset bundle."
+      "kind": "read"
     },
     {
       "type": "clip",
       "from": "bundle-ready",
       "to": "imported-visible",
       "kind": "wait",
-      "target_seconds": 6.0,
-      "caption": "A pinned importer brings the bundle into Superset and records a receipt."
+      "target_seconds": 10.0,
+      "caption": "A pinned importer brings the bundle into Superset."
     },
     {
       "type": "clip",
       "from": "imported-visible",
       "to": "superset-open",
       "kind": "wait",
-      "target_seconds": 4.0,
-      "caption": "Imported — Catalyst links straight to the live dashboard."
+      "target_seconds": 6.0
     },
     {
       "type": "clip",
       "from": "superset-open",
       "to": "dashboard-rendered",
       "kind": "wait",
-      "target_seconds": 5.0,
-      "caption": "Superset renders the published dashboard."
+      "target_seconds": 8.0
     },
     {
       "type": "clip",
       "from": "dashboard-rendered",
       "to": "end",
       "kind": "read",
-      "caption": "The finished product: a table and a graph, from one conversation."
+      "caption": "One conversation. A live dashboard."
     },
     {
       "type": "card",
-      "duration": 5.5,
-      "kicker": "WHAT THIS SHOWED",
-      "heading": "A conversation became a dashboard",
-      "lines": [
-        "Small open models drafted and reviewed every query.",
-        "Nothing ran that the catalog did not allow.",
-        "openclinai.org"
-      ]
+      "duration": 4.5,
+      "kicker": "OPENCLINAI.ORG",
+      "heading": "A conversation became a dashboard"
     }
   ]
 }

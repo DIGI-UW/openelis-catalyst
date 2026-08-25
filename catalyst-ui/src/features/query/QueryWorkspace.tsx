@@ -21,7 +21,6 @@ import {
   type NotebookGrounding,
   type NotebookTurn,
 } from "./components/TurnNotebook";
-import { SessionGuidance } from "./components/SessionGuidance";
 import { WorkbenchPanel } from "./components/WorkbenchPanel";
 import { WorkbenchRail } from "./components/WorkbenchRail";
 import {
@@ -1032,32 +1031,6 @@ export const QueryWorkspace = ({
     }
   };
 
-  const pinGuidance = async (text: string) => {
-    if (!workbenchSession || !api.pinWorkbenchGuidance) return;
-    try {
-      const updated = await api.pinWorkbenchGuidance(
-        workbenchSession.sessionId,
-        text,
-      );
-      setWorkbenchSession(updated);
-    } catch (error) {
-      setWorkbenchError(messageFromError(error));
-    }
-  };
-
-  const unpinGuidance = async (entryId: string) => {
-    if (!workbenchSession || !api.unpinWorkbenchGuidance) return;
-    try {
-      const updated = await api.unpinWorkbenchGuidance(
-        workbenchSession.sessionId,
-        entryId,
-      );
-      setWorkbenchSession(updated);
-    } catch (error) {
-      setWorkbenchError(messageFromError(error));
-    }
-  };
-
   const generateNextWorkbenchQuery = async () => {
     if (
       followupBusy ||
@@ -1672,12 +1645,10 @@ export const QueryWorkspace = ({
 
       {notebookShowing && workbenchSession && workbenchTimeline && (
         <>
-        <SessionGuidance
-          entries={workbenchSession.guidance ?? []}
-          busy={Boolean(followupBusy || workbenchBusy)}
-          onPin={pinGuidance}
-          onUnpin={unpinGuidance}
-        />
+        {/* Session guidance stays an API-level capability (the harness pins
+            through the gateway and asserts it lands); the composer bar that
+            used to sit here was unstyled, unexplained, and confused every
+            reader of the page, so the surface shipped without it. */}
         <TurnNotebook
           turns={activeNotebookTurns}
           session={workbenchSession}

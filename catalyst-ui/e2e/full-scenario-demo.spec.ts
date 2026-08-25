@@ -169,23 +169,33 @@ test("plain-language question to a published Superset dashboard", async ({
     await expect(composer).toHaveAttribute("data-mode", "full");
   };
 
-  // ---- Act 1½: pin standing guidance ---------------------------------------
-  // On this catalog the writer reliably projects COUNT(*) without the alias
-  // its own structured output promises, and the advisory validation rejects
-  // the mismatch. Guidance pinning is the product's answer: a standing
-  // instruction every later turn must honor — and a beat worth showing.
-  const pinBox = page.getByPlaceholder(/Pin guidance/);
-  await pinBox.click();
-  await type(
-    pinBox,
-    "Alias aggregate columns explicitly, e.g. COUNT(*) AS count.",
+  // ---- Act 1½: standing guidance (through the API) -------------------------
+  // On this catalog the writer projects COUNT(*) without the alias its own
+  // structured output promises, and the advisory validation rejects the
+  // mismatch. Guidance pinning is the product's lever for that; its composer
+  // bar was removed from the workbench surface, so the pin goes through the
+  // gateway — the same way the harness pins guidance in validation runs.
+  const gatewayUrl =
+    process.env.CATALYST_GATEWAY_URL ?? "http://127.0.0.1:18000";
+  const sessionList = await (
+    await page.request.get(`${gatewayUrl}/v1/catalyst/workbench/sessions`)
+  ).json();
+  const sessionId = sessionList.sessions?.[0]?.sessionId;
+  if (!sessionId) throw new Error("no workbench session to pin guidance on");
+  const pinned = await page.request.post(
+    `${gatewayUrl}/v1/catalyst/workbench/sessions/${sessionId}/guidance`,
+    {
+      data: {
+        contractVersion: "catalyst.workbench.guidance.request.v1",
+        text: "Alias aggregate columns explicitly, e.g. COUNT(*) AS count.",
+        source: "human",
+      },
+    },
   );
-  await page.getByRole("button", { name: "Pin", exact: true }).click();
-  await expect(
-    page.getByText("Alias aggregate columns explicitly", { exact: false }).first(),
-  ).toBeVisible();
+  if (!pinned.ok()) {
+    throw new Error(`guidance pin failed: ${pinned.status()}`);
+  }
   timing.mark("guidance-pinned");
-  await dwell(2_500);
 
   // ---- Act 2: refine in conversation ---------------------------------------
   await ensureComposerOpen();
