@@ -206,7 +206,6 @@ const api = (): CatalystApi => ({
       ),
     ),
 });
-
 /**
  * The session control owns both the session list and the data source, so
  * reaching either means opening it the way a user does.
@@ -1097,5 +1096,3 @@ describe("Dashboard Builder Ask shell", () => {
     });
   });
 });
-
-

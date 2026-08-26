@@ -21,24 +21,25 @@ the test stops being evidence that the product works.
 
 ## Prerequisites
 
-The live stack, including Superset (which does **not** come back on its own
-after a host restart):
+Start and check the isolated stack through the Clinical AI Validation Harness
+operator wrapper. `up` retains the existing databases; do not use `boot`,
+`seed`, or `reset` between takes:
 
 ```sh
-docker start catalyst-mvp-isolated-superset-metadata-db catalyst-mvp-isolated-superset
+cd <clinical-ai-validation-harness checkout>
+./scripts/catalyst-mvp.sh up
+./scripts/catalyst-mvp.sh health
 ```
 
-Two invariants that cost real debugging time when violated (see the demo
-issue log for the full stories):
+The scenario gives every Dataset, Widget, and Dashboard a run-specific name,
+so reruns are safe against the retained Dashboard Builder state. It does not
+reset or reseed the stack. Omit `CATALYST_DEMO_RUN_ID` for the unique default;
+if you set it for a named recording, use a fresh value for every take.
 
-- **One checkout.** The gateway's outbox/receipts mounts, and the checkout
-  the importer runs from, must be the same tree. A gateway recreated from a
-  different worktree silently reads an empty outbox and never shows
-  `Imported`.
-- **The Superset port.** The importer stamps the public URL into its receipt;
-  that becomes the product's own "Open Superset" link. Run it with
-  `SUPERSET_PORT` matching the published port (18088 on the isolated stack)
-  or the link 404s.
+The same Harness checkout must own both the running Gateway and this run. Its
+wrapper verifies the pinned Catalyst checkout and supplies the isolated
+override, project name, ports, and sibling Hub context. This is why the demo
+accepts the Harness root rather than reconstructing those settings itself.
 
 ## Running it
 
@@ -47,17 +48,18 @@ cd catalyst-ui
 
 # as a test
 PLAYWRIGHT_LIVE=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:13000 \
-  CATALYST_STACK_DIR=<running stack checkout>/targets/catalyst \
-  CATALYST_STACK_OVERRIDE=../../compose/catalyst-mvp-isolated.override.yml \
+  CATALYST_HARNESS_DIR=<running clinical-ai-validation-harness checkout> \
   npx playwright test e2e/full-scenario-demo.spec.ts --project=deterministic
 
 # as a recording
 …same env… npx playwright test e2e/full-scenario-demo.spec.ts --project=demo-video
 ```
 
-The spec runs the pinned importer itself (`e2e/support/superset-import.ts`),
-so the "Superset bundle ready → Imported" flip happens on camera and the e2e
-mode genuinely covers the seam.
+The spec runs the pinned importer itself (`e2e/support/superset-import.ts`)
+through the Harness's supported `scripts/catalyst-mvp.sh superset-import`
+wrapper. That wrapper starts and waits for the required Superset services, so
+the "Superset bundle ready → Imported" flip happens on camera and the e2e mode
+genuinely covers the seam.
 
 The recording lands at `test-results/*/video.webm` and is **wiped by the next
 run** — copy it out immediately. Milestones land in
@@ -74,8 +76,6 @@ there.
 | `PLAYWRIGHT_LIVE` | — | must be `true`; otherwise the spec skips |
 | `PLAYWRIGHT_BASE_URL` | `http://127.0.0.1:4173` | the Catalyst UI |
 | `PLAYWRIGHT_SUPERSET_URL` | `http://127.0.0.1:18088` | Superset, for the final act |
-| `CATALYST_STACK_DIR` | repo root | the RUNNING stack's checkout (targets/catalyst) |
-| `CATALYST_STACK_OVERRIDE` | — | compose override file, e.g. the isolated stack's |
-| `CATALYST_STACK_PROJECT` | `catalyst-mvp-isolated` | compose project of the running stack |
-| `CATALYST_SUPERSET_PORT` | `18088` | published Superset port, stamped into receipts |
+| `CATALYST_HARNESS_DIR` | — | required root of the Harness checkout that owns the running isolated stack |
+| `CATALYST_DEMO_RUN_ID` | a random UUID | unique suffix for this run's retained builder artifacts |
 | `SUPERSET_ADMIN_USERNAME` / `_PASSWORD` | `admin` / `admin` | Superset sign-in |

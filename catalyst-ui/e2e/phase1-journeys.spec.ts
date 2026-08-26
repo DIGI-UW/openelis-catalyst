@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The three Phase 1 deployed-proof journeys (roadmap G6), run against a live
-// stack with the selected team. Deployment and user-flow checks, not model
-// scores. Run with:
+// Three real-product journeys, run against a live stack with the profile named
+// for this run. These verify user-visible behavior, not model scores or a team
+// selection. Run with:
 //   PLAYWRIGHT_LIVE=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:13000 \
-//   PHASE1_PROFILE=<selected team id> \
+//   PHASE1_PROFILE=<profile id to exercise> \
 //     npx playwright test e2e/phase1-journeys.spec.ts
 test.setTimeout(1_200_000);
 
@@ -74,30 +74,27 @@ test("journey 2: ambiguous ask -> clarification -> frozen answer -> ready; refre
   await expect(page.getByText(/SELECT/i).first()).toBeVisible();
 });
 
-test("journey 3: pinned guidance survives reload and is honored; addresses are unsupported", async ({
+test("journey 3: conversation instructions survive reload; addresses are unsupported", async ({
   page,
 }) => {
   live();
   await openHivSession(page);
-  await ask(page, "Count medication requests by medication name.");
+  await ask(
+    page,
+    "Count medication requests by medication name, excluding do_not_perform requests.",
+  );
   await expect(page.getByText(/SELECT/i).first()).toBeVisible({
     timeout: 300_000,
   });
 
-  // Pin standing guidance, reload, and see it still standing.
-  await page
-    .getByRole("textbox", { name: "Pin session guidance" })
-    .fill("Exclude do_not_perform requests.");
-  await page.getByRole("button", { name: "Pin" }).click();
-  await expect(
-    page.getByText("Exclude do_not_perform requests."),
-  ).toBeVisible();
+  // Reload, then continue the same visible conversation. The opening user's
+  // exclusion remains part of the session history without a hidden control.
   await page.reload();
   await expect(
-    page.getByText("Exclude do_not_perform requests."),
+    page.getByText(/excluding do_not_perform requests/i),
   ).toBeVisible();
 
-  // The later regroup must honor the pin without it being repeated.
+  // The later regroup must honor that earlier instruction without repeating it.
   await page
     .getByRole("textbox", { name: "Follow-up instruction" })
     .fill("Regroup that by patient gender as well as medication name.");

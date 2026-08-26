@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { DemoMilestones } from "./support/demo-milestones";
 import { runSupersetImport } from "./support/superset-import";
@@ -20,7 +23,7 @@ import { runSupersetImport } from "./support/superset-import";
  *
  *   e2e (assertions, no video, no dwells):
  *     PLAYWRIGHT_LIVE=true PLAYWRIGHT_BASE_URL=http://127.0.0.1:13000 \
- *       CATALYST_STACK_DIR=<running stack checkout> \
+ *       CATALYST_HARNESS_DIR=<running harness checkout> \
  *       npx playwright test e2e/full-scenario-demo.spec.ts --project=deterministic
  *
  *   video (same steps, paced for camera):
@@ -33,11 +36,45 @@ import { runSupersetImport } from "./support/superset-import";
 
 test.setTimeout(1_800_000);
 
-const DETAIL_DATASET = "Viral load results since Jan 2026";
-const VOLUME_DATASET = "Result volumes by test";
-const TABLE_WIDGET = "Recent viral load results";
-const BAR_WIDGET = "Volumes by test";
-const DASHBOARD = "Laboratory results overview";
+const DETAIL_DATASET_BASE = "Viral load results since Jan 2026";
+const VOLUME_DATASET_BASE = "Result volumes by test";
+const TABLE_WIDGET_BASE = "Recent viral load results";
+const BAR_WIDGET_BASE = "Volumes by test";
+const DASHBOARD_BASE = "Laboratory results overview";
+
+type CohortFixture = {
+  expected: {
+    testTypes: number;
+    viralLoadResults: number;
+  };
+  terminology: { mappings: Array<{ test: string }> };
+};
+
+const cohortFixture = JSON.parse(
+  readFileSync(
+    resolve(
+      import.meta.dirname,
+      "..",
+      "..",
+      "analytics",
+      "openelis",
+      "catalyst-cohort-v1.json",
+    ),
+    "utf-8",
+  ),
+) as CohortFixture;
+const EXPECTED_TOP_GROUP = cohortFixture.terminology.mappings.find(
+  ({ test: testName }) => testName === "Viral Load",
+)?.test;
+const EXPECTED_TOP_GROUP_COUNT = cohortFixture.expected.viralLoadResults;
+const EXPECTED_GROUPS = cohortFixture.expected.testTypes;
+if (
+  !EXPECTED_TOP_GROUP ||
+  !Number.isInteger(EXPECTED_TOP_GROUP_COUNT) ||
+  !Number.isInteger(EXPECTED_GROUPS)
+) {
+  throw new Error("Catalyst cohort fixture does not define grouped result totals");
+}
 
 test("plain-language question to a published Superset dashboard", async ({
   page,
@@ -49,6 +86,17 @@ test("plain-language question to a published Superset dashboard", async ({
 
   const filming = info.project.name === "demo-video";
   const timing = new DemoMilestones("full-scenario-demo");
+  // Dashboard Builder state is intentionally retained. A fresh artifact name
+  // keeps this run separate from every prior take without resetting or
+  // reseeding the application databases. Callers may supply a meaningful run
+  // ID for a published take; the default is unique for every invocation.
+  const runId = process.env.CATALYST_DEMO_RUN_ID?.trim() || randomUUID();
+  const runName = (base: string) => `${base} · ${runId}`;
+  const detailDataset = runName(DETAIL_DATASET_BASE);
+  const volumeDataset = runName(VOLUME_DATASET_BASE);
+  const tableWidget = runName(TABLE_WIDGET_BASE);
+  const barWidget = runName(BAR_WIDGET_BASE);
+  const dashboard = runName(DASHBOARD_BASE);
   /** Hold the frame so a viewer can read; nothing at all when testing. */
   const dwell = async (ms: number) => {
     if (filming) await page.waitForTimeout(ms);
@@ -144,12 +192,24 @@ test("plain-language question to a published Superset dashboard", async ({
   await dwell(6_000);
 
   await page.getByRole("button", { name: "Run query" }).click();
-  await expect(page.locator(".query-turn__dataset").first()).toBeVisible({
+  const detailResult = page.locator(".query-turn__dataset").first();
+  await expect(detailResult).toBeVisible({
     timeout: 120_000,
   });
+  await expect(detailResult.getByRole("columnheader")).toHaveCount(3);
+  for (const column of ["patient_id", "result_value", "observed_at"]) {
+    await expect(
+      detailResult.getByRole("columnheader", { name: column, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    detailResult.getByText("Showing 1–10 of 100 returned rows", {
+      exact: true,
+    }),
+  ).toBeVisible();
   timing.mark("dataset-1");
   await dwell(5_000);
-  await saveDataset(DETAIL_DATASET);
+  await saveDataset(detailDataset);
   timing.mark("dataset-saved-1");
 
   /** Reach the follow-up composer the way a person does.
@@ -169,39 +229,11 @@ test("plain-language question to a published Superset dashboard", async ({
     await expect(composer).toHaveAttribute("data-mode", "full");
   };
 
-  // ---- Act 1½: standing guidance (through the API) -------------------------
-  // On this catalog the writer projects COUNT(*) without the alias its own
-  // structured output promises, and the advisory validation rejects the
-  // mismatch. Guidance pinning is the product's lever for that; its composer
-  // bar was removed from the workbench surface, so the pin goes through the
-  // gateway — the same way the harness pins guidance in validation runs.
-  const gatewayUrl =
-    process.env.CATALYST_GATEWAY_URL ?? "http://127.0.0.1:18000";
-  const sessionList = await (
-    await page.request.get(`${gatewayUrl}/v1/catalyst/workbench/sessions`)
-  ).json();
-  const sessionId = sessionList.sessions?.[0]?.sessionId;
-  if (!sessionId) throw new Error("no workbench session to pin guidance on");
-  const pinned = await page.request.post(
-    `${gatewayUrl}/v1/catalyst/workbench/sessions/${sessionId}/guidance`,
-    {
-      data: {
-        contractVersion: "catalyst.workbench.guidance.request.v1",
-        text: "Alias aggregate columns explicitly, e.g. COUNT(*) AS count.",
-        source: "human",
-      },
-    },
-  );
-  if (!pinned.ok()) {
-    throw new Error(`guidance pin failed: ${pinned.status()}`);
-  }
-  timing.mark("guidance-pinned");
-
   // ---- Act 2: refine in conversation ---------------------------------------
   await ensureComposerOpen();
   await type(
     page.getByRole("textbox", { name: "Follow-up instruction" }),
-    "Now count the results by test name instead, highest count first",
+    "Now replace the detail rows with counts across the full dataset by test name. Call the count column result_count and put the highest count first",
   );
   timing.mark("followup-typed");
   await dwell(1_200);
@@ -218,37 +250,85 @@ test("plain-language question to a published Superset dashboard", async ({
   await dwell(6_000);
 
   await page.getByRole("button", { name: "Run query" }).click();
-  await expect(page.locator(".query-turn__dataset").last()).toBeVisible({
+  const volumeResult = page.locator(".query-turn__dataset").last();
+  await expect(volumeResult).toBeVisible({
     timeout: 120_000,
   });
+  await expect(volumeResult.getByRole("columnheader")).toHaveCount(2);
+  for (const column of ["test_name", "result_count"]) {
+    await expect(
+      volumeResult.getByRole("columnheader", { name: column, exact: true }),
+    ).toBeVisible();
+  }
+  const groupedRows = volumeResult.locator("tbody tr");
+  await expect(groupedRows).toHaveCount(EXPECTED_GROUPS);
+  const topGroupRow = groupedRows.first();
+  await expect(topGroupRow.getByRole("cell")).toHaveCount(2);
+  await expect(
+    topGroupRow.getByRole("cell", {
+      name: EXPECTED_TOP_GROUP,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    topGroupRow.getByRole("cell", {
+      name: String(EXPECTED_TOP_GROUP_COUNT),
+      exact: true,
+    }),
+  ).toBeVisible();
   timing.mark("dataset-2");
   await dwell(5_000);
-  await saveDataset(VOLUME_DATASET);
+  await saveDataset(volumeDataset);
   timing.mark("dataset-saved-2");
 
   // ---- Act 3: two widgets over the governed datasets ----------------------
   await page.getByRole("button", { name: "Widgets" }).click();
   await dwell(1_500);
-  await saveWidget(TABLE_WIDGET, DETAIL_DATASET, "Table");
+  await saveWidget(tableWidget, detailDataset, "Table");
   timing.mark("widget-table");
-  await saveWidget(BAR_WIDGET, VOLUME_DATASET, "Grouped bar");
+  await saveWidget(barWidget, volumeDataset, "Grouped bar");
   timing.mark("widget-bar");
 
   // ---- Act 4: the dashboard -------------------------------------------------
   await page.getByRole("button", { name: "Dashboards" }).click();
   await dwell(1_200);
   await page.getByRole("button", { name: "New Dashboard" }).click();
-  await type(page.getByRole("textbox", { name: "Dashboard name" }), DASHBOARD);
-  await page.getByRole("checkbox", { name: TABLE_WIDGET }).check();
-  await page.getByRole("checkbox", { name: BAR_WIDGET }).check();
+  await type(page.getByRole("textbox", { name: "Dashboard name" }), dashboard);
+  await page.getByRole("checkbox", { name: tableWidget, exact: true }).check();
+  await page.getByRole("checkbox", { name: barWidget, exact: true }).check();
   await dwell(1_500);
+  const savedDashboardResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        "/v1/catalyst/dashboard-builder/dashboards",
+  );
   await page.getByRole("button", { name: "Save Dashboard" }).click();
+  const savedDashboard = (await (await savedDashboardResponse).json()) as {
+    versionId?: unknown;
+  };
+  if (typeof savedDashboard.versionId !== "string") {
+    throw new Error("saved Dashboard response did not include its version ID");
+  }
 
-  const card = page.locator("article").filter({ hasText: DASHBOARD });
+  const card = page.locator("article").filter({ hasText: dashboard });
   await expect(card).toBeVisible({ timeout: 60_000 });
-  // Saving may already mint the bundle; publish explicitly when it hasn't.
-  if (!(await card.getByText("Superset bundle ready").count())) {
-    await card.getByRole("button", { name: "Publish to Superset" }).click();
+  const publishedDashboardResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/v1/catalyst/dashboard-builder/dashboards/${encodeURIComponent(savedDashboard.versionId as string)}/publish`,
+  );
+  await card.getByRole("button", { name: "Publish to Superset" }).click();
+  const publication = (await (await publishedDashboardResponse).json()) as {
+    pointer?: { bundle?: { sha256?: unknown } };
+  };
+  const bundleDigest = publication.pointer?.bundle?.sha256;
+  if (
+    typeof bundleDigest !== "string" ||
+    !/^[a-f0-9]{64}$/.test(bundleDigest)
+  ) {
+    throw new Error("published Dashboard response did not include a bundle digest");
   }
   await expect(card.getByText("Superset bundle ready")).toBeVisible({
     timeout: 60_000,
@@ -260,7 +340,7 @@ test("plain-language question to a published Superset dashboard", async ({
   // The MVP has no Superset REST publication; a pinned CLI imports the
   // bundle and records a receipt, which is what flips the card to Imported.
   timing.mark("import-started");
-  runSupersetImport();
+  runSupersetImport(bundleDigest);
   timing.mark("imported");
   // The library only refetches receipts on a fresh load — tab navigation
   // keeps the stale publication state, so the flip never shows without it.
@@ -296,7 +376,7 @@ test("plain-language question to a published Superset dashboard", async ({
   timing.mark("superset-open");
 
   await expect(
-    page.getByText(DASHBOARD, { exact: false }).first(),
+    page.getByText(dashboard, { exact: false }).first(),
   ).toBeVisible({ timeout: 120_000 });
   // The table widget shows real rows; the bar chart renders on canvas.
   await expect(page.getByText("Viral Load").first()).toBeVisible({
