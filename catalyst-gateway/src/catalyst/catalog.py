@@ -62,7 +62,7 @@ class DatasetBrowserProfile:
         known = view_columns.get(fact_view)
         if known is None:
             raise ValueError(
-                "Dataset browser factView is not an approved catalog view: "
+                "Dataset browser factView is not a curated catalog view: "
                 f"{fact_view!r}"
             )
 
@@ -122,23 +122,11 @@ class Catalog:
     views: list[dict[str, Any]]
     freshness: dict[str, Any]
     dataset_browser: DatasetBrowserProfile | None = dataclass_field(default=None)
-    # The relations a generated query may reference. ``None`` means every view
-    # here is approved, which is true of a catalog straight from its file --
-    # ``load`` keeps only ``approved`` views. Runtime discovery re-describes the
-    # whole readable schema, so it pins this to the curated set on the way
-    # through; without that, every table the role can read silently becomes an
-    # approved query surface.
-    approved_names: frozenset[str] | None = dataclass_field(default=None)
 
     @property
     def approved_view_names(self) -> set[str]:
-        """Relations a generated query may reference."""
-        names = self.relation_names
-        if self.approved_names is None:
-            return names
-        # Intersected, so a curated view that has since been dropped from the
-        # database does not stay approved.
-        return {name for name in names if name in self.approved_names}
+        """Relations exposed through the legacy ``approvedViews`` field."""
+        return self.relation_names
 
     @property
     def relation_names(self) -> set[str]:
@@ -163,17 +151,9 @@ class Catalog:
         }
 
     def request_catalog(self) -> dict[str, Any]:
-        """Describe the approved views, and only those.
-
-        This is what the writer sees and what the linter checks references
-        against, so an unapproved relation must not appear here: describing a
-        table is an invitation to query it.
-        """
-        approved = self.approved_view_names
+        """Describe every relation available to the writer."""
         request_views: list[dict[str, Any]] = []
         for view in self.views:
-            if view["name"] not in approved:
-                continue
             request_view = {
                 key: deepcopy(view[key]) for key in ("name", "version", "grain")
             }
@@ -243,22 +223,6 @@ class Catalog:
         if not views:
             raise ValueError("PostgreSQL role has no readable relations.")
 
-        # Curation decides what may be queried, so a curated view that the role
-        # cannot read leaves nothing to query. Say so here, where the cause is
-        # visible, rather than emitting a catalog with no approved views and
-        # failing later against the request contract.
-        surviving = {
-            name
-            for name in self.approved_view_names
-            if name in {view["name"] for view in views}
-        }
-        if not surviving:
-            missing = ", ".join(sorted(self.approved_view_names)) or "(none declared)"
-            raise ValueError(
-                "No approved catalog view is readable by the PostgreSQL role. "
-                f"Approved: {missing}."
-            )
-
         schema_digest = canonical_sha256(
             {
                 "dataSource": self.data_source,
@@ -279,10 +243,6 @@ class Catalog:
             # Runtime discovery re-describes the schema; it does not change
             # which relation the dataset browser was curated to read.
             dataset_browser=self.dataset_browser,
-            # ...nor which relations a query may reference. Discovery adds every
-            # readable table to ``views`` so the browser and the existence check
-            # can see them; approval stays with the curated set.
-            approved_names=frozenset(self.approved_view_names),
         )
 
     @classmethod
@@ -359,7 +319,7 @@ class Catalog:
                 }
             )
         if not views:
-            raise ValueError(f"Analytics catalog has no approved views: {catalog_path}")
+            raise ValueError(f"Analytics catalog has no curated views: {catalog_path}")
 
         catalog_version = payload["catalogVersion"]
         dataset_browser = None

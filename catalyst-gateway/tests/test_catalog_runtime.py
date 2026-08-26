@@ -10,6 +10,7 @@ import pytest
 from src.catalyst.analytics import AnalyticsError, PostgresAnalyticsAdapter
 from src.catalyst.catalog import Catalog
 from src.catalyst.policy import QueryInvariantError, validate_query_invariants
+from src.catalyst.query_lint import lint_candidate
 from src.catalyst.request import build_query_request
 
 
@@ -125,25 +126,17 @@ def test_discovered_relations_expand_catalog_and_keep_curated_semantics():
     assert fields["result_value"]["unitColumn"] == "result_unit"
     assert fact["grain"].startswith("Exactly one row per FHIR Observation")
     assert fact["semanticDimensions"][0]["field"] == "test_name"
-    # Discovery describes the table, so the browser and the existence check can
-    # see it -- but describing it is not approving it, and the request catalog
-    # is what the writer reads. This assertion used to expect the discovered
-    # table here, which is exactly how an unapproved relation reached the model.
+    # The PostgreSQL role can read both relations, so the writer sees both.
+    # Curated metadata improves the fact view description without limiting the
+    # readable surface.
     assert [view["name"] for view in expanded.request_catalog()["views"]] == [
-        "analytics.lab_result_fact_v1"
+        "analytics.lab_result_fact_v1",
+        "public.patient_flat_v1",
     ]
 
 
-def test_discovery_describes_new_relations_without_approving_them():
-    """A readable table is not a query surface.
-
-    ``with_discovered_relations`` re-describes every relation the PostgreSQL role
-    can read. That is right for the dataset browser and for the "does this
-    relation exist" check, and wrong for approval: before this was separated, a
-    raw table in the same database silently became something a generated query
-    was allowed to join, and the linter -- which derives its allowlist from the
-    same request catalog -- had no reason to object.
-    """
+def test_discovery_makes_every_readable_relation_available_to_the_writer():
+    """PostgreSQL grants, not catalog curation, define the query surface."""
     base = Catalog.load(CATALOG_PATH)
     curated = "analytics.lab_result_fact_v1"
     relations = [
@@ -171,45 +164,67 @@ def test_discovery_describes_new_relations_without_approving_them():
 
     expanded = base.with_discovered_relations(relations)
 
-    # Described, so the browser and the existence check can see it.
-    assert "public.raw_cross_product_flat" in expanded.relation_names
-    # Not approved, so a generated query may not reference it...
-    assert expanded.approved_view_names == {curated}
-    # ...and it is not even described to the writer.
-    assert [view["name"] for view in expanded.request_catalog()["views"]] == [curated]
+    expected = {curated, "public.raw_cross_product_flat"}
+    assert expanded.relation_names == expected
+    # ``approvedViews`` is the legacy request-contract field name. At runtime it
+    # contains every relation the configured role can read.
+    assert expanded.approved_view_names == expected
+    assert {view["name"] for view in expanded.request_catalog()["views"]} == expected
 
-    # Approval survives a second discovery pass rather than widening again.
-    assert expanded.with_discovered_relations(relations).approved_view_names == {
-        curated
-    }
+    # A refresh keeps deriving the surface from the database instead of
+    # freezing the catalog file's original relation set.
+    assert expanded.with_discovered_relations(relations).approved_view_names == expected
+
+    request = build_query_request(
+        "Show the new readable relation",
+        expanded,
+        max_rows=100,
+        statement_timeout_ms=5000,
+        request_id="request-readable-relation",
+        trace_id="trace-readable-relation",
+    )
+    findings = lint_candidate(
+        {
+            "status": "ready",
+            "sql": "SELECT id FROM public.raw_cross_product_flat LIMIT 100",
+            "parameters": [],
+            "expectedColumns": [
+                {"name": "id", "logicalType": "string", "nullable": False}
+            ],
+        },
+        request["catalystQuery"],
+    )
+    assert not [
+        finding for finding in findings if finding["code"] == "catalog.unapproved_view"
+    ]
 
 
-def test_discovery_rejects_a_schema_with_no_approved_view_left():
-    """A curated view the role cannot read leaves nothing to query.
-
-    Reported here, where the cause is visible, rather than downstream as an
-    empty catalog failing the request contract.
-    """
+def test_discovery_succeeds_when_only_an_uncurated_relation_is_readable():
+    """A missing curated relation must not make a readable database unusable."""
     base = Catalog.load(CATALOG_PATH)
-    with pytest.raises(ValueError, match="No approved catalog view is readable"):
-        base.with_discovered_relations(
-            [
-                {
-                    "name": "public.something_else",
-                    "relationType": "table",
-                    "grain": "Rows readable from public.something_else (table)",
-                    "fields": [
-                        {
-                            "name": "id",
-                            "type": "string",
-                            "databaseType": "text",
-                            "description": "Raw identifier",
-                            "nullable": False,
-                        }
-                    ],
-                }
-            ]
-        )
+    expanded = base.with_discovered_relations(
+        [
+            {
+                "name": "public.something_else",
+                "relationType": "table",
+                "grain": "Rows readable from public.something_else (table)",
+                "fields": [
+                    {
+                        "name": "id",
+                        "type": "string",
+                        "databaseType": "text",
+                        "description": "Raw identifier",
+                        "nullable": False,
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert expanded.approved_view_names == {"public.something_else"}
+    assert [view["name"] for view in expanded.request_catalog()["views"]] == [
+        "public.something_else"
+    ]
 
 
 def _viral_load_request(catalog: Catalog) -> dict:
@@ -513,7 +528,7 @@ def test_catalog_without_dataset_browser_reports_a_configuration_error(tmp_path)
 @pytest.mark.parametrize(
     "mutation, expected",
     (
-        ({"factView": "analytics.not_approved_v1"}, "not an approved catalog view"),
+        ({"factView": "analytics.not_approved_v1"}, "not a curated catalog view"),
         ({"categoryColumn": "no_such_column"}, "outside analytics.encounter_fact_v1"),
         ({"valueFallbackColumns": ["nope"]}, "outside analytics.encounter_fact_v1"),
         ({"identityColumn": 'x"; DROP TABLE y --'}, "plain lowercase SQL identifier"),

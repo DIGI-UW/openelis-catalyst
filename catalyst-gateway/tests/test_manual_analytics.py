@@ -174,7 +174,7 @@ async def test_relation_discovery_uses_role_privileges_and_all_relation_kinds():
 
     discovery_sql = calls[1]
     assert "has_schema_privilege" in discovery_sql
-    assert "has_table_privilege" in discovery_sql
+    assert "has_column_privilege" in discovery_sql
     assert "pg_table_is_visible" in discovery_sql
     assert "relation.relkind IN ('r', 'p', 'v', 'm', 'f')" in discovery_sql
     assert "pg_catalog" in discovery_sql

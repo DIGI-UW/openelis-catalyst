@@ -24,23 +24,43 @@ print(json.dumps({
 PY
 )"
 
+runtime_catalog="$(
+  curl -fsS --max-time 30 \
+    "${GATEWAY_URL}/v1/catalyst/workbench/catalog"
+)"
+runtime_catalog_path="${LOG_DIR}/mvp-live-catalog.json"
+printf '%s\n' "${runtime_catalog}" > "${runtime_catalog_path}"
+
 preview="$(
   curl -fsS --max-time 200 \
     "${GATEWAY_URL}/v1/catalyst/queries" \
     -H 'Content-Type: application/json' \
     --data "${question_payload}"
 )"
-printf '%s\n' "${preview}" > "${LOG_DIR}/mvp-live-preview.json"
+preview_path="${LOG_DIR}/mvp-live-preview.json"
+printf '%s\n' "${preview}" > "${preview_path}"
 
 mapfile -t preview_meta < <(
-  PREVIEW_JSON="${preview}" python3 - <<'PY'
+  PREVIEW_PATH="${preview_path}" \
+  RUNTIME_CATALOG_PATH="${runtime_catalog_path}" \
+  python3 - <<'PY'
 import json
 import os
+from pathlib import Path
 
-payload = json.loads(os.environ["PREVIEW_JSON"])
+payload = json.loads(Path(os.environ["PREVIEW_PATH"]).read_text())
+runtime_catalog = json.loads(Path(os.environ["RUNTIME_CATALOG_PATH"]).read_text())
+readable_relations = sorted(
+    view.get("qualifiedName") or f'{schema["name"]}.{view["name"]}'
+    for schema in runtime_catalog["schemas"]
+    # The editor-catalog contract keeps every relation kind in this legacy
+    # array; relationType distinguishes tables, views, and the other kinds.
+    for view in schema["views"]
+)
 assert payload["contractVersion"] == "catalyst.preview.v1", payload
 assert payload["deploymentMode"] == "demo", payload
-assert payload["target"]["approvedViews"] == ["analytics.lab_result_fact_v1"], payload
+assert readable_relations, runtime_catalog
+assert sorted(payload["target"]["approvedViews"]) == readable_relations, payload
 assert payload["parameters"] == [{
     "name": "date_1",
     "type": "date",
