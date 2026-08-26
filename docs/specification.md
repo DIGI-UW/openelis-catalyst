@@ -478,7 +478,8 @@ The implemented `catalyst.query.v1` response contains:
 - `deploymentMode`: `demo`
 - `status`: `ready`, `needs_clarification`, `unsupported`, or `rejected`
 - `question`: exact original request text
-- `target` with data source, catalog version, approved view set and SQL dialect
+- `target` with data source, catalog version, readable relation set and SQL
+  dialect. The existing contract field for that set is named `approvedViews`.
 - `sql`, `parameters`, and `expectedColumns` only when status is `ready`
 - `clarification` when status is `needs_clarification`
 - `message` when status is `unsupported` or `rejected`
@@ -492,10 +493,10 @@ The contract contains no database credentials and no query results.
 
 Catalyst requires response `question` to equal the submitted current
 instruction exactly and binds model provenance to the selected Hub profile.
-It also requires returned `dataSource`, `catalogVersion`, and `dialect` to equal
-the request target, and every `approvedViews` entry to belong to the requested
-catalog. Normalized intent belongs in trace metadata, not this execution
-contract.
+Gateway fills `approvedViews` from the current readable request catalog; the
+model does not select or narrow that set. Returned `dataSource`,
+`catalogVersion`, and `dialect` must equal the request target. Normalized intent
+belongs in trace metadata, not this execution contract.
 
 Catalyst rejects:
 
@@ -503,7 +504,7 @@ Catalyst rejects:
 - a response that fails the normative JSON Schema;
 - an unavailable, substituted or provenance-mismatched profile;
 - SQL that is not a single read-only statement;
-- references outside the approved view set;
+- references outside the current readable relation set;
 - a dialect mismatch;
 - a query exceeding configured complexity, timeout, or row limits.
 
@@ -606,16 +607,16 @@ fact. Important reporting surfaces include:
 - turnaround time;
 - pending or validation work queues.
 
-Each governed semantic view's catalog entry carries only what the gateway
-actually reads (`Catalog.load`): approval, a stable name and version,
-documented grain, typed columns with units, and semantic dimensions
+Each curated semantic view's catalog entry carries only what the gateway
+actually reads (`Catalog.load`): a stable name and version, documented grain,
+typed columns with units, and semantic dimensions
 (canonical analyte names and aliases). The catalog is GENERATED — from
 `COMMENT ON VIEW`/`COMMENT ON COLUMN` on the curated SQL plus a small
-per-source `catalog-overlay.json` (identity, approved views, semantic
-canonical values validated against live data) — never hand-maintained. Older
-hand-written catalogs also carried allowed-filters, terminology-note,
-freshness, and example-query sections; those are inert (unread by the
-gateway) and are not part of the generated shape.
+per-source `catalog-overlay.json` (identity, views receiving curated metadata,
+semantic canonical values validated against live data) — never
+hand-maintained. Older hand-written catalogs also carried allowed-filters,
+terminology-note, freshness, and example-query sections; those are inert
+(unread by the gateway) and are not part of the generated shape.
 
 FHIR Data Pipes produces per-resource analytics representations. Cross-resource
 facts such as turnaround time or order-to-result relationships require a

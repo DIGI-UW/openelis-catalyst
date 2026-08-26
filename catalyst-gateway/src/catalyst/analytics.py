@@ -561,7 +561,9 @@ class PostgresAnalyticsAdapter:
                       AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
                       AND namespace.nspname !~ '^pg_(toast|temp)'
                       AND pg_catalog.has_schema_privilege(namespace.oid, 'USAGE')
-                      AND pg_catalog.has_table_privilege(relation.oid, 'SELECT')
+                      AND pg_catalog.has_column_privilege(
+                          relation.oid, attribute.attnum, 'SELECT'
+                      )
                     ORDER BY namespace.nspname, relation.relname, attribute.attnum
                     """
                 )

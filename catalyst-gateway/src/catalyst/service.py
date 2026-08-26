@@ -350,32 +350,33 @@ class CatalystService:
             seen_views: set[str] = set()
             for source_view in catalog.views:
                 if not isinstance(source_view, dict):
-                    raise TypeError("Approved catalog views must be objects.")
+                    raise TypeError("Readable catalog relations must be objects.")
                 qualified_name = source_view.get("name")
                 if not isinstance(qualified_name, str):
-                    raise TypeError("Approved catalog view names must be strings.")
+                    raise TypeError("Readable catalog relation names must be strings.")
                 name_parts = qualified_name.split(".")
                 if len(name_parts) != 2 or any(not part for part in name_parts):
                     raise ValueError(
-                        "Approved catalog view names must be schema-qualified: "
+                        "Readable catalog relation names must be schema-qualified: "
                         f"{qualified_name!r}."
                     )
                 if qualified_name in seen_views:
                     raise ValueError(
-                        f"Approved catalog view names must be unique: {qualified_name!r}."
+                        "Readable catalog relation names must be unique: "
+                        f"{qualified_name!r}."
                     )
                 seen_views.add(qualified_name)
 
                 fields = source_view.get("fields")
                 if not isinstance(fields, list) or not fields:
                     raise ValueError(
-                        "Approved catalog views must expose at least one column: "
+                        "Readable catalog relations must expose at least one column: "
                         f"{qualified_name!r}."
                     )
                 grain = source_view.get("grain")
                 if not isinstance(grain, str) or not grain:
                     raise ValueError(
-                        "Approved catalog views must declare their row grain: "
+                        "Readable catalog relations must declare their row grain: "
                         f"{qualified_name!r}."
                     )
                 columns: list[dict[str, Any]] = []
@@ -3382,9 +3383,8 @@ class CatalystService:
             "question": question,
             "target": {
                 **catalog.request_target(),
-                # The curated allowlist, not every readable relation. Runtime
-                # discovery describes the whole schema for the browser; it must
-                # not widen what a generated query is allowed to reference.
+                # The public contract keeps the ``approvedViews`` name, while
+                # the runtime value is every relation the database role reads.
                 "approvedViews": sorted(catalog.approved_view_names),
             },
             "sql": version["sql"],
@@ -3411,7 +3411,7 @@ class CatalystService:
             }
             for violation in self.sql_policy.evaluate(
                 query,
-                available_relations=catalog.approved_view_names,
+                available_relations=catalog.available_relation_names,
             )
         )
         request = build_query_request(
@@ -3544,7 +3544,7 @@ class CatalystService:
         validate_query_invariants(query, request)
         violations = self.sql_policy.evaluate(
             query,
-            available_relations=catalog.approved_view_names,
+            available_relations=catalog.available_relation_names,
         )
         if violations:
             raise QueryInvariantError(violations)

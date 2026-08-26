@@ -1605,7 +1605,7 @@ def test_asking_for_a_field_the_dataset_lacks_becomes_a_question(
         "stage": "catalog_identifiers",
         "severity": "error",
         "path": "$.sql",
-        "message": "SQL references fields absent from the approved catalog.",
+        "message": "SQL references fields absent from the request catalog.",
         "evidence": "patient_last_name",
         "suggestedAction": "Replace or remove every field not in the catalog.",
     }
@@ -1653,7 +1653,7 @@ def test_a_mixed_failure_is_not_reduced_to_a_question(tmp_path: Path) -> None:
         "stage": "catalog_identifiers",
         "severity": "error",
         "path": "$.sql",
-        "message": "SQL references fields absent from the approved catalog.",
+        "message": "SQL references fields absent from the request catalog.",
         "evidence": "patient_last_name",
         "suggestedAction": "Replace or remove every field not in the catalog.",
     }
@@ -1689,7 +1689,7 @@ def test_the_query_finding_outlives_the_repair_that_failed_after_it(
         "stage": "catalog_identifiers",
         "severity": "error",
         "path": "$.sql",
-        "message": "SQL references fields absent from the approved catalog.",
+        "message": "SQL references fields absent from the request catalog.",
         "evidence": "t2.last_name",
         "suggestedAction": "Replace or remove every field not in the catalog.",
     }
@@ -2622,16 +2622,51 @@ def test_a_clarification_leaves_the_working_query_alone(tmp_path: Path) -> None:
     assert reloaded["currentVersionId"] == base["versionId"]
 
 
-def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
+def test_a_hand_written_query_can_use_every_relation_the_writer_sees(
     tmp_path: Path,
 ) -> None:
-    """One reviewed surface, or the model is governed and the person is not.
+    """Catalog metadata cannot hide a relation from either query path."""
+    readable_relation = "public.raw_side_table"
 
-    Before Phase 1 the writer was restricted to the approved views while a
-    hand-written query was checked only against everything the database
-    happened to expose, so a person could join a relation the model was never
-    told existed -- and did.
-    """
+    class DiscoveredAnalytics(FakeAnalytics):
+        async def discover_relations(self) -> list[dict]:
+            return [
+                {
+                    "name": readable_relation,
+                    "relationType": "table",
+                    "grain": "Rows readable from public.raw_side_table (table)",
+                    "fields": [
+                        {
+                            "name": "test_name",
+                            "type": "string",
+                            "databaseType": "text",
+                            "description": "Database-derived test name",
+                            "nullable": True,
+                        }
+                    ],
+                }
+            ]
+
+    class DiscoveredRelationHub(FakeHub):
+        async def generate_query(self, request: dict) -> dict:
+            target = request["catalystQuery"]["target"]
+            request_catalog = request["catalystQuery"]["catalog"]
+            query = _ready_query()
+            query["target"] = {
+                **target,
+                "approvedViews": [view["name"] for view in request_catalog["views"]],
+            }
+            query["sql"] = f"SELECT test_name FROM {readable_relation} LIMIT 2"
+            query["parameters"] = []
+            query["expectedColumns"] = [
+                {"name": "test_name", "logicalType": "string", "nullable": True}
+            ]
+            query["provenance"]["contextSourceIds"] = [
+                request_catalog["contextSourceId"]
+            ]
+            self.query = query
+            return await super().generate_query(request)
+
     catalog = Catalog(
         data_source="openelis-demo",
         catalog_version="2026.07",
@@ -2643,33 +2678,36 @@ def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
                 "name": "analytics.lab_results",
                 "version": "1",
                 "grain": "one row per result",
-                "approved": True,
-                "fields": [
-                    {"name": "test_name", "type": "string", "description": "Test"},
-                ],
-            },
-            {
-                "name": "public.raw_side_table",
-                "version": "1",
-                "grain": "readable, but never reviewed",
-                "approved": False,
                 "fields": [
                     {"name": "test_name", "type": "string", "description": "Test"},
                 ],
             },
         ],
         freshness={},
-        approved_names=frozenset({"analytics.lab_results"}),
     )
-    client, _ = _client(tmp_path, _ready_query(), catalog=catalog)
+    hub = DiscoveredRelationHub(_ready_query())
+    analytics = DiscoveredAnalytics()
+    client, analytics = _client(
+        tmp_path,
+        _ready_query(),
+        catalog=catalog,
+        hub=hub,
+        analytics=analytics,
+    )
     session = _create_session(client)
     base = session["currentVersion"]
+
+    assert [
+        view["name"] for view in hub.requests[0]["catalystQuery"]["catalog"]["views"]
+    ] == [readable_relation]
+    assert base["sql"] == f"SELECT test_name FROM {readable_relation} LIMIT 2"
+    assert session["latestValidation"]["status"] == "valid"
 
     response = client.post(
         f"/v1/catalyst/workbench/sessions/{session['sessionId']}/versions",
         json={
             "contractVersion": "catalyst.workbench.version.request.v1",
-            "sql": "SELECT test_name FROM public.raw_side_table",
+            "sql": f"SELECT test_name FROM {readable_relation} LIMIT 1",
             "parameters": [],
             "expectedColumns": [
                 {"name": "test_name", "logicalType": "string", "nullable": True}
@@ -2681,9 +2719,22 @@ def test_a_hand_written_query_is_held_to_the_same_surface_as_the_writer(
     assert response.status_code == 201, response.text
     validation = response.json()["latestValidation"]
 
-    assert validation["status"] == "invalid"
-    codes = {finding["ruleCode"] for finding in validation["findings"]}
-    assert any("relation" in code or "catalog" in code for code in codes), codes
+    assert validation["status"] == "valid"
+    assert validation["findings"] == []
+
+    version = response.json()["currentVersion"]
+    executed = client.post(
+        f"/v1/catalyst/workbench/versions/{version['versionId']}/execute",
+        json={
+            "contractVersion": "catalyst.workbench.execute.request.v1",
+            "versionId": version["versionId"],
+            "queryDigest": version["queryDigest"],
+            "idempotencyKey": "readable-relation-1",
+        },
+    )
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["status"] == "succeeded"
+    assert analytics.manual_calls[0]["sql"] == version["sql"]
 
 
 # --- pin controls ----------------------------------------------------------

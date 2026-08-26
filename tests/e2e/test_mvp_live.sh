@@ -24,6 +24,12 @@ print(json.dumps({
 PY
 )"
 
+runtime_catalog="$(
+  curl -fsS --max-time 30 \
+    "${GATEWAY_URL}/v1/catalyst/workbench/catalog"
+)"
+printf '%s\n' "${runtime_catalog}" > "${LOG_DIR}/mvp-live-catalog.json"
+
 preview="$(
   curl -fsS --max-time 200 \
     "${GATEWAY_URL}/v1/catalyst/queries" \
@@ -33,14 +39,26 @@ preview="$(
 printf '%s\n' "${preview}" > "${LOG_DIR}/mvp-live-preview.json"
 
 mapfile -t preview_meta < <(
-  PREVIEW_JSON="${preview}" python3 - <<'PY'
+  PREVIEW_JSON="${preview}" \
+  RUNTIME_CATALOG_JSON="${runtime_catalog}" \
+  python3 - <<'PY'
 import json
 import os
 
 payload = json.loads(os.environ["PREVIEW_JSON"])
+runtime_catalog = json.loads(os.environ["RUNTIME_CATALOG_JSON"])
+readable_relations = sorted(
+    view["qualifiedName"]
+    for schema in runtime_catalog["schemas"]
+    for view in schema["views"]
+)
 assert payload["contractVersion"] == "catalyst.preview.v1", payload
 assert payload["deploymentMode"] == "demo", payload
-assert payload["target"]["approvedViews"] == ["analytics.lab_result_fact_v1"], payload
+assert sorted(payload["target"]["approvedViews"]) == readable_relations, payload
+assert any(
+    relation != "analytics.lab_result_fact_v1"
+    for relation in readable_relations
+), runtime_catalog
 assert payload["parameters"] == [{
     "name": "date_1",
     "type": "date",

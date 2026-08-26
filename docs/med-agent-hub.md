@@ -28,11 +28,11 @@ Catalyst
       → Catalyst deterministic lint / optional review / re-lint
 ```
 
-For query generation, Catalyst sends a user question and approved analytics
-catalog context inside role-specific messages. Hub executes one model call and
-returns assistant content verbatim. Gateway parses and validates that content,
-coordinates any correction/reviewer call, finalizes the structured query
-contract, and executes the query outside Hub.
+For query generation, Catalyst sends a user question and the current readable
+analytics catalog inside role-specific messages. Hub executes one model call
+and returns assistant content verbatim. Gateway parses and validates that
+content, coordinates any correction/reviewer call, finalizes the structured
+query contract, and executes the query outside Hub.
 
 For report generation, Catalyst sends governed table evidence. The hub returns
 staged report output with explicit validation and grounding states.
@@ -123,7 +123,7 @@ The engine must:
 
 1. Expose its configured profiles through
    `GET /v1/catalyst/query-options`.
-2. Accept an explicit analytics target, SQL dialect and versioned approved-view
+2. Accept an explicit analytics target, SQL dialect and versioned readable
    catalog.
 3. Advertise and return only the versioned `catalyst.query.v1` structured
    contract.
@@ -202,7 +202,7 @@ The finalized query object has:
 | `deploymentMode` | Must equal `demo` |
 | `status` | `ready`, `needs_clarification`, `unsupported`, or `rejected` |
 | `question` | Exact original request text |
-| `target` | Source, catalog version, approved views and SQL dialect |
+| `target` | Source, catalog version, readable relations and SQL dialect; the existing field name is `approvedViews` |
 | `sql` | One candidate read-only statement when status is `ready` |
 | `parameters` | Typed values bound outside the SQL text |
 | `expectedColumns` | Expected output names and types |
@@ -215,10 +215,11 @@ Catalyst rejects prose masquerading as the contract, a missing version, unknown
 fields that change execution meaning, or a `ready` response without complete
 target and provenance metadata.
 
-Catalyst also rejects a question mismatch, target data source/catalog/dialect
-mismatch, or an approved view that was not present in the request catalog.
-Normalized intent may appear in Gateway trace metadata but cannot replace the
-execution contract question.
+Catalyst fills `approvedViews` from the current readable request catalog; the
+model does not select or narrow that set. Catalyst rejects a question or target
+data source/catalog/dialect mismatch, and rejects generated SQL that references
+a relation absent from that request catalog. Normalized intent may appear in
+Gateway trace metadata but cannot replace the execution contract question.
 
 Named SQL placeholders use `:name` when the candidate uses parameters. Literal
 read-only SQL remains valid; named parameters are a recommendation for longer

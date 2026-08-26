@@ -309,20 +309,28 @@ def lint_candidate(
         if isinstance(source, exp.Table)
     }
     catalog_relations = _catalog_relations(extension)
-    approved_views = set(catalog_relations)
-    invalid_views = sorted(
-        view for view in referenced_views if view.casefold() not in approved_views
+    readable_relations = set(catalog_relations)
+    unknown_relations = sorted(
+        view for view in referenced_views if view.casefold() not in readable_relations
     )
-    if invalid_views or not referenced_views:
+    if unknown_relations or not referenced_views:
         findings.append(
             LintFinding(
+                # Keep this published rule code for stored-finding compatibility.
                 code="catalog.unapproved_view",
                 stage="catalog_identifiers",
                 severity="error",
                 path="sql",
-                message="Every relation must be an approved analytics view.",
-                evidence=", ".join(invalid_views) if invalid_views else "none",
-                suggestedAction="Use only the exact fully qualified views in the catalog.",
+                message=(
+                    "Every relation must be present in the current readable "
+                    "request catalog."
+                ),
+                evidence=(
+                    ", ".join(unknown_relations) if unknown_relations else "none"
+                ),
+                suggestedAction=(
+                    "Use an exact fully qualified relation from the request catalog."
+                ),
             )
         )
 
@@ -334,7 +342,7 @@ def lint_candidate(
                 stage="catalog_identifiers",
                 severity="error",
                 path="sql",
-                message="SQL references fields absent from the approved catalog.",
+                message="SQL references fields absent from the request catalog.",
                 evidence=", ".join(invalid_columns),
                 suggestedAction="Replace or remove every field not present in the catalog.",
             )

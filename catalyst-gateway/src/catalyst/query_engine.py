@@ -1035,7 +1035,7 @@ async def execute_query_profile(
         result = _rejected(
             question,
             extension,
-            message="The approved catalog contains duplicate view names.",
+            message="The request catalog contains duplicate relation names.",
             check_name="catalog_context",
             profile_id=request.profile.id,
         )
@@ -1061,7 +1061,7 @@ async def execute_query_profile(
             check_status = "warned"
         else:
             message = (
-                "The approved catalog does not contain a grounded analyte "
+                "The readable catalog does not contain a grounded analyte "
                 f"matching {unknown_analyte!r}."
             )
             answer = {"status": "unsupported", "message": message}
@@ -1198,7 +1198,7 @@ async def execute_query_profile(
                     question,
                     extension,
                     message=(
-                        "Generated query did not echo the approved catalog target."
+                        "Generated query did not echo the request catalog target."
                     ),
                     check_name="catalog_target",
                     diagnostic_candidate={
@@ -1331,7 +1331,7 @@ async def execute_query_profile(
                             raise candidate_error
                         if not _candidate_matches_catalog(repaired, canonical_target):
                             raise QueryContractError(
-                                "query repair changed the approved catalog target"
+                                "query repair changed the request catalog target"
                             )
                         repaired_findings = [
                             *lint_candidate(repaired, extension, instruction=question),

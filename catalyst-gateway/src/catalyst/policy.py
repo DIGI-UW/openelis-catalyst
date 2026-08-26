@@ -98,7 +98,7 @@ def validate_query_invariants(
         violations.append(
             Violation(
                 "context_mismatch",
-                "Hub response context sources do not exactly match the approved catalog.",
+                "Hub response context sources do not exactly match the requested catalog.",
             )
         )
 

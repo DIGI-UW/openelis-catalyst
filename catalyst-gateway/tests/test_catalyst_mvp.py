@@ -395,9 +395,8 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
             }
 
     hub = RuntimeHub()
-    # This source curates the relation it serves. Discovery re-describes it with
-    # database-derived types; it is curation that makes it queryable, so a
-    # catalog that curates something else would leave nothing to query here.
+    # The metadata describes a different relation. Database discovery alone
+    # makes patient_flat_v1 available to the editor, writer, and execution path.
     curated = Catalog(
         data_source="openelis-demo",
         catalog_version="2026.07",
@@ -406,14 +405,14 @@ def test_runtime_schema_is_shared_by_editor_hub_and_gateway_policy(
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
             {
-                "name": "public.patient_flat_v1",
+                "name": "analytics.lab_result_fact_v1",
                 "version": "1",
-                "grain": "one row per FHIR Patient",
+                "grain": "one row per result",
                 "fields": [
                     {
-                        "name": "patient_id",
+                        "name": "observation_id",
                         "type": "string",
-                        "description": "FHIR Patient identifier",
+                        "description": "FHIR Observation identifier",
                     }
                 ],
             }
