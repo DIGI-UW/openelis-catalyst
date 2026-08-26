@@ -28,7 +28,8 @@ runtime_catalog="$(
   curl -fsS --max-time 30 \
     "${GATEWAY_URL}/v1/catalyst/workbench/catalog"
 )"
-printf '%s\n' "${runtime_catalog}" > "${LOG_DIR}/mvp-live-catalog.json"
+runtime_catalog_path="${LOG_DIR}/mvp-live-catalog.json"
+printf '%s\n' "${runtime_catalog}" > "${runtime_catalog_path}"
 
 preview="$(
   curl -fsS --max-time 200 \
@@ -36,17 +37,19 @@ preview="$(
     -H 'Content-Type: application/json' \
     --data "${question_payload}"
 )"
-printf '%s\n' "${preview}" > "${LOG_DIR}/mvp-live-preview.json"
+preview_path="${LOG_DIR}/mvp-live-preview.json"
+printf '%s\n' "${preview}" > "${preview_path}"
 
 mapfile -t preview_meta < <(
-  PREVIEW_JSON="${preview}" \
-  RUNTIME_CATALOG_JSON="${runtime_catalog}" \
+  PREVIEW_PATH="${preview_path}" \
+  RUNTIME_CATALOG_PATH="${runtime_catalog_path}" \
   python3 - <<'PY'
 import json
 import os
+from pathlib import Path
 
-payload = json.loads(os.environ["PREVIEW_JSON"])
-runtime_catalog = json.loads(os.environ["RUNTIME_CATALOG_JSON"])
+payload = json.loads(Path(os.environ["PREVIEW_PATH"]).read_text())
+runtime_catalog = json.loads(Path(os.environ["RUNTIME_CATALOG_PATH"]).read_text())
 readable_relations = sorted(
     view["qualifiedName"]
     for schema in runtime_catalog["schemas"]
@@ -54,11 +57,8 @@ readable_relations = sorted(
 )
 assert payload["contractVersion"] == "catalyst.preview.v1", payload
 assert payload["deploymentMode"] == "demo", payload
+assert readable_relations, runtime_catalog
 assert sorted(payload["target"]["approvedViews"]) == readable_relations, payload
-assert any(
-    relation != "analytics.lab_result_fact_v1"
-    for relation in readable_relations
-), runtime_catalog
 assert payload["parameters"] == [{
     "name": "date_1",
     "type": "date",

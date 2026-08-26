@@ -1061,7 +1061,7 @@ async def execute_query_profile(
             check_status = "warned"
         else:
             message = (
-                "The readable catalog does not contain a grounded analyte "
+                "The readable request catalog does not contain a grounded analyte "
                 f"matching {unknown_analyte!r}."
             )
             answer = {"status": "unsupported", "message": message}
