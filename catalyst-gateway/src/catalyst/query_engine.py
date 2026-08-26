@@ -81,6 +81,9 @@ _HUB_QUERY_PROFILE_URL = os.getenv(
     "CATALYST_HUB_QUERY_PROFILE_URL", "http://med-agent-hub:8080/v1/hub/query-profiles"
 )
 _HUB_TIMEOUT_SECONDS = float(os.getenv("CATALYST_HUB_TIMEOUT_SECONDS", "1800"))
+_ROLE_REQUEST_EVIDENCE_CONTRACT = "med-agent-hub.catalyst-role-request-evidence.v1"
+_REQUEST_EVIDENCE_ERROR_ATTRIBUTE = "_catalyst_request_evidence"
+_HUB_ERROR_ATTRIBUTE = "_catalyst_hub_error"
 
 
 @dataclass(frozen=True)
@@ -154,7 +157,11 @@ async def _backend_chat(
     temperature: float,
     dry_multiplier: float,
     max_tokens: Optional[int],
-) -> tuple[str, Optional[Mapping[str, Any]]]:
+) -> tuple[
+    str,
+    Optional[Mapping[str, Any]],
+    Optional[Mapping[str, Any]],
+]:
     """Call a named Hub query role; caller-provided model settings are ignored."""
 
     payload: Dict[str, Any] = {"messages": messages}
@@ -165,7 +172,50 @@ async def _backend_chat(
         json=payload,
         timeout=_HUB_TIMEOUT_SECONDS,
     )
-    resp.raise_for_status()
+    if not resp.is_success:
+        detail: Any = None
+        try:
+            error_document = resp.json()
+            if isinstance(error_document, Mapping):
+                detail = error_document.get("detail")
+        except (TypeError, ValueError):
+            pass
+        request_evidence = None
+        hub_error = None
+        if isinstance(detail, Mapping):
+            if "request_evidence" in detail:
+                request_evidence = _validated_role_request_evidence(
+                    detail.get("request_evidence"),
+                    profile_id=profile_id,
+                    role=role,
+                    model=model,
+                    caller_messages=messages,
+                    response_format=response_format,
+                    temperature=temperature,
+                    dry_multiplier=dry_multiplier,
+                    max_tokens=max_tokens,
+                )
+            code = detail.get("code")
+            if isinstance(code, str) and code:
+                hub_error = {
+                    "code": code,
+                    "httpStatus": resp.status_code,
+                }
+                message = detail.get("message")
+                if isinstance(message, str) and message:
+                    hub_error["message"] = message
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            if request_evidence is not None:
+                setattr(
+                    error,
+                    _REQUEST_EVIDENCE_ERROR_ATTRIBUTE,
+                    request_evidence,
+                )
+            if hub_error is not None:
+                setattr(error, _HUB_ERROR_ATTRIBUTE, hub_error)
+            raise
     message = resp.json()
     content = message.get("content") if isinstance(message, Mapping) else None
     if not isinstance(content, str) or not content.strip():
@@ -173,7 +223,178 @@ async def _backend_chat(
     accounting = (
         message.get("token_accounting") if isinstance(message, Mapping) else None
     )
-    return content.strip(), accounting if isinstance(accounting, Mapping) else None
+    request_evidence = (
+        _validated_role_request_evidence(
+            message.get("request_evidence"),
+            profile_id=profile_id,
+            role=role,
+            model=model,
+            caller_messages=messages,
+            response_format=response_format,
+            temperature=temperature,
+            dry_multiplier=dry_multiplier,
+            max_tokens=max_tokens,
+        )
+        if isinstance(message, Mapping) and "request_evidence" in message
+        else None
+    )
+    return (
+        content.strip(),
+        accounting if isinstance(accounting, Mapping) else None,
+        request_evidence,
+    )
+
+
+def _validated_role_request_evidence(
+    value: Any,
+    *,
+    profile_id: str,
+    role: str,
+    model: str,
+    caller_messages: list[dict[str, str]],
+    response_format: Mapping[str, Any],
+    temperature: float,
+    dry_multiplier: float,
+    max_tokens: Optional[int],
+) -> dict[str, Any]:
+    """Validate the exact Hub-owned role request before retaining it as evidence."""
+
+    def invalid(message: str) -> QueryContractError:
+        return QueryContractError(f"Hub request evidence {message}")
+
+    if not isinstance(value, Mapping):
+        raise invalid("must be an object")
+    evidence = deepcopy(dict(value))
+    if set(evidence) != {
+        "contractVersion",
+        "request",
+        "requestDigest",
+        "prompt",
+        "tokens",
+    }:
+        raise invalid("has unexpected or missing fields")
+    if evidence["contractVersion"] != _ROLE_REQUEST_EVIDENCE_CONTRACT:
+        raise invalid("uses an unsupported contract version")
+
+    exact_request = evidence["request"]
+    if not isinstance(exact_request, Mapping) or set(exact_request) != {
+        "profileId",
+        "role",
+        "model",
+        "messages",
+        "responseFormat",
+        "config",
+    }:
+        raise invalid("request has unexpected or missing fields")
+    exact_messages = exact_request["messages"]
+    if (
+        exact_request["profileId"] != profile_id
+        or exact_request["role"] != role
+        or exact_request["model"] != model
+        or not isinstance(exact_messages, list)
+        or len(exact_messages) != len(caller_messages) + 1
+        or not isinstance(exact_messages[0], Mapping)
+        or exact_messages[0].get("role") != "system"
+        or not isinstance(exact_messages[0].get("content"), str)
+        or exact_messages[1:] != caller_messages
+        or exact_request["responseFormat"] != dict(response_format)
+    ):
+        raise invalid("does not match the configured role call")
+    config = exact_request["config"]
+    expected_config = {
+        "temperature": temperature,
+        "dryMultiplier": dry_multiplier,
+        "maxTokens": max_tokens,
+    }
+    if not isinstance(config, Mapping) or dict(config) != expected_config:
+        raise invalid("configuration does not match the configured role call")
+    request_digest = evidence["requestDigest"]
+    if not isinstance(
+        request_digest, str
+    ) or request_digest != _canonical_evidence_digest(exact_request):
+        raise invalid("requestDigest does not match the exact request")
+
+    prompt = evidence["prompt"]
+    if not isinstance(prompt, Mapping) or not {
+        "renderedPrompt",
+        "renderedPromptDigest",
+    }.issubset(prompt):
+        raise invalid("prompt measurement is incomplete")
+    if not set(prompt).issubset(
+        {"renderedPrompt", "renderedPromptDigest", "unavailableReason"}
+    ):
+        raise invalid("prompt measurement has unexpected fields")
+    rendered_prompt = prompt["renderedPrompt"]
+    rendered_digest = prompt["renderedPromptDigest"]
+    if rendered_prompt is None:
+        if rendered_digest is not None or not isinstance(
+            prompt.get("unavailableReason"), str
+        ):
+            raise invalid("prompt absence is not explained")
+    elif (
+        not isinstance(rendered_prompt, str)
+        or rendered_digest != _evidence_digest(rendered_prompt)
+        or "unavailableReason" in prompt
+    ):
+        raise invalid("renderedPromptDigest does not match the exact prompt")
+
+    tokens = evidence["tokens"]
+    required_token_fields = {
+        "tokenizer",
+        "contextWindow",
+        "outputReserve",
+        "promptTokens",
+        "requiredTokens",
+        "fits",
+    }
+    if not isinstance(tokens, Mapping) or not required_token_fields.issubset(tokens):
+        raise invalid("token measurement is incomplete")
+    if not set(tokens).issubset(
+        required_token_fields
+        | {"contextWindowUnavailableReason", "promptTokensUnavailableReason"}
+    ):
+        raise invalid("token measurement has unexpected fields")
+    context_window = tokens["contextWindow"]
+    output_reserve = tokens["outputReserve"]
+    prompt_tokens = tokens["promptTokens"]
+    required_tokens = tokens["requiredTokens"]
+    fits = tokens["fits"]
+    if tokens["tokenizer"] != model:
+        raise invalid("tokenizer does not match the configured model")
+    if type(output_reserve) is not int or output_reserve < 0:
+        raise invalid("outputReserve must be a non-negative integer")
+    if max_tokens is not None and output_reserve != max_tokens:
+        raise invalid("outputReserve does not match the configured role call")
+    if context_window is None:
+        if not isinstance(tokens.get("contextWindowUnavailableReason"), str):
+            raise invalid("missing context window is not explained")
+    elif (
+        type(context_window) is not int
+        or context_window < 1
+        or "contextWindowUnavailableReason" in tokens
+    ):
+        raise invalid("contextWindow is invalid")
+    if prompt_tokens is None:
+        if (
+            required_tokens is not None
+            or fits is not None
+            or not isinstance(tokens.get("promptTokensUnavailableReason"), str)
+        ):
+            raise invalid("missing prompt token count is not explained")
+    else:
+        if (
+            type(prompt_tokens) is not int
+            or prompt_tokens < 0
+            or "promptTokensUnavailableReason" in tokens
+            or required_tokens != prompt_tokens + output_reserve
+        ):
+            raise invalid("prompt token count is inconsistent")
+        expected_fit = (
+            required_tokens <= context_window if context_window is not None else None
+        )
+        if fits is not expected_fit:
+            raise invalid("fit result is inconsistent with the exact token counts")
+    return evidence
 
 
 def _evidence_digest(value: Any) -> str:
@@ -361,19 +582,59 @@ async def _invoke_backend(
             dry_multiplier=dry_multiplier,
             max_tokens=max_tokens,
         )
-        # Test doubles may still answer with a bare string; production answers
-        # (content, accounting). Either way each invocation keeps its own count.
-        content, accounting = (
-            answered if isinstance(answered, tuple) else (answered, None)
-        )
+        # Older test doubles may still answer with a bare string or the former
+        # (content, accounting) pair. The Hub now returns the exact configured
+        # role request as a third value.
+        if isinstance(answered, tuple) and len(answered) == 3:
+            content, accounting, request_evidence = answered
+        elif isinstance(answered, tuple) and len(answered) == 2:
+            content, accounting = answered
+            request_evidence = None
+        else:
+            content, accounting, request_evidence = answered, None, None
         invocation["tokenAccounting"] = (
             dict(accounting) if isinstance(accounting, Mapping) else None
         )
+        if isinstance(request_evidence, Mapping):
+            invocation["requestEvidence"] = deepcopy(dict(request_evidence))
+            invocation["requestDigest"] = str(request_evidence["requestDigest"])
     except asyncio.CancelledError as exc:
         _finish_invocation(invocation, outcome="cancelled", failure=repr(exc))
         raise
     except (TimeoutError, httpx.TimeoutException) as exc:
         _finish_invocation(invocation, outcome="timed_out", failure=repr(exc))
+        raise
+    except httpx.HTTPStatusError as exc:
+        request_evidence = getattr(
+            exc,
+            _REQUEST_EVIDENCE_ERROR_ATTRIBUTE,
+            None,
+        )
+        if isinstance(request_evidence, Mapping):
+            invocation["requestEvidence"] = deepcopy(dict(request_evidence))
+            invocation["requestDigest"] = str(request_evidence["requestDigest"])
+        hub_error = getattr(exc, _HUB_ERROR_ATTRIBUTE, None)
+        if isinstance(hub_error, Mapping):
+            invocation["hubError"] = deepcopy(dict(hub_error))
+        outcome = (
+            "pre_dispatch_rejected"
+            if isinstance(hub_error, Mapping)
+            and hub_error.get("code") == "context_window_exceeded"
+            else "transport_failed"
+        )
+        _finish_invocation(
+            invocation,
+            outcome=outcome,
+            failure=(
+                dict(hub_error)
+                if isinstance(hub_error, Mapping)
+                else {
+                    "type": type(exc).__name__,
+                    "status": exc.response.status_code,
+                    "message": str(exc),
+                }
+            ),
+        )
         raise
     except QueryContractError as exc:
         invocation["responseDigest"] = _evidence_digest("")

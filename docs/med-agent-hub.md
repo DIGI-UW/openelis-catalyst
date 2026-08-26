@@ -134,6 +134,13 @@ The engine must:
    correlation evidence.
 8. Never send database credentials or result rows to Hub.
 
+For each configured-role call, Hub returns the exact final model request,
+including its system prompt, caller messages, response format, effective
+configuration, canonical digest, and direct router measurements when
+available. Catalyst retains this evidence on success and on structured Hub
+errors. A proven context-window overflow is recorded as rejection before model
+dispatch, not as a transport failure or a bad model answer.
+
 Model review is a generation-quality control. Gateway still parses and
 validates every candidate before execution.
 

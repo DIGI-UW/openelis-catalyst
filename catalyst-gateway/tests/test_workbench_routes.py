@@ -406,6 +406,48 @@ class FakeHub:
         return None
 
 
+class RequestEvidenceHub(FakeHub):
+    async def generate_query(self, request: dict) -> dict:
+        query = await super().generate_query(request)
+        writer = query["_hubEvidence"]["modelInvocations"][0]
+        exact_request = {
+            "profileId": PROFILE_ID,
+            "role": "query_generate",
+            "model": writer["modelId"],
+            "messages": [
+                {"role": "system", "content": "Exact Hub-owned writer prompt."},
+                *deepcopy(request["messages"]),
+            ],
+            "responseFormat": None,
+            "config": {
+                "temperature": 0.0,
+                "dryMultiplier": 0.0,
+                "maxTokens": 1024,
+            },
+        }
+        rendered = "<s>exact rendered writer request</s>"
+        request_evidence = {
+            "contractVersion": "med-agent-hub.catalyst-role-request-evidence.v1",
+            "request": exact_request,
+            "requestDigest": canonical_sha256(exact_request),
+            "prompt": {
+                "renderedPrompt": rendered,
+                "renderedPromptDigest": utf8_sha256(rendered),
+            },
+            "tokens": {
+                "tokenizer": writer["modelId"],
+                "contextWindow": 24576,
+                "outputReserve": 1024,
+                "promptTokens": 2345,
+                "requiredTokens": 3369,
+                "fits": True,
+            },
+        }
+        writer["requestEvidence"] = request_evidence
+        writer["requestDigest"] = request_evidence["requestDigest"]
+        return query
+
+
 class IncompleteProfileHub(FakeHub):
     async def list_query_profiles(self) -> list[dict]:
         profiles = await super().list_query_profiles()
@@ -1884,6 +1926,69 @@ def test_failed_turn_names_its_failed_checks_in_the_failure_block(
     assert all(not detail["value"].startswith("passed") for detail in details)
 
 
+def test_all_failure_context_reaches_the_next_model_request_without_truncation(
+    tmp_path: Path,
+) -> None:
+    rejected = _rejected_query()
+    rejected["diagnosticCandidate"].pop("candidate")
+    rejected["diagnosticCandidate"]["rawOutput"] = '{"patches": []}'
+    findings = [
+        {
+            "code": f"policy.{'specific_rule_' * 9}{index}",
+            "stage": "parameter_binding",
+            "severity": "error",
+            "path": f"$.sql[{index}]",
+            "message": f"Finding {index}: " + ("full diagnostic text " * 300),
+            "evidence": f"evidence-{index}-" + ("x" * 5000),
+            "suggestedAction": f"Correct finding {index} without dropping it.",
+        }
+        for index in range(40)
+    ]
+    attempt = rejected["diagnosticCandidate"]["attempts"][0]
+    attempt["findings"] = findings
+    attempt["finding_codes"] = [finding["code"] for finding in findings]
+    hub = FailingFollowupHub(_ready_query(), rejected)
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+    base = session["currentVersion"]
+    snapshot = {
+        "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+        "sql": base["sql"],
+        "parameters": base["parameters"],
+        "expectedColumns": base["expectedColumns"],
+        "editorDigest": base["queryDigest"],
+    }
+
+    def follow_up(instruction: str):
+        return client.post(
+            f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+            json={
+                "contractVersion": "catalyst.workbench.turn.request.v1",
+                "instruction": instruction,
+                "profileId": PROFILE_ID,
+                "observedBase": {
+                    "versionId": base["versionId"],
+                    "queryDigest": base["queryDigest"],
+                },
+                "editorSnapshot": snapshot,
+            },
+        )
+
+    failed = follow_up("Try the requested change")
+    assert failed.status_code == 201, failed.text
+    assert failed.json()["status"] == "failed"
+    stored_details = failed.json()["failure"]["diagnostic"]["details"]
+    assert len(stored_details) == 41  # every finding plus the failed named check
+    assert stored_details[0]["name"] == findings[0]["code"]
+    assert findings[0]["evidence"] in stored_details[0]["value"]
+
+    second = follow_up("Use the failure evidence and try again")
+    assert second.status_code == 201, second.text
+    relevant = hub.requests[-1]["catalystQuery"]["revision"]["sessionContext"]
+    supplied = relevant["relevantFailure"]["findings"]
+    assert supplied == stored_details
+
+
 def test_structured_raw_only_diagnostic_is_preserved_for_manual_recovery(
     tmp_path: Path,
 ) -> None:
@@ -2468,6 +2573,55 @@ def test_initial_and_followup_turn_routes_preserve_exact_context_and_evidence(
     assert "hidden_reasoning" in detail["prohibitedClasses"]
 
 
+def test_retained_instruction_history_survives_a_service_reload_without_guidance(
+    tmp_path: Path,
+) -> None:
+    first_hub = FakeHub(_ready_query())
+    first_client, _ = _client(tmp_path, _ready_query(), hub=first_hub)
+    session = _create_session(first_client)
+
+    def follow_up(client: TestClient, base: dict, instruction: str) -> None:
+        response = client.post(
+            f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns",
+            json={
+                "contractVersion": "catalyst.workbench.turn.request.v1",
+                "instruction": instruction,
+                "profileId": PROFILE_ID,
+                "observedBase": {
+                    "versionId": base["versionId"],
+                    "queryDigest": base["queryDigest"],
+                },
+                "editorSnapshot": {
+                    "contractVersion": "catalyst.workbench.editor-snapshot.v1",
+                    "sql": base["sql"],
+                    "parameters": base["parameters"],
+                    "expectedColumns": base["expectedColumns"],
+                    "editorDigest": workbench_query_digest(
+                        base["sql"], base["parameters"], base["expectedColumns"]
+                    ),
+                },
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    follow_up(first_client, session["currentVersion"], "Only finalized observations")
+
+    reloaded_hub = FakeHub(_ready_query())
+    reloaded_client, _ = _client(tmp_path, _ready_query(), hub=reloaded_hub)
+    restored = reloaded_client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}"
+    ).json()
+    assert restored["guidance"] == []
+    follow_up(reloaded_client, restored["currentVersion"], "Now group by test name")
+
+    revision = reloaded_hub.requests[-1]["catalystQuery"]["revision"]
+    assert [item["instruction"] for item in revision["instructionHistory"]] == [
+        QUESTION,
+        "Only finalized observations",
+    ]
+    assert "guidance" not in revision["sessionContext"]
+
+
 def test_followup_rejects_bad_snapshot_digest_without_events(tmp_path: Path) -> None:
     client, _ = _client(tmp_path, _ready_query())
     session = _create_session(client)
@@ -2815,10 +2969,10 @@ def test_blank_guidance_is_refused_with_a_clear_error(tmp_path: Path) -> None:
     assert response.json()["error"]["code"] == "invalid_request"
 
 
-def test_pinned_guidance_reaches_the_writer_on_the_next_turn(
+def test_optional_guidance_reaches_the_writer_on_the_next_turn(
     tmp_path: Path,
 ) -> None:
-    """A composer pin becomes active on the next turn, not retroactively."""
+    """Experimental guidance becomes active on the next turn, not retroactively."""
     hub = FailingFollowupHub(_ready_query(), _ready_query())
     client, _ = _client(tmp_path, _ready_query(), hub=hub)
     session = _create_session(client)
@@ -2858,6 +3012,9 @@ def test_pinned_guidance_reaches_the_writer_on_the_next_turn(
     assert [item["text"] for item in context["guidance"]["entries"]] == [
         "Exclude do_not_perform rows."
     ]
+    assert revision["contextDigest"] == canonical_sha256(
+        {key: value for key, value in revision.items() if key != "contextDigest"}
+    )
     # The initial turn ran before the pin existed and must not have carried it.
     initial = hub.requests[0]["catalystQuery"]
     assert "sessionContext" not in initial or not initial["sessionContext"].get(
@@ -2865,12 +3022,14 @@ def test_pinned_guidance_reaches_the_writer_on_the_next_turn(
     )
 
 
-def test_the_request_records_what_the_caps_left_out(tmp_path: Path) -> None:
+def test_more_than_twenty_guidance_entries_reach_the_request_without_a_cap(
+    tmp_path: Path,
+) -> None:
     hub = FailingFollowupHub(_ready_query(), _ready_query())
     client, _ = _client(tmp_path, _ready_query(), hub=hub)
     session = _create_session(client)
     base = session["currentVersion"]
-    for index in range(21):
+    for index in range(25):
         client.post(
             f"/v1/catalyst/workbench/sessions/{session['sessionId']}/guidance",
             json={
@@ -2902,9 +3061,10 @@ def test_the_request_records_what_the_caps_left_out(tmp_path: Path) -> None:
     )
 
     context = hub.requests[-1]["catalystQuery"]["revision"]["sessionContext"]
-    assert len(context["guidance"]["entries"]) == 20
-    assert context["omissions"][0]["reason"] == "active_entry_cap"
-    assert len(context["omissions"][0]["itemIds"]) == 1
+    assert [item["text"] for item in context["guidance"]["entries"]] == [
+        f"entry {index}" for index in range(25)
+    ]
+    assert context["omissions"] == []
 
 
 class HubWithoutSessionContext(FailingFollowupHub):
@@ -3176,6 +3336,35 @@ def test_the_turns_token_evidence_is_published_with_the_evidence(
     assert evidence["tokenAccounting"] == accounting
     writer = [i for i in evidence["invocations"] if i["role"] == "writer"][0]
     assert writer["tokenAccounting"] == accounting
+
+
+def test_the_exact_hub_role_request_is_published_with_the_turn_evidence(
+    tmp_path: Path,
+) -> None:
+    hub = RequestEvidenceHub(_ready_query())
+    client, _ = _client(tmp_path, _ready_query(), hub=hub)
+    session = _create_session(client)
+
+    turn = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns"
+    ).json()["turns"][0]
+    evidence = client.get(
+        f"/v1/catalyst/workbench/sessions/{session['sessionId']}/turns/"
+        f"{turn['turnId']}/generation-evidence"
+    ).json()
+
+    writer = [item for item in evidence["invocations"] if item["role"] == "writer"][0]
+    exact = writer["requestEvidence"]
+    assert exact["contractVersion"] == (
+        "med-agent-hub.catalyst-role-request-evidence.v1"
+    )
+    assert writer["requestDigest"] == exact["requestDigest"]
+    assert exact["request"]["messages"][0]["role"] == "system"
+    assert exact["tokens"]["fits"] is True
+    ContractRegistry.load(CONTRACTS).validate(
+        "catalyst-workbench-generation-evidence-v1.schema.json",
+        evidence,
+    )
 
 
 # --- session guidance over HTTP ---------------------------------------------

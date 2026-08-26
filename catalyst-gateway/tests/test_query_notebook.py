@@ -11,7 +11,11 @@ from src.catalyst.storage import (
     ActiveTurnGenerationError,
     WorkbenchStore,
 )
-from src.catalyst.workbench import build_revision_context, workbench_query_digest
+from src.catalyst.workbench import (
+    build_revision_context,
+    finalize_revision_context_digest,
+    workbench_query_digest,
+)
 
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
@@ -115,6 +119,102 @@ def _profile_evidence() -> dict:
 def test_editor_digest_uses_the_normative_golden_vector() -> None:
     assert workbench_query_digest("SELECT 1", [], []) == (
         "82d9696f92e64acb0c4edba843633c97e" "b23fd3f22887d93755eb86971855105"
+    )
+
+
+def test_revision_context_keeps_the_complete_instruction_history() -> None:
+    session_id = "00000000-0000-0000-0000-000000000001"
+    prior_turns = [
+        {
+            "sessionId": session_id,
+            "turnId": f"00000000-0000-0000-0000-{index:012d}",
+            "ordinal": index,
+            "kind": "initial" if index == 1 else "followup",
+            "instruction": f"instruction {index}",
+            "instructionDigest": utf8_sha256(f"instruction {index}"),
+        }
+        for index in range(1, 10)
+    ]
+
+    context = build_revision_context(
+        session={"sessionId": session_id, "validations": [], "executions": []},
+        prior_turns=prior_turns,
+        turn_id="00000000-0000-0000-0000-000000000099",
+        instruction="next instruction",
+        base_classification="not_applicable",
+        observed_base=None,
+        effective_base=None,
+        editor_snapshot=None,
+    )
+
+    assert [item["instruction"] for item in context["instructionHistory"]] == [
+        f"instruction {index}" for index in range(1, 10)
+    ]
+    assert context["selection"]["omissions"]["historyInstructionsOmitted"] == 0
+    assert context["selection"]["omissions"]["omittedHistory"] == []
+    ContractRegistry.load(CONTRACTS).validate(
+        "catalyst-query-revision-context-v1.schema.json", context
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_context",
+    [
+        {
+            "guidance": {
+                "role": "experimental",
+                "entries": [{"text": "Use CIEL."}],
+            }
+        },
+        {
+            "verifiedExamples": {
+                "role": "evidence",
+                "examples": [{"turnId": "earlier", "sql": "SELECT 1"}],
+            }
+        },
+        {
+            "relevantFailure": {
+                "role": "evidence",
+                "turnId": "earlier",
+                "code": "bad_query",
+            }
+        },
+    ],
+)
+def test_revision_digest_binds_every_supplied_session_context_layer(
+    extra_context: dict,
+) -> None:
+    session_id = "00000000-0000-0000-0000-000000000001"
+    prior = {
+        "sessionId": session_id,
+        "turnId": "00000000-0000-0000-0000-000000000002",
+        "ordinal": 1,
+        "kind": "initial",
+        "instruction": "Show one row",
+        "instructionDigest": utf8_sha256("Show one row"),
+    }
+    context = build_revision_context(
+        session={"sessionId": session_id, "validations": [], "executions": []},
+        prior_turns=[prior],
+        turn_id="00000000-0000-0000-0000-000000000003",
+        instruction="Try again",
+        base_classification="not_applicable",
+        observed_base=None,
+        effective_base=None,
+        editor_snapshot=None,
+    )
+    digest_without_session_context = context["contextDigest"]
+    context["sessionContext"] = {
+        "contractVersion": "catalyst.query.session-context.v1",
+        "omissions": [],
+        **extra_context,
+    }
+
+    digest_with_session_context = finalize_revision_context_digest(context)
+
+    assert digest_with_session_context != digest_without_session_context
+    assert digest_with_session_context == canonical_sha256(
+        {key: value for key, value in context.items() if key != "contextDigest"}
     )
 
 
@@ -855,3 +955,24 @@ def test_model_failure_stage_uses_terminal_invocation_role_for_reviewer_timeout(
     stage, code = CatalystService._model_failure_stage(evidence, reviewer=False)
 
     assert (stage, code) == ("reviewer_transport", "reviewer_timeout")
+
+
+def test_model_failure_stage_keeps_known_context_overflow_out_of_transport() -> None:
+    from src.catalyst.service import CatalystService
+
+    evidence = {
+        "modelInvocations": [
+            {
+                "role": "writer",
+                "outcome": "pre_dispatch_rejected",
+                "hubError": {
+                    "code": "context_window_exceeded",
+                    "httpStatus": 422,
+                },
+            }
+        ]
+    }
+
+    stage, code = CatalystService._model_failure_stage(evidence, reviewer=False)
+
+    assert (stage, code) == ("writer_request", "context_window_exceeded")

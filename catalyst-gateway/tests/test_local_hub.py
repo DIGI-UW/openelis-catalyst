@@ -272,7 +272,7 @@ async def test_the_local_hub_advertises_the_session_context_it_can_read(
     """The in-process engine reads the Phase 1 shape, so it says so.
 
     Without the advertisement Catalyst withholds the layer, and nothing would
-    ever receive the guidance a person pinned.
+    ever receive guidance supplied for an experiment.
     """
     from src.catalyst.session_context import SESSION_CONTEXT_CONTRACT
 

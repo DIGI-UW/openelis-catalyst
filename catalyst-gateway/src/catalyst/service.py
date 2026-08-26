@@ -46,6 +46,7 @@ from .table import build_table
 from .workbench import (
     build_advisory_validation,
     build_revision_context,
+    finalize_revision_context_digest,
     normalize_findings,
     workbench_query_digest,
 )
@@ -1427,7 +1428,7 @@ class CatalystService:
             ):
                 revision["sessionContext"] = build_session_context(
                     guidance=store.active_guidance(session_id),
-                    omitted_guidance=store.guidance_omitted_by_cap(session_id),
+                    omitted_guidance=[],
                     verified_examples=select_verified_examples(
                         self._verified_examples(session, prior_turns),
                         instruction=instruction,
@@ -1437,6 +1438,7 @@ class CatalystService:
                     ),
                     relevant_failure=self._relevant_prior_failure(prior_turns),
                 )
+            finalize_revision_context_digest(revision)
             request = build_revision_query_request(
                 instruction,
                 runtime_catalog,
@@ -2635,6 +2637,12 @@ class CatalystService:
                 configuration = item.get("configuration")
                 if isinstance(configuration, dict):
                     invocation["configuration"] = deepcopy(configuration)
+                request_evidence = item.get("requestEvidence")
+                if isinstance(request_evidence, dict):
+                    invocation["requestEvidence"] = deepcopy(request_evidence)
+                hub_error = item.get("hubError")
+                if isinstance(hub_error, dict):
+                    invocation["hubError"] = deepcopy(hub_error)
                 projected.append(invocation)
             return projected
         # Model invocations are Hub-owned evidence. A Gateway-to-Hub request is
@@ -2680,6 +2688,14 @@ class CatalystService:
             return f"{role}_output_contract", f"{role}_output_contract_failed"
         if outcome == "validation_failed":
             return f"{role}_output_contract", f"{role}_output_contract_failed"
+        if outcome == "pre_dispatch_rejected":
+            hub_error = terminal.get("hubError")
+            code = (
+                str(hub_error.get("code"))
+                if isinstance(hub_error, dict) and hub_error.get("code")
+                else f"{role}_request_rejected"
+            )
+            return f"{role}_request", code
         if outcome == "timed_out":
             return f"{role}_transport", f"{role}_timeout"
         if outcome == "cancelled":
@@ -2972,11 +2988,11 @@ class CatalystService:
             # The diagnostic contract's detail shape is {name, value}.
             details.append(
                 {
-                    "name": str(check.get("name") or "unnamed_check")[:100],
-                    "value": value[:4000],
+                    "name": str(check.get("name") or "unnamed_check"),
+                    "value": value,
                 }
             )
-        return details[:32]
+        return details
 
     @classmethod
     def _failure_details(cls, outcome: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -2987,7 +3003,7 @@ class CatalystService:
         """
         details = [
             {
-                "name": str(finding.get("code"))[:100],
+                "name": str(finding.get("code")),
                 "value": " ".join(
                     part
                     for part in (
@@ -3001,11 +3017,11 @@ class CatalystService:
                         str(finding.get("suggestedAction") or "").strip(),
                     )
                     if part
-                )[:4000],
+                ),
             }
             for finding in cls._unresolved_findings(outcome)
         ]
-        return (details + cls._failure_check_details(outcome))[:32]
+        return details + cls._failure_check_details(outcome)
 
     @staticmethod
     def _response_hub_trace_id(outcome: dict[str, Any]) -> str | None:
@@ -3227,7 +3243,7 @@ class CatalystService:
     def pin_workbench_guidance(
         self, session_id: str, payload: dict[str, Any]
     ) -> ServiceResponse:
-        """Pin one instruction to a session, exactly as written."""
+        """Record one optional experimental instruction exactly as written."""
         try:
             self.contracts.validate(
                 "catalyst-workbench-guidance-request-v1.schema.json", payload
@@ -3276,20 +3292,52 @@ class CatalystService:
     def _verified_examples(
         session: Mapping[str, Any], prior_turns: Sequence[Mapping[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Queries this session already accepted, as example candidates.
-
-        A verified example is a kept version: a turn selected it and it
-        survived. Successful queries are examples, never guidance.
-        """
+        """Return kept queries that were validated and successfully executed."""
         versions = {
             str(version["versionId"]): version
             for version in session.get("versions", [])
         }
+        validations: dict[str, list[dict[str, Any]]] = {}
+        for validation in session.get("validations", []):
+            if not isinstance(validation, Mapping):
+                continue
+            version_id = str(validation.get("versionId") or "")
+            version = versions.get(version_id)
+            if version is None or validation.get("queryDigest") != version.get(
+                "queryDigest"
+            ):
+                continue
+            validations.setdefault(version_id, []).append(dict(validation))
+
+        successful_executions: dict[str, list[dict[str, Any]]] = {}
+        session_id = str(session.get("sessionId") or "")
+        for execution in session.get("executions", []):
+            if (
+                not isinstance(execution, Mapping)
+                or execution.get("status") != "succeeded"
+            ):
+                continue
+            version_id = str(execution.get("versionId") or "")
+            version = versions.get(version_id)
+            if (
+                version is None
+                or execution.get("queryDigest") != version.get("queryDigest")
+                or (
+                    execution.get("sessionId") is not None
+                    and str(execution.get("sessionId")) != session_id
+                )
+            ):
+                continue
+            successful_executions.setdefault(version_id, []).append(dict(execution))
+
         examples: list[dict[str, Any]] = []
         for turn in prior_turns:
             selected = turn.get("selectedVersionId")
             version = versions.get(str(selected)) if selected else None
-            if version is None:
+            version_id = str(selected or "")
+            version_validations = validations.get(version_id, [])
+            version_executions = successful_executions.get(version_id, [])
+            if version is None or not version_validations or not version_executions:
                 continue
             examples.append(
                 {
@@ -3299,6 +3347,32 @@ class CatalystService:
                     "queryDigest": str(version["queryDigest"]),
                     "sourceId": str(turn.get("dataSourceId") or ""),
                     "catalogVersion": str(turn.get("catalogVersion") or ""),
+                    "advisoryValidations": [
+                        {
+                            key: deepcopy(validation.get(key))
+                            for key in (
+                                "validationId",
+                                "status",
+                                "validatorRevision",
+                                "validatorDigest",
+                                "findings",
+                                "createdAt",
+                            )
+                        }
+                        for validation in version_validations
+                    ],
+                    "successfulExecutions": [
+                        {
+                            key: deepcopy(execution.get(key))
+                            for key in (
+                                "executionId",
+                                "status",
+                                "completedAt",
+                                "durationMs",
+                            )
+                        }
+                        for execution in version_executions
+                    ],
                 }
             )
         return examples

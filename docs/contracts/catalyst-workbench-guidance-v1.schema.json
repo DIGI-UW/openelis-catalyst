@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "catalyst-workbench-guidance-v1.schema.json",
   "title": "Catalyst workbench session guidance entry",
-  "description": "One durable instruction a person pinned to a session. Delivered to the writer verbatim: never summarised, rewritten, or normalised. Entries are append-only; removing or replacing one appends a lifecycle event rather than editing history.",
+  "description": "One optional experimental instruction supplied for a session. Delivered to the writer verbatim: never summarised, rewritten, or normalised. Entries are append-only; deactivating or replacing one appends a lifecycle event rather than editing history. Historical wire values retain pin terminology for compatibility and do not imply a required product interface.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -24,7 +24,7 @@
     "entryId": { "type": "string", "minLength": 1 },
     "sessionId": { "type": "string", "format": "uuid" },
     "order": {
-      "description": "Server-assigned position. Delivery order, and the tie-break when guidance conflicts: later wins.",
+      "description": "Server-assigned recorded sequence. It does not define conflict precedence.",
       "type": "integer",
       "minimum": 1
     },
@@ -39,11 +39,11 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "source": {
-      "description": "Pinned in the composer, or accepted from a finding on a failed turn.",
+      "description": "Supplied directly through the experimental API, or accepted from a finding on a failed turn.",
       "enum": ["human", "system"]
     },
     "originTurnId": {
-      "description": "The turn whose finding was accepted; null for a composer pin.",
+      "description": "The turn whose finding was accepted; null for guidance supplied directly through the experimental API.",
       "type": ["string", "null"],
       "format": "uuid"
     },
@@ -65,7 +65,7 @@
     },
     "createdAt": { "type": "string", "format": "date-time" },
     "events": {
-      "description": "Append-only lifecycle: pinned, then any unpin or supersede.",
+      "description": "Append-only lifecycle. The pinned and unpinned action names are retained wire identifiers, not a required user-interface design.",
       "type": "array",
       "minItems": 1,
       "items": {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openelis-global.org/contracts/catalyst-query-revision-context-v1.schema.json",
   "title": "Catalyst query revision context v1",
-  "description": "Bounded deterministic context supplied to both Hub model roles for one follow-up turn.",
+  "description": "Complete deterministic context assembled for one follow-up turn. Per-model physical requests are recorded separately by the Hub.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -74,7 +74,6 @@
     "instructionHistory": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 6,
       "items": {
         "$ref": "#/$defs/historyItem"
       }
@@ -106,7 +105,7 @@
       "$ref": "catalyst-workbench-editor-snapshot-v1.schema.json#/$defs/digest"
     },
     "sessionContext": {
-      "description": "The session's layered context: pinned guidance, verified examples from earlier turns, and the one prior failure on this revision line. Optional, so a request built before Phase 1 stays valid; every omission a cap caused is recorded inside it.",
+      "description": "The session context actually supplied: optional guidance, verified examples from earlier turns, and the relevant prior failure. Optional for compatibility with Hubs that do not advertise this contract; any omission is recorded with its reason.",
       "type": "object",
       "additionalProperties": true,
       "required": [
@@ -226,8 +225,7 @@
         },
         "message": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
+          "minLength": 1
         }
       }
     },
@@ -271,7 +269,6 @@
         },
         "findings": {
           "type": "array",
-          "maxItems": 50,
           "items": {
             "$ref": "#/$defs/finding"
           }
@@ -358,22 +355,19 @@
           "maxLength": 100
         },
         "message": {
-          "type": "string",
-          "maxLength": 4000
+          "type": "string"
         },
         "detail": {
           "type": [
             "string",
             "null"
-          ],
-          "maxLength": 4000
+          ]
         },
         "hint": {
           "type": [
             "string",
             "null"
-          ],
-          "maxLength": 4000
+          ]
         },
         "position": {
           "type": [
@@ -438,18 +432,15 @@
         },
         "columns": {
           "type": "array",
-          "maxItems": 128,
           "items": {
             "$ref": "#/$defs/executionColumn"
           }
         },
         "warnings": {
           "type": "array",
-          "maxItems": 8,
           "items": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
+            "minLength": 1
           }
         },
         "databaseDiagnostic": {
@@ -557,7 +548,6 @@
         },
         "omittedHistory": {
           "type": "array",
-          "maxItems": 1000,
           "items": {
             "$ref": "#/$defs/omittedHistoryRef"
           }
@@ -609,7 +599,6 @@
         "includedHistoryTurnIds": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 6,
           "uniqueItems": true,
           "items": {
             "type": "string",

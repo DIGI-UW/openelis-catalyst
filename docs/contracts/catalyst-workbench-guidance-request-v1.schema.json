@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "catalyst-workbench-guidance-request-v1.schema.json",
-  "title": "Pin one guidance entry to a session",
+  "title": "Submit one experimental guidance entry for a session",
   "type": "object",
   "additionalProperties": false,
   "required": ["contractVersion", "text"],
@@ -9,7 +9,7 @@
     "contractVersion": { "const": "catalyst.workbench.guidance.request.v1" },
     "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
     "source": {
-      "description": "A composer pin, or a finding accepted from a failed turn.",
+      "description": "Guidance supplied directly for an experiment, or a finding accepted from a failed turn.",
       "enum": ["human", "system"]
     },
     "originTurnId": { "type": ["string", "null"], "format": "uuid" },

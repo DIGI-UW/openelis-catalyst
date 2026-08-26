@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openelis-global.org/catalyst/contracts/catalyst-query-request-v2.schema.json",
   "title": "Catalyst query-profile revision request v2",
-  "description": "OpenAI-compatible Hub request for a follow-up query. The sole user message is the current instruction; bounded prior context is typed under catalystQuery.revision.",
+  "description": "OpenAI-compatible Hub request for a follow-up query. The sole user message is the current instruction; eligible prior context is typed under catalystQuery.revision.",
   "type": "object",
   "additionalProperties": false,
   "required": ["model", "stream", "messages", "catalystQuery"],
