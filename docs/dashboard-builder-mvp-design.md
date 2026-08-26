@@ -1,35 +1,23 @@
 # Catalyst Dashboard Builder MVP design
 
-**Status:** Authoritative, reconciled UX contract; Superset file/outbox MVP architecture approved
-**Imported:** 2026-08-05 from the user-supplied `Dashboard builder MVP design.zip`  
+**Status:** Binding Dashboard Builder interaction and visual contract
 **Interactive reference:** `docs/prototypes/dashboard-builder-mvp/`
 
-This document preserves the supplied design handoff in the Catalyst repository
-and is the UX/product-design source for the Dashboard Builder workstream. The
-approved implementation boundary below supersedes conflicting integration
-details in the original handoff while preserving its information architecture,
-interaction design, and visual specification. The reconciled populated Ask
-state in `Catalyst Dashboard Builder 4c.dc.html` is the visual reference. When a
-static mock detail and this written contract disagree, this written contract and
-the current query-workbench behavior win.
+This document is the UX and product-design source for Dashboard Builder. The
+populated Workbench state in `Catalyst Dashboard Builder 4c.dc.html` is the
+binding visual reference. This written contract defines behavior when a static
+mock cannot express it.
 
-## Amendments after the v2 build (2026-08-08)
+## Current product decisions
 
-The reconciliation below records what was approved from the handoff. Five of
-its statements have since been superseded by decisions made while building the
-v2 experience and walking it by hand. Where the two disagree, this list wins;
-the reasoning is recorded in `specs/008-catalyst-query-workbench/spec.md`,
-clarifications session 2026-08-08.
+The decisions below govern the detailed design that follows.
 
 - **The "Ask shell" is the Workbench.** The section nav names the place rather
   than the gesture, in visible text rather than an icon's `aria-label`, and
   the section repeats that word in a heading above the session's name.
-- **Advisory Validate is no longer its own control.** Running saves the editor
-  as an immutable version and checks it on the way, so a separate "save and
-  check" could only ever add a version with no result to show for it — and,
-  pressed before Run, added two. One Run action; the check reports beside it
-  and still never blocks. ASK-02's "Format, Validate, explicit Run" now reads
-  "Format, explicit Run".
+- **Validation is advisory.** Validate reports findings for the exact editor
+  state, does not execute SQL, and never disables Run. The visible controls are
+  Format, Validate, and Run.
 - **The Dataset tile lives in the cell that produced it,** expanded by default
   and spanning the thread's width, rather than as a single standalone tile
   owned by the panel. It is still the sole bounded typed-result presentation,
@@ -40,8 +28,13 @@ clarifications session 2026-08-08.
 - **Version numbers leave the thread.** Cells are numbered `[n]` by position;
   query-version and execution ordinals appear only in the details and
   dataset-review surfaces, which are the provenance views.
+- **One source per session.** Changing the Data source control starts a new
+  session; an existing thread never silently switches its connection or schema.
+- **Available data is complete.** It shows every table, view, column, and type
+  readable through the configured connection. Optional descriptions may enrich
+  the display but cannot hide relations.
 
-## Approved MVP reconciliation
+## MVP interaction contract
 
 The prototype's Ask shell, fixed composer, chronological thread, Dataset tile,
 and review panel are the required target experience. Production must integrate
@@ -50,13 +43,12 @@ evidence, exactly one SQL editor with completion/formatting/wrapping, manual
 versions and unresolved snapshots, advisory Validate, explicit Run, visible raw
 generation/failure evidence, findings, database diagnostics and typed results,
 contextual follow-up, compact history, result staleness, refresh restoration,
-runtime schema/catalog access, and one canonical New session action through
+complete readable-schema access, and one canonical New session action through
 **Save Dataset**. The Dataset tile exists only after a successful execution for
 the exact query digest; it opens the sole bounded typed-result presentation in
 the Dataset panel. Do not implement example prompts or implied automatic
-generation/execution. Reorganize—not remove—the current catalog browser and
-executed results into the compact thread, Available data disclosure, Dataset
-draft tile, and review panel.
+generation/execution. Available data owns schema browsing, and the Dataset draft
+tile and review panel own the successful execution result.
 
 The accepted Ask invariants are testable requirements:
 
@@ -71,7 +63,7 @@ The accepted Ask invariants are testable requirements:
 - **ASK-03 — contextual refinement:** the fixed composer identifies the exact
   visible Query vN/editor snapshot on which the next complete query is based.
 - **ASK-04 — available-data context:** a compact, keyboard-operable disclosure
-  exposes the active runtime catalog's relations and columns and a path into the
+  exposes every relation and column readable through the active source and a path into the
   full searchable/filterable/paginated source browser, including its empty and
   failure states.
 - **DATASET-01 — explicit transition:** only a successful Run for the exact
@@ -114,22 +106,25 @@ The accepted Ask invariants are testable requirements:
 5. The MVP does not call the Superset REST API. Catalyst shows `Bundle ready`
    until the importer records CLI success, then `Imported`; it never infers
    `Synced` merely because a file exists.
-6. Superset queries the analytics database through the local demo read-only
-   role. Bundles contain configuration/provenance rather than result rows. Only
-   the labelled local demo may embed its read-only credential.
+6. Superset queries the same configured data source as the originating Catalyst
+   Dataset. Bundles contain configuration and recorded identities rather than
+   result rows. Credentials remain in deployment configuration and never enter
+   the bundle.
 7. Superset API publication, embedded viewing, cross-system undo/reconciliation,
    sharing, scheduling, cache policy, production naming/authorization, and
    production secrets remain later decisions.
 
 The prototype remains viewable with `scripts/serve-dashboard-prototype.sh`.
-Where the original handoff below says API write, sync, push, or undo, implement
-the approved outbox/import semantics above for this milestone.
+Where the detailed design below says API write, sync, push, or undo, implement
+the outbox/import semantics above for this milestone.
 
-# Original handoff: Catalyst Dashboard Builder MVP
+# Detailed design
 
 ## Overview
 
-Catalyst today turns a natural-language question into governed SQL, runs it read-only, and returns a typed table. This design generalizes that into a full path:
+Catalyst turns a natural-language question into reviewable SQL, sends the exact
+selected query to the configured connection, and returns typed rows or its
+database error. This design extends that into a full path:
 
 **ask → dataset → widget → dashboard**
 
@@ -161,7 +156,7 @@ Four object types, mapped onto Superset primitives:
 | Catalyst object | Lives in | Superset counterpart | Notes |
 | --- | --- | --- | --- |
 | Session / thread | Catalyst | — | question, generated SQL, drafts, provenance trace |
-| **Dataset** | Catalyst + Superset | imported virtual-dataset YAML over governed SQL | one immutable Dataset version can back many Widget versions |
+| **Dataset** | Catalyst + Superset | imported virtual-dataset YAML over the exact saved SQL | one immutable Dataset version can back many Widget versions |
 | **Widget** | Catalyst + Superset | imported chart YAML | stores compatible viz type + deterministic column bindings |
 | **Dashboard** | Catalyst draft + Superset runtime | imported dashboard YAML | Catalyst publishes desired layout; Superset-only edits are replaced on republish in this MVP |
 
@@ -226,7 +221,7 @@ The app is a left-nav shell with four sections. Shell chrome is identical across
 - Nav items: Workbench · Datasets · Widgets · Dashboards. Each is a full-width button, `min-height: 2.5rem`, 16×16 Carbon icon, label `0.875rem`, right-aligned count `0.75rem` `#6f6f6f` with `font-variant-numeric: tabular-nums`. Collapsed: icon only, centered, `title` attribute carries the label.
 - Active item: background `#e8e8e8`, `border-left: 3px solid #0f62fe`, color `#161616`, weight 600, `aria-current="page"`. Inactive: transparent background, transparent left border, `#525252`, weight 400. Hover: `#e8e8e8`.
 - Counts are live: Datasets and Widgets increment as objects are saved.
-- Footer (expanded only), above a `1px solid #e0e0e0` top border: label "Data source" `0.75rem` `#6f6f6f` and a Carbon Select — "OpenELIS laboratory (demo)" / "OpenMRS HIV/ART (demo)".
+- Footer (expanded only), above a `1px solid #e0e0e0` top border: label "Data source" `0.75rem` `#6f6f6f` and a Carbon Select. The OpenELIS and OpenMRS labels in the prototype are examples. Changing the selection starts a new session.
 
 **Content column**: `margin-left` tracks nav width (`transition: margin-left 140ms`); the inner container fills the remaining main-panel width with `1.5rem` inline gutters. Do not impose a page-level max width: the fixed side navigation and bottom workbench dock already bound the workspace, and data tables, SQL, results, and dashboard layouts need the available horizontal space. Keep narrower measure constraints only on prose or compact controls that benefit from them. Padding top `2rem`; bottom `18rem` on Workbench (or the measured composer height plus one spacing unit) and `4rem` elsewhere.
 
@@ -290,7 +285,7 @@ Thread is a single `flex-direction: column; gap: 1rem` stack, full content width
 - Field wrapper: `1px solid #8d8d8d`, background `#f4f4f4`; textarea area is `#fff`, padding `0.75rem 1rem`, `min-height: 3.5rem`, `font-size: 1rem`/1.5, `resize: none`, no visible border. Placeholder: "Ask a question, or say how you want the current query changed".
 - Footer row, `border-top: 1px solid #c6c6c6`, padding `0.625rem 1rem`, contains
   the available-profile selector (profile name plus writer and reviewer model
-  families), read-only execution note, and a primary `Generate next query`
+  families), configured-source execution note, and a primary `Generate next query`
   button. Do not render unavailable profiles. The empty-state action is
   `Generate query`.
 - Use a persistent programmatic label, `aria-describedby` for base/version and
@@ -308,7 +303,7 @@ Same shell and composer, no thread.
   prepares editable SQL; you review, validate, and explicitly run it read-only."
 - Omit the prototype's three example-prompt buttons. They would bias manual
   evaluation and are not part of the accepted Ask experience.
-- Footnote `0.75rem` `#6f6f6f`: "Queries run read-only against the governed catalog only when you select Run. You review the SQL before anything is saved."
+- Footnote `0.75rem` `#6f6f6f`: "Queries run against the selected source only when you select Run. You review the SQL before anything is saved."
 - No "New session" button in this state.
 
 ### 3. Datasets library
@@ -421,7 +416,7 @@ Use Carbon `ToastNotification` if it can be positioned this way; otherwise match
 
 **Not in the MVP** (all considered and cut, in this order of likely reintroduction): arbitrary column-mapping panel, model-generated/"why this suggestion" reasoning, full Catalyst chart rendering, size/slot picker, parameter → native-filter mapping, config diff before write, embedded Superset viewing, dashboard rename/delete/share from Catalyst.
 
-**Loading / error states** (the reconciled prototype draws representative generation evidence; production implements every state):
+**Loading / error states** (the prototype shows representative generation evidence; production implements every state):
 - Question/follow-up in flight: skeleton latest-turn workbench state; composer
   generation action disabled with an inline spinner. No Dataset tile exists before a
   successful explicit Run.
@@ -466,7 +461,8 @@ In implementation, replace the booleans with server-owned entities: a session/th
 - Existing question/turn/version/Validate/Run routes and semantics remain the
   behavioral contract. A question or follow-up produces a complete query for
   manual review in the one canonical editor; execution is always explicit.
-- Explicit read-only execution returns typed rows and diagnostics; these feed
+- Explicit execution through the configured connection returns typed rows or a
+  database diagnostic; these feed
   tile metadata, the movable panel preview, and the shape-based viz suggestion.
 - Publish: Gateway serializes database → virtual dataset → chart → dashboard YAML plus the Catalyst manifest, writes the content-addressed ZIP and `current.json` atomically to the outbox, and offers the same ZIP for download.
 - Import: a one-shot Compose service runs the pinned Superset CLI, reads the outbox read-only, and writes a digest-addressed receipt. It is invoked during clean bootstrap or by the explicit running-instance helper; Catalyst never accesses the Docker socket.
@@ -535,14 +531,14 @@ In this bundle:
 
 | File | What it is |
 | --- | --- |
-| `Catalyst Dashboard Builder 4c.dc.html` | **Reconciled visual reference.** Hi-fi, interactive: all four screens, both Ask states, integrated populated query workbench, both panel modes, save flows, toast. Written invariants above remain normative. |
+| `Catalyst Dashboard Builder 4c.dc.html` | **Binding visual reference.** Hi-fi, interactive: all four screens, both Workbench states, integrated populated query workbench, both panel modes, save flows, and toast. Written invariants above remain normative. |
 | `Catalyst Query Screen.dc.html` | Partial recreation of today's Catalyst query screen. Use the running current product and its tests—not this static page—as the behavioral baseline for Format/Validate/Run, evidence, typed results, versions, and restoration. |
 | `Dashboard Builder Wireframes.dc.html` | Lo-fi rationale: four structural directions (1a–1d), the merged direction (2a–2c), the minimal conversational variants (3a–3b), and the panel variants (4a–4c). 4c is the one that was built. |
 | `github.md` | Repo association and screen map. |
 
 These are `.dc.html` files — self-contained HTML that opens directly in a browser. Ignore the `support.js` runtime and the `<x-dc>` wrapper; the design content is the markup and the small state class at the bottom of each file.
 
-Source files the recreation was based on, in `DIGI-UW/openelis-catalyst` @ `main`: `catalyst-ui/src/styles.css`, `catalyst-ui/src/App.tsx`, `catalyst-ui/src/features/query/QueryWorkspace.tsx`, and `catalyst-ui/src/features/query/components/{DemoBanner,AskOpenElisNavigation,DatasetBrowser,QuestionForm,ResultsTable,ProvenancePanel}.tsx`, plus `analytics/catalog/analytics-catalog-v1.json` for schema and column semantics.
+Source files the recreation was based on, in `DIGI-UW/openelis-catalyst` @ `main`: `catalyst-ui/src/styles.css`, `catalyst-ui/src/App.tsx`, `catalyst-ui/src/features/query/QueryWorkspace.tsx`, and `catalyst-ui/src/features/query/components/{DemoBanner,AskOpenElisNavigation,DatasetBrowser,QuestionForm,ResultsTable,ProvenancePanel}.tsx`. The populated examples represent the complete readable schema from the configured connection plus optional reviewed descriptions. Generated catalog files are not product inputs.
 
 ## Open questions for the team
 

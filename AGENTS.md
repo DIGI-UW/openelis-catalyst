@@ -1,176 +1,122 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+## Product authority
 
-### Repository purpose and authority
+Catalyst is a generic SQL-connected workbench and Dashboard Builder. Read these
+files before changing product behavior:
 
-Catalyst is the OpenELIS reporting integration service. The target architecture
-makes Catalyst a client of med-agent-hub:
+1. `docs/specification.md`
+2. `docs/roadmap.md`
+3. `docs/dashboard-builder-mvp-design.md`
+4. `docs/med-agent-hub.md`
 
-```text
-OpenELIS / analytics source → Catalyst → med-agent-hub → Catalyst table/report response
-```
-
-R0–R4 target a local demo with demo data and local LLMs. Production security
-and real clinical data are explicitly future work.
-
-Canonical architecture and planning:
-
-- `docs/specification.md`
-- `docs/roadmap.md`
-- `docs/med-agent-hub.md`
-
-For the Dashboard Builder MVP, the binding product contract is
-`docs/dashboard-builder-mvp-design.md` and the binding visual reference is
+The binding Dashboard visual reference is
 `docs/prototypes/dashboard-builder-mvp/Catalyst Dashboard Builder 4c.dc.html`.
-The existing Gateway, Superset importer, and publication panel are reusable
-foundation; they do not by themselves satisfy a Dashboard Builder milestone.
-Do not reinterpret "lightweight" as reduced product scope, substitute backend
-or mock evidence for the required live browser workflow, or close a milestone
-while its user-facing UX tasks remain open. Any proposed change to milestone
-meaning or to the approved Ask → Dataset → Widget → Dashboard → Superset
-workflow must be surfaced for user approval before implementation continues.
 
-Do not duplicate product architecture in this file. This file is an environment
-and test runbook.
+Current documents contain current requirements and implementation status. Run
+reports are evidence, not product requirements.
 
-The query-to-table MVP implements the target path in Gateway, analytics, the
-pinned hub checkout, and `catalyst-ui/`. The earlier OGC-70
-RouterAgent/CatalystAgent/MCP path remains legacy compatibility scaffolding.
+## Architecture rules
 
-### Toolchain
+A source declares its identity, label, connection configuration or reference,
+and SQL dialect. Model and human tools receive every table, view, column, and
+type readable through that connection. Optional descriptions may enrich but
+cannot filter that information.
 
-- **Python 3.11** (pinned in `.python-version`; install with
-  `uv python install 3.11`)
-- **uv** package manager
-- **Node.js 22** for the React sidecar and Playwright
-- **Docker + Compose v2.20+** for the focused MVP
-- A separate `pyproject.toml`, `uv.lock`, and `.venv` under each of
-  `catalyst-gateway/`, `catalyst-agents/`, and `catalyst-mcp/`
+Catalyst owns conversation, model-request assembly, query versions, advisory
+validation, shared connection execution, results, Dataset/Widget/Dashboard
+state, and native Superset bundle publication. It does not own FHIR ingestion, a
+clinical warehouse, or a preferred database engine.
 
-### First-time local setup
+FHIR Data Pipes -> Parquet -> Spark SQL is the selected reference deployment.
+Its implementation and acceptance are open; it is not Catalyst core. OpenELIS deployment files live under `analytics/` for
+packaging convenience.
+
+Validation never blocks or rewrites exact selected SQL. Catalyst retains its time
+and returned-row limits and records typed rows or the database error. Do not add
+an application relation allowlist, fixed relation count, SQL translation,
+automatic database fallback, or a second database comparison path.
+
+A session binds one source. Changing source starts a new session.
+
+## Program order
+
+The validation harness owns program order:
+
+1. implement the generic connection and run the Phase 1 context comparison;
+2. define Phase 2 conversation mode after reviewing that report;
+3. complete Phase 3 Dashboard Builder.
+
+Phase 1 connection implementation includes one Dataset-to-Superset regression smoke. That
+smoke does not close or reduce Dashboard Builder.
+
+For final Dashboard acceptance, compare the live Workbench, Dataset
+review/library, Widget review/library, Dashboard library/arrangement, and
+publish/import states side by side with the binding design. Backend or evidence
+work cannot replace browser-visible acceptance. Only explicit owner approval may
+change product scope.
+
+## Toolchain
+
+- Python 3.11, pinned in `.python-version`
+- uv
+- Node.js 22
+- Docker and Docker Compose v2.20 or newer
+
+Each Python component owns its own `pyproject.toml`, `uv.lock`, and
+environment.
+
+## Setup
 
 ```bash
 cp env.recommended .env
 mkdir -p logs
 cd catalyst-gateway && uv sync --frozen --extra dev && cd ..
-cd catalyst-agents && uv sync --frozen --extra dev && cd ..
-cd catalyst-mcp && uv sync --frozen --extra dev && cd ..
+cd catalyst-ui && npm ci && cd ..
 ```
 
-### Running services
+The Clinical AI Validation Harness supplies the pinned med-agent-hub sibling and
+owns the combined local reference stack. Use its `scripts/catalyst-mvp.sh`
+wrapper for cross-repository work. Do not invoke Catalyst Compose alone for
+acceptance because the wrapper supplies the isolated ports, Hub context, and
+reference-source configuration. Seeding and reset remain explicit operations.
 
-#### Query-to-table MVP
+The Spark reference stack is not implemented. Current Compose files do not
+establish Spark acceptance.
 
-```bash
-cp env.recommended .env
-./scripts/mvp-up.sh
-./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
-```
+## Model boundary
 
-The live run uses the configured external router at
-`http://host.docker.internal:8077`. It must advertise the exact role models in
-the selected Hub profile. The React sidecar is at `http://localhost:3000`.
+med-agent-hub owns query profiles, prompts, role-to-model mapping, and model
+settings. Catalyst Gateway discovers available profiles and invokes named roles.
+Catalyst cannot silently substitute a model, prompt, or role configuration.
 
-#### Full stack
+Catalyst owns the request's source, dialect, complete readable schema, session
+context, writer/checker ordering, advisory findings, execution, and recorded
+versions and configuration. med-agent-hub does not discover schemas or execute
+SQL.
 
-Use this for OpenELIS, Catalyst, and med-agent-hub integration work. It requires
-Docker and Docker Compose v2.20 or newer because the compose file uses
-`include`.
+## Development approach
 
-```bash
-cp env.recommended .env
-./scripts/bootstrap-deps.sh
-./scripts/full-stack-up.sh
-./scripts/full-stack-health.sh
-```
+- Prefer small vertical changes that establish one current path and remove code
+  with no remaining owner.
+- Use the existing `AnalyticsProtocol` and `DataSourceBundle` seams before
+  creating another abstraction.
+- Run generated and manually edited SQL through shared connection-execution
+  code.
+- Remove behavior with no current requirement and dedicated tests rather than preserving a
+  compatibility flag or porting it to Spark.
+- Carry forward a source description or relationship only when the accepted
+  readable schema demonstrably uses it.
+- If the complete readable schema, thin connection behavior, or pinned FHIR Data
+  Pipes path fails, record the concrete failure and ask the owner before adding
+  selection, translation, fallback, or another subsystem.
 
-Or manually:
+Do not add restart, reseed, environment-parity, exhaustive-failure,
+direct-database reconciliation, repeated-model-run, or repeated-reader gates.
 
-```bash
-./scripts/bootstrap-deps.sh
-docker compose -f docker-compose.full-stack.yml up -d --build
-```
+## Tests
 
-| Service | URL |
-| --- | --- |
-| OpenELIS UI | `https://localhost/` (`admin` / `adminADMIN!`) |
-| OpenELIS DB | `localhost:15432` |
-| Catalyst Gateway | `http://localhost:8000/health` |
-| med-agent-hub | `http://localhost:8080/health` |
-
-Bootstrap creates:
-
-- `.openelis-docker/` from
-  [`DIGI-UW/openelis-docker`](https://github.com/DIGI-UW/openelis-docker)
-- `.med-agent-hub/` from
-  [`pmanko/med-agent-hub`](https://github.com/pmanko/med-agent-hub)
-
-That Hub checkout is the unmodified standalone fallback. When Catalyst is run
-through the Clinical AI Validation Harness, the harness supplies its sibling
-`targets/med-agent-hub` submodule as the Compose build context instead.
-
-All services share `openelis-network`.
-
-`docker-compose.full-stack.yml` is the older co-location stack.
-`docker-compose.mvp.yml` is the tested query-to-table assembly.
-
-#### Legacy Catalyst prototype components
-
-From the repository root:
-
-```bash
-./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
-```
-
-This starts the historical components for isolated maintenance only:
-
-- Gateway `:8000`
-- RouterAgent `:9100`
-- CatalystAgent `:9101`
-- MCP `:9102`
-
-Alternative:
-
-```bash
-docker compose -f catalyst-dev.docker-compose.yml up -d
-```
-
-This is the legacy standalone stack. It does not start med-agent-hub,
-OpenELIS, OHS FHIR Data Pipes, SchemaAgent, or SQLGenAgent.
-
-### LLM setup
-
-#### MVP path
-
-med-agent-hub's shared profile catalog owns Catalyst query role models, role
-knobs, and prompts. Catalyst Gateway owns context assembly, writer/reviewer
-stage ordering, deterministic lint/re-lint, query evidence, execution, and
-lineage. Gateway discovers available profiles from
-`GET /v1/hub/query-profiles` and invokes a configured role through
-`POST /v1/hub/query-profiles/{profile}/roles/{role}/generate`; it cannot select
-or override that role's model, prompt, or knobs. Hub's clinical profiles use
-the same base profile schema through a separate hosted workflow adapter. The
-standalone bootstrap checks out the pinned Hub commit without local patches;
-the harness owns and pins the same Hub repository as a sibling submodule.
-
-#### Current prototype
-
-The historical Catalyst agent code still uses Catalyst-local configuration:
-
-- `CATALYST_LLM_PROVIDER=lmstudio` with an OpenAI-compatible endpoint at
-  `LMSTUDIO_BASE_URL`; or
-- `CATALYST_LLM_PROVIDER=gemini` with `GOOGLE_API_KEY`.
-
-It is not exposed by Gateway and is not a supported manual product path.
-
-Inside the full-stack compose, the hub uses `HUB_LLM_BASE_URL`, normally
-pointing to a local model router through `host.docker.internal`.
-
-### Tests and lint
-
-CI-equivalent checks, run in each component:
+Run focused checks for the component changed:
 
 ```bash
 uv run ruff format --check .
@@ -178,58 +124,20 @@ uv run ruff check .
 PYTHONPATH=. uv run pytest tests/ -v
 ```
 
-Full current-prototype smoke suite:
+For UI work:
 
 ```bash
-./tests/run_tests.sh all
-```
-
-The smoke script requires a repository-root `.env` because `Procfile.dev`
-passes it to Uvicorn.
-
-Do not use the older Catalyst-local agent topology as evidence of the target
-architecture.
-
-For roadmap implementation:
-
-- use test-driven vertical slices;
-- test the real Catalyst → hub boundary before milestone sign-off;
-- validate query result correctness against seeded analytics data, not only SQL
-  shape;
-- keep mock-only tests as component evidence, not end-to-end evidence.
-
-MVP evidence:
-
-```bash
-./tests/e2e/test_mvp_live.sh
-./tests/e2e/test_data_pipes_incremental.sh
 cd catalyst-ui
+npm test
 npx playwright test --project=deterministic
-PLAYWRIGHT_BASE_URL=http://localhost:3000 \
-PLAYWRIGHT_USE_MOCK_API=false \
-npx playwright test --project=demo-video e2e/query-to-table.spec.ts
 ```
 
-### Gotchas
+A reference source receives one live FHIR Data Pipes -> Parquet -> Spark ->
+Catalyst proof when it is integrated. Ordinary unrelated pull requests do not
+require a live Spark service.
 
-- `catalyst-dev.docker-compose.yml` is the legacy stack. Use
-  `docker-compose.mvp.yml` for query-to-table testing.
-- First full-stack startup may pull large OpenELIS images. The web application
-  can lag database readiness.
-- `tests/run_tests.sh` starts Honcho and tears it down on exit. Start Honcho
-  separately for manual API testing.
-- `MCP_DB_ENABLED` defaults to false; current MCP schema data is mocked.
-- Current multi-agent mode expects SchemaAgent on the same default port used by
-  MCP and does not pass SchemaAgent output into SQLGenAgent. It is legacy
-  scaffolding, not a supported target mode.
-- `catalyst-agents/Makefile` targets apply only to the agents component.
-- Local CPU inference can take several minutes under contention; Gateway and
-  sidecar proxy timeouts are deliberately larger than deterministic-test
-  timeouts.
-
-### Evaluation boundary
-
-Local golden queries and seeded E2E runs are engineering evidence, not clinical
-validation. Automated component and mocked-browser gates pass, while live G2.8c
-multi-model acceptance remains pending. Clinical AI Validation Harness
-integration is active and owns cross-model experiments and reviewable evidence.
+For Dashboard Builder, focused API/component tests support but do not replace
+the final side-by-side browser review. The final proof uses the real configured
+model profile, one successful query, one database error, one saved Dataset,
+multiple Widgets, a published/imported Dashboard, and one rendered value checked
+against the originating Catalyst result without a second database query.

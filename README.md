@@ -1,193 +1,135 @@
 # Catalyst
 
-Catalyst is the OpenELIS reporting integration service. For governed query
-generation, med-agent-hub owns the shared profile registry, prompts,
-role-to-model mapping, and model knobs. Catalyst owns catalog/context assembly,
-writer/reviewer orchestration, deterministic validation, execution, query
-lineage, and table output, and invokes each configured Hub role by profile ID.
+Catalyst is a supervised SQL workbench and dashboard builder. It helps a person
+turn a question into reviewable SQL, run the exact selected query against a
+configured data source, inspect rows or the database error, refine the query in
+conversation, and publish saved results to Superset.
 
-The current target is a local demo using demo data and local LLMs. Production
-security and real clinical data are future roadmap work.
+Catalyst is database- and ingestion-independent. A source supplies:
 
-The first product milestone is:
+- a stable identity and label;
+- connection configuration or a connection reference;
+- an explicit SQL dialect; and
+- every table, view, column, and type readable through that connection.
 
-> Natural-language question → governed query → table output
+Optional descriptions may enrich the readable schema but cannot hide relations.
 
-That query/notebook milestone is accepted. The selected next milestone is:
+## Status
 
-> Governed execution → Dataset draft → Widget draft → Dashboard draft →
-> deterministic native bundle → local Superset 6.1.0 renderer
+The query notebook and binding Dashboard Builder design are accepted. The
+generic connection implementation, Spark reference
+deployment, and final Dashboard Builder acceptance remain open.
 
-Catalyst remains the supervised builder and desired-configuration source for
-this one-way MVP. `Publish to Superset` writes/downloads a bundle from a shared
-outbox; stack bootstrap or an explicit CLI helper imports it. The Superset REST
-API and bidirectional reconciliation are deferred.
+The current runtime uses an engine-specific analytics adapter and generated
+schema metadata. It does not yet implement the generic connection or Spark
+reference path, so it is not used for the next Phase 1 comparison.
 
-## Canonical documentation
-
-- [Product specification](docs/specification.md)
-- [Roadmap](docs/roadmap.md)
-- [Dashboard Builder design](docs/dashboard-builder-mvp-design.md)
-- [med-agent-hub client contract](docs/med-agent-hub.md)
-- [Cloud development instructions](AGENTS.md)
-
-The original
-[OGC-70 specs](https://github.com/DIGI-UW/OpenELIS-Global-2/tree/develop/specs/OGC-070-catalyst-assistant)
-are historical planning inputs. The local specification records which
-capabilities are retained, reassigned, superseded or deferred.
-
-## MVP implementation
+## Product flow
 
 ```text
-OpenELIS FHIR → OHS FHIR Data Pipes → governed semantic marts/views
-  → Catalyst query engine → med-agent-hub role executor → local model router
-  → Catalyst local read-only demo execution → table
-  → optional med-agent-hub report profile
+question
+  -> model receives declared dialect and complete readable schema
+  -> person reviews or edits SQL
+  -> exact selected SQL
+  -> rows or database error
+  -> saved Dataset
+  -> reviewed Widget
+  -> Dashboard
+  -> native Superset bundle and rendered dashboard
 ```
 
-The query-to-table sandbox implements that path with:
+med-agent-hub owns configured model profiles, prompts, role-to-model mapping, and
+model settings. Catalyst owns model-request assembly, conversation and query
+versions, advisory validation, connection execution, results, Dataset/Widget/
+Dashboard state, and Superset bundle publication.
 
-- a pinned synthetic multi-analyte OpenELIS cohort;
-- HAPI FHIR backfill and pinned FHIR Data Pipes full/incremental pipelines;
-- a PostgreSQL `analytics.lab_result_fact_v1` semantic view and catalog;
-- a Hub-owned Catalyst query profile selectable in the UI only when its exact
-  Gemma and Qwen role models are advertised by the external router;
-- writer → deterministic lint/correction → optional reviewer → deterministic
-  re-lint orchestration in Gateway, with exact role/model/prompt/configuration
-  evidence;
-- deterministic Catalyst SQL policy, explicit preview acceptance, read-only
-  execution, typed table contracts, and declared/effective model provenance;
-- a switchable second data source (OpenMRS HIV/ART) alongside OpenELIS —
-  its own analytics database and catalog, targetable per turn within one
-  session (`GET /v1/catalyst/data-sources`);
-- a React/Carbon sidecar UI with deterministic and live-model Playwright tests.
+A session binds one source. Selecting another source starts another session.
 
-The original Router/Agent/MCP source remains as legacy prototype scaffolding,
-but Gateway no longer exposes its `/v1/chat/completions` relay. The supported
-manual path is the named med-agent-hub query profile backed by the configured
-external router.
+## Selected reference deployment
+
+The selected demonstration will use retained demo data through this path:
+
+```text
+OpenELIS or OpenMRS FHIR
+  -> FHIR Data Pipes
+  -> Parquet and applicable ViewDefinitions
+  -> Spark SQL
+  -> Catalyst and Superset as SQL clients
+```
+
+Implementation and acceptance of this deployment are open. It is not a Catalyst
+product requirement. OpenELIS deployment assets are packaged under
+`analytics/` for convenience. Their ingestion and Spark configuration are not
+part of Catalyst core.
+
+## Execution boundary
+
+Validation is advisory. Findings never disable Run or rewrite selected SQL.
+Generated and manually edited queries use the same connection-execution code.
+
+Catalyst relies on the configured connection's access, applies a time limit and
+returned-row limit, and records typed rows or the error returned by the database.
+The demo Spark path must visibly refuse one intentional write attempt and leave
+source data unchanged. Production authentication, authorization, row-level
+access, and sensitive-data controls are later work.
+
+## Dashboard Builder
+
+The binding product contract is
+[docs/dashboard-builder-mvp-design.md](docs/dashboard-builder-mvp-design.md) and
+its populated binding 4c page.
+
+Phase 1 connection work includes one Dataset-to-Superset regression smoke. Final
+Dashboard Builder acceptance remains a later product phase and requires a
+side-by-side browser comparison of the live Workbench, Dataset review/library,
+Widget review/library, Dashboard library/arrangement, and publish/import states
+with the binding design.
+
+Superset is the renderer. Catalyst publishes a deterministic native bundle to an
+outbox and uses explicit importer receipts for status. Catalyst does not build a
+second chart runtime, embed result rows in bundles, or open a second database
+execution path.
+
+## Documentation
+
+- [Product specification](docs/specification.md)
+- [Product roadmap](docs/roadmap.md)
+- [Dashboard Builder design](docs/dashboard-builder-mvp-design.md)
+- [med-agent-hub client contract](docs/med-agent-hub.md)
+- [Development instructions](AGENTS.md)
+
+These files contain the current requirements.
 
 ## Repository layout
 
-- `catalyst-gateway/` — governed query, execution, and dashboard HTTP boundary.
-- `catalyst-ui/` — React/Carbon query review and results sidecar.
-- `analytics/` — OpenELIS seed, Data Pipes configuration, semantic SQL, and
-  approved catalog.
-- `catalyst-agents/` — legacy OGC-70 agent prototype.
-- `catalyst-mcp/` — deterministic schema/context and SQL policy tools.
-- `docs/` — canonical local specification and roadmap.
-- `scripts/` — dependency bootstrap and full-stack helpers.
-- `tests/` — smoke scripts and local golden-query fixtures.
+- `catalyst-gateway/` — model request, connection, query, result, and dashboard
+  HTTP behavior.
+- `catalyst-ui/` — React/Carbon query notebook and Dashboard Builder.
+- `analytics/` — OpenELIS reference-deployment assets; not Catalyst core.
+- `docs/` — current product requirements and contracts.
+- `scripts/` — development and reference-stack helpers.
+- `tests/` — focused contract and integration tests.
+- `catalyst-agents/` and `catalyst-mcp/` — experimental components outside the
+  active Gateway and UI flow; Catalyst core does not require them.
 
-OpenELIS backend and frontend integration live in
-[`DIGI-UW/OpenELIS-Global-2`](https://github.com/DIGI-UW/OpenELIS-Global-2).
-med-agent-hub lives in
-[`pmanko/med-agent-hub`](https://github.com/pmanko/med-agent-hub).
+## Development
 
-## Local setup
-
-Requirements: Python 3.11, [`uv`](https://docs.astral.sh/uv/), Node.js 22,
-Docker, and Docker Compose v2.20+.
+Requirements: Python 3.11, [uv](https://docs.astral.sh/uv/), Node.js 22, Docker,
+and Docker Compose v2.20 or newer.
 
 ```bash
 cp env.recommended .env
 mkdir -p logs
-
 cd catalyst-gateway && uv sync --frozen --extra dev && cd ..
-cd catalyst-agents && uv sync --frozen --extra dev && cd ..
-cd catalyst-mcp && uv sync --frozen --extra dev && cd ..
+cd catalyst-ui && npm ci && cd ..
 ```
 
-Run the current prototype stack:
+Run focused tests for the component being changed. Use the validation harness's
+`scripts/catalyst-mvp.sh` wrapper for the combined reference deployment; do not
+invoke the Catalyst Compose file alone for cross-repository acceptance.
 
-```bash
-./catalyst-agents/.venv/bin/honcho -f Procfile.dev start
-```
-
-This starts Gateway `:8000`, Router `:9100`, CatalystAgent `:9101`, and MCP
-`:9102`. It does not represent the final hub-client topology.
-
-## Query-to-table MVP
-
-Docker Compose v2.20 or newer is required.
-
-```bash
-cp env.recommended .env
-./scripts/mvp-up.sh
-./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
-```
-
-The configuration connects the containerized Hub to the existing host
-OpenAI-compatible llama.cpp router at `http://host.docker.internal:8077`. The
-Hub-owned `catalyst-query-e4b-qwen14b` profile uses `gemma-e4b` for writing and
-`qwen2.5-14b` for review. Startup fails unless the router advertises both exact
-IDs. Open the sidecar at `http://localhost:3000`.
-
-To use the real router at another location, set its root without a trailing
-`/v1` and keep the Hub-owned profile ID explicit:
-
-```bash
-export MVP_MODEL_BACKEND=external
-export MVP_EXTERNAL_ROUTER_URL=http://host.docker.internal:8077
-export MVP_EXTERNAL_PROFILE_ID=catalyst-query-e4b-qwen14b
-./scripts/mvp-up.sh
-./scripts/mvp-seed.sh
-./scripts/mvp-health.sh
-```
-
-The profile ID must exist in med-agent-hub's shared `server/levels.yaml`
-catalog. Hub discovery combines that configuration with its credential-free
-router inventory. Gateway exposes only available query profiles, and rejects an
-unavailable selection before creating a session or invoking a model. A backend
-can still change after discovery, so generation/backend failure remains a
-supported residual path.
-
-Recorded proof: [download the MVP Playwright video](docs/assets/catalyst-query-to-table-mvp.webm).
-
-Stop or reset disposable demo state:
-
-```bash
-./scripts/mvp-down.sh
-./scripts/mvp-reset.sh
-```
-
-## Tests
-
-Per component:
-
-```bash
-uv run ruff format --check .
-uv run ruff check .
-PYTHONPATH=. uv run pytest tests/ -v
-```
-
-Repository smoke suite:
-
-```bash
-./tests/run_tests.sh all
-```
-
-MVP evidence:
-
-```bash
-./tests/e2e/test_mvp_live.sh
-./tests/e2e/test_data_pipes_incremental.sh
-cd catalyst-ui
-npx playwright test --project=deterministic
-PLAYWRIGHT_BASE_URL=http://localhost:3000 \
-PLAYWRIGHT_USE_MOCK_API=false \
-PLAYWRIGHT_QUERY='Show viral load results since 2026-01-01 with value, unit, release date, and receipt-to-release time' \
-npx playwright test --project=demo-video e2e/query-to-table.spec.ts
-```
-
-## Evaluation
-
-The seeded MVP and its local golden scenarios are engineering evidence, not
-clinical validation.
-
-The automated component and mocked-browser gates pass. Live G2.8c acceptance
-with the Gemma 4 12B writer, Qwen 2.5 14B reviewer, and an independent
-PostgreSQL result comparison remains pending. The
-[Clinical AI Validation Harness](https://github.com/pmanko/clinical-ai-validation-harness)
-is now the active umbrella integration and experiment path.
+The selected reference deployment requires one live FHIR Data Pipes -> Parquet
+-> Spark -> Catalyst proof for each reference source actually included. Ordinary unrelated
+pull requests do not require a live Spark service, reseeding, restart-persistence
+proof, environment parity, repeated model runs, or direct database
+reconciliation.

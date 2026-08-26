@@ -4,10 +4,9 @@
 -- ViewDefinitions essentially verbatim (lossless, one row per resource per
 -- coding via forEachOrNull) plus documented additive extensions and gap-fill
 -- views for resources upstream ships none for (Specimen, ServiceRequest).
--- ALL curation happens here in SQL, where a mistake costs a CREATE OR
--- REPLACE VIEW instead of a full FHIR re-fetch. The catalog is GENERATED
--- from this file's view/column comments plus analytics/catalog-overlay.json
--- by the harness's scripts/generate-catalyst-source-catalog.py.
+-- The replaceable SQL views below define the query-facing shape. The harness
+-- generates the catalog from this file's view/column comments plus
+-- analytics/catalog-overlay.json.
 
 BEGIN;
 
@@ -65,12 +64,10 @@ FROM analytics.pipeline_run_v1;
 COMMENT ON VIEW analytics.pipeline_freshness_v1 IS
     'Structured source watermark, run state, and observed lag; never a single ambiguous timestamp.';
 
--- Drop the previous generation (hand-written lossy ingestion projections and
--- the views built on them); superseded by the default-table layering above.
+-- Clear object names used by the views defined below.
 DROP VIEW IF EXISTS analytics.lab_result_fact_v1;
--- service_request_flat_v1 was a sink TABLE pre-migration and is a curated
--- VIEW after; DROP ... IF EXISTS still type-checks existing objects, so the
--- first migration needs the table branch and re-runs need the view branch.
+-- A source may already contain service_request_flat_v1 as a table or a view.
+-- PostgreSQL requires the matching DROP form, so handle both object types.
 DO $$
 BEGIN
     IF EXISTS (
@@ -86,10 +83,9 @@ DROP TABLE IF EXISTS public.patient_flat_v1;
 DROP TABLE IF EXISTS public.specimen_flat_v1;
 DROP TABLE IF EXISTS public.diagnostic_report_flat_v1;
 
--- Compatibility projection preserving the pre-migration one-row-per-request
--- shape (seed/health fixture contracts assert against it): collapses the
--- lossless service_request_flat coding cross product, pivoting the LOINC
--- coding into the test_* columns.
+-- One-row-per-request projection used by the seed and health checks. It
+-- collapses the lossless service_request_flat coding cross product and pivots
+-- the LOINC coding into the test_* columns.
 CREATE VIEW public.service_request_flat_v1 AS
 SELECT
     sr.id,

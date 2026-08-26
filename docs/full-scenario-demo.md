@@ -1,12 +1,14 @@
 # The full-scenario demo: one spec, two modes
 
-`catalyst-ui/e2e/full-scenario-demo.spec.ts` walks the product's whole claim
+`catalyst-ui/e2e/full-scenario-demo.spec.ts` walks the accepted visible workflow
 through the product's own path: a plain-language laboratory question becomes
 checked SQL in the workbench, is refined in conversation, both results are
 saved as governed Datasets, a table Widget and a grouped-bar Widget are built
 over them, a Dashboard collects both, `Publish to Superset` writes the native
 bundle, the pinned importer brings it in, and the finished dashboard renders
-in Superset.
+in Superset. Until the Spark reference deployment is accepted, this proves the
+interaction and publication seam; it is not Phase 1 connection or comparison
+evidence.
 
 It runs two ways, and they are **the same steps**:
 
