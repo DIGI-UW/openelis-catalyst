@@ -27,7 +27,7 @@
       "start": 4.85,
       "end": 54.5,
       "speed": 8.28,
-      "caption": "A writer model drafts SQL; a reviewer checks it against the approved catalog."
+      "caption": "A writer drafts SQL; a checker comments using the supplied source schema."
     },
     {
       "type": "clip",
@@ -41,7 +41,7 @@
       "start": 60.84,
       "end": 65.85,
       "speed": 1.0,
-      "caption": "Executed read-only. Results return as a typed table."
+      "caption": "The selected SQL runs and results return as a typed table."
     },
     {
       "type": "card",
@@ -84,10 +84,10 @@
       "type": "card",
       "duration": 4.0,
       "kicker": "CATALYST",
-      "heading": "Checked at every step",
+      "heading": "Review before Run",
       "lines": [
-        "Generated, reviewed, and validated before it runs.",
-        "Read-only execution. Every version kept."
+        "Generated, reviewed, and still editable before Run.",
+        "The selected query runs. Every version is kept."
       ]
     }
   ]

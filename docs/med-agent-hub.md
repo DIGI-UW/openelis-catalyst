@@ -1,429 +1,243 @@
-# med-agent-hub Integration Contract
+# med-agent-hub integration boundary
 
-**Status:** Hub-configured Catalyst query roles implemented locally; report profiles future
-**Product specification:** [`specification.md`](specification.md)  
-**Roadmap:** [`roadmap.md`](roadmap.md)
+**Status:** Current Hub route and profile contract. The complete-schema and
+generic-connection behavior below is the selected Catalyst boundary and is not
+yet implemented.
+
+The broader product requirements live in [the Catalyst specification](specification.md)
+and [product roadmap](roadmap.md). This document covers only the boundary
+between Catalyst and med-agent-hub.
 
 ## Purpose
 
-For governed query generation, Catalyst Gateway owns context assembly,
-structured-output formats, writer/reviewer orchestration, deterministic
-lint/correction, execution, and query lineage. [med-agent-hub](https://github.com/pmanko/med-agent-hub)
-owns the shared profile entry containing role-to-model mapping, role knobs, and
-prompt references. Gateway invokes each role by profile ID and cannot override
-those Hub-owned settings.
+med-agent-hub configures and runs model roles. Catalyst supplies the data-source
+context, interprets the model output, presents the query for human review, and
+runs the exact SQL the person selects.
 
-Planned narrative reports may still use Hub-owned product profiles. This
-document separates the implemented configured query-role contract from that
-future report contract and defines what remains outside Hub's trust boundary.
-
-## Runtime topology
+Selected boundary:
 
 ```text
-Catalyst
-  → Catalyst governed-query engine
-      → med-agent-hub POST /v1/hub/query-profiles/{profile}/roles/{role}/generate
-      → local OpenAI-compatible model router
-          → Hub-profile-selected local role model
-      → Catalyst deterministic lint / optional review / re-lint
+configured source
+  -> Catalyst discovers its complete readable schema
+  -> Catalyst assembles the question, dialect, schema, and session context
+  -> Hub runs the selected profile's writer and optional reviewer models
+  -> Catalyst parses the responses and shows the query and advisory findings
+  -> person reviews or edits the SQL
+  -> explicit Run executes that exact SQL through the configured connection
 ```
 
-For query generation, Catalyst sends a user question and the current readable
-analytics catalog inside role-specific messages. Hub executes one model call
-and returns assistant content verbatim. Gateway parses and validates that
-content, coordinates any correction/reviewer call, finalizes the structured
-query contract, and executes the query outside Hub.
+Hub never connects to the data source and never executes SQL.
 
-For report generation, Catalyst sends governed table evidence. The hub returns
-staged report output with explicit validation and grounding states.
+## Ownership
 
-## API surface
+### med-agent-hub owns
 
-Catalyst's implemented query path depends on:
+- query-profile definitions and availability;
+- the model assigned to each named role;
+- system prompts and prompt references;
+- model settings, token limits, and model-router access;
+- execution of each named writer or reviewer role; and
+- credential-free details describing the profile and role invocation that
+  actually ran.
 
-- `GET /health`
-- `GET /v1/hub/query-profiles`
-- `POST /v1/hub/query-profiles/{profile}/roles/{role}/generate`
+### Catalyst owns
 
-The configured role endpoint accepts a non-system message list and optional
-`response_format`. Hub resolves the model, system prompt, temperature,
-`dry_multiplier`, and token cap from the selected profile. It returns:
+- data-source and model-profile selection;
+- source identity, declared SQL dialect, and the complete schema readable
+  through the selected connection;
+- optional descriptions and relationships that enrich, but never hide, readable
+  relations;
+- the current instruction, current editor state, and relevant same-session
+  context;
+- the structured writer and reviewer response formats;
+- writer/reviewer sequencing and parsing;
+- visible advisory findings and model or parsing failures;
+- query versions and their connection to the source, profile, and conversation;
+- the one editable SQL control; and
+- execution of the exact user-selected SQL, including typed parameters, row and
+  time limits, typed results, and database errors.
 
-```json
-{"profile_id": "catalyst-query-e4b-qwen14b", "role": "query_generate", "model": "gemma-e4b", "content": "{...assistant content...}"}
-```
+The unchanged machine contracts may retain older field names for the readable
+schema. Those names do not authorize Catalyst or Hub to filter, rank, or hide a
+relation that the configured connection can read.
 
-Hub owns profile compilation and discovery, provider/auth/timeout abstraction,
-serialized model-router connection, configured system-prompt injection, and
-structured-output pass-through. It does not interpret the Catalyst catalog,
-select a profile on the user's behalf, run query lint, or compose query roles.
-Catalyst does not call model-router endpoints directly.
+## Live HTTP surface
 
-The `data` entries from `GET /v1/models` and
-`POST /v1/chat/completions` remain Hub product-profile surfaces for planned
-report integration and legacy consumers. Catalyst query generation does not
-depend on those clinical profiles. Query-profile discovery carries its own
-versioned backend inventory and exact credential-free profile evidence.
-Low-level
-dynamic report legs such as `answer:...`, `answer-review:...`, and
-`indepth-only:...` are experimentation interfaces, not stable Catalyst
-dependencies.
+The current Catalyst integration is implemented by
+[`local_hub.py`](../catalyst-gateway/src/catalyst/local_hub.py) and
+[`query_engine.py`](../catalyst-gateway/src/catalyst/query_engine.py).
 
-## Hub query-profile policy
+Catalyst calls these med-agent-hub routes:
 
-| Hub profile | Role mapping | Use |
+| Method | Route | Use |
 | --- | --- | --- |
-| `catalyst-query-e4b-qwen14b` | `gemma-e4b` writer and `qwen2.5-14b` reviewer | External cross-family manual-testing lane |
+| `GET` | `/health` | Check whether Hub responds. |
+| `GET` | `/v1/hub/query-profiles` | Discover configured profiles, roles, models, settings, and live availability. |
+| `POST` | `/v1/hub/query-profiles/{profileId}/roles/{role}/generate` | Run one named role from one selected profile. |
 
-Gateway relays available choices through `GET /v1/catalyst/query-options`. The
-profile ID is selected per turn and bound into versioned
-profile/model/prompt/configuration evidence. Query profiles use temperature zero
-and disable the router's DRY repetition penalty. Profile evidence records
-`dry: 0`; invocation evidence records `dryMultiplier: 0` alongside the response
-format and token cap.
+Catalyst exposes the available choices to its UI through
+`GET /v1/catalyst/query-options`, defined in
+[`routes.py`](../catalyst-gateway/src/catalyst/routes.py). There is no public
+Catalyst route that lets the caller override a profile's role model, prompt, or
+model settings.
 
-An unknown Hub profile fails closed; Catalyst never silently substitutes a
-different profile or model. All listed profiles accept contextual revisions;
-revision capability is independent of reviewer presence. A writer-only profile
-has no reviewer invocation or reviewer evidence. A reviewed profile runs writer
-→ deterministic lint → reviewer → deterministic re-lint before finalization.
+## Profile discovery and selection
 
-The query-options registry derives live availability from Hub query-profile
-discovery. A profile is available only when the backend inventory
-advertises every exact writer/reviewer alias it requires. Inventory failure
-fails closed; missing aliases are reported per model, unavailable profiles are
-omitted by the UI, and selection is rejected before model invocation or session
-mutation. Availability is a discovery snapshot, so Catalyst still records a
-truthful generation/backend failure if the backend changes before invocation.
+`GET /v1/hub/query-profiles` is the source for profile names, role mappings,
+settings, and live model availability. Catalyst lists only profiles that Hub
+marks available.
 
-The umbrella harness builds its pinned sibling Hub checkout; standalone
-Catalyst clones the same unmodified Hub commit as a fallback.
+The person selects a profile explicitly. Catalyst binds that selection to the
+query turn and uses the exact same profile for its role calls. If the profile is
+missing, unavailable, or changes incompatibly before generation completes, the
+turn fails visibly. Catalyst does not substitute another profile, role model,
+provider, or direct model-router call.
 
-## Governed-query engine
+A profile must include a `query_generate` role. It may also include a
+`query_review` role. Catalyst runs only the roles declared by that selected
+profile.
 
-Hub's `workflow: catalyst_query` profiles configure model roles for the
-query-to-table engine. Existing `workflow: clinical_answer` profiles run a
-different hosted clinical workflow and do not satisfy the structured query
-contract.
+## Context sent for generation
 
-Gateway owns:
+Catalyst assembles the content for each role call. It includes:
 
-- context selection;
-- query planning;
-- SQL generation;
-- generation-time schema grounding;
-- review and repair loops;
-- query and invocation evidence;
-- deterministic query policy and profile evaluation.
+- the current question or follow-up instruction;
+- selected source identity and declared SQL dialect;
+- every readable relation, column, and type discovered through that source's
+  connection;
+- applicable optional descriptions and relationships;
+- the required structured response format;
+- the current query and typed parameters for a follow-up;
+- relevant prior instructions and a relevant database failure when they help
+  interpret the follow-up; and
+- request and trace identifiers needed to connect the response to its turn.
 
-Hub owns the shared profile schema, role-to-model mapping, prompts, sampling
-knobs, backend availability, and execution of each named role.
+Catalyst does not silently reduce the readable schema to a hand-picked subset.
+If a selected model cannot accept the required request, generation fails with a
+clear context error rather than sending a different schema.
 
-The engine must:
+Catalyst never sends Hub:
 
-1. Expose its configured profiles through
-   `GET /v1/catalyst/query-options`.
-2. Accept an explicit analytics target, SQL dialect and versioned readable
-   catalog.
-3. Advertise and return only the versioned `catalyst.query.v1` structured
-   contract.
-4. Distinguish unsupported and ambiguous questions from generated queries.
-5. Preserve the catalog and context source identifiers used.
-6. Return deterministic validation findings and reviewer warnings.
-7. Record exact profile, prompt, model, configuration, invocation, and
-   correlation evidence.
-8. Never send database credentials or result rows to Hub.
+- source credentials or connection strings;
+- query result rows;
+- credentials for any model provider; or
+- content from another source or session.
 
-For each configured-role call, Hub returns the exact final model request,
-including its system prompt, caller messages, response format, effective
-configuration, canonical digest, and direct router measurements when
-available. Catalyst retains this evidence on success and on structured Hub
-errors. A proven context-window overflow is recorded as rejection before model
-dispatch, not as a transport failure or a bad model answer.
+## Named role call
 
-Model review is a generation-quality control. Gateway still parses and
-validates every candidate before execution.
-
-## Query request
-
-Initial requests use
-[`contracts/catalyst-query-request-v1.schema.json`](contracts/catalyst-query-request-v1.schema.json).
-Revisions use
-[`contracts/catalyst-query-request-v2.schema.json`](contracts/catalyst-query-request-v2.schema.json)
-and the linked revision-context/editor-snapshot/turn contracts. They define the
-complete Gateway engine request:
-
-- `model`: the selected Hub query profile ID;
-- `stream`: `false` for the first query-contract version;
-- `messages[0].content`: the current initial or follow-up instruction;
-- `catalystQuery`: analytics target, compact runtime catalog, non-secret query
-  policy, correlation IDs, and `requiredOutputContract: catalyst.query.v1`;
-- for v2, the exact active editor SQL/parameters/digest, current stored version
-  and digest, every prior user instruction in stored order, and only exact-base
-  validation/execution summaries.
-
-The demo request contains no production actor, facility, tenant, or
-authorization context.
-
-Gateway does not send this whole request to Hub. It converts the governed
-context into role-specific user messages and sends one configured-role request
-per invocation:
+The role endpoint receives caller messages and the requested structured response
+format:
 
 ```json
 {
   "messages": [
-    {"role": "user", "content": "..."}
+    {"role": "user", "content": "...Catalyst-assembled context..."}
   ],
-  "response_format": {"type": "json_schema", "json_schema": {"name": "...", "schema": {}}}
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {"name": "...", "schema": {}}
+  }
 }
 ```
 
-The governed engine context and role requests do not contain:
+The caller does not submit the model or its settings. Hub adds the selected
+role's system prompt, applies the profile's configuration, calls its model
+router, and returns the assistant content with the profile, role, and model that
+ran. Catalyst checks that those details match the selected profile.
 
-- database credentials;
-- unrestricted database schema;
-- arbitrary production table DDL;
-- query results;
-- patient/result rows;
-- every historical SQL copy, unrelated sessions or raw hidden traces;
-- instructions that weaken profile policy.
+## Response handling
 
-The MVP uses demo questions and the local model router. Production PHI
-classification and provider-routing policy are deferred.
+Catalyst parses writer and reviewer content. A writer may produce:
 
-## `catalyst.query.v1`
+- a query candidate ready for human review;
+- one clarification question with no SQL; or
+- a concise explanation that the request is unsupported, with no SQL.
 
-The normative finalized-query schema is
-[`contracts/catalyst-query-v1.schema.json`](contracts/catalyst-query-v1.schema.json).
-The earlier remote-profile completion envelope remains documented by
-[`contracts/catalyst-query-completion-v1.schema.json`](contracts/catalyst-query-completion-v1.schema.json).
-The implemented Gateway engine instead parses each configured Hub role response against
-its role-specific structured-output schema and builds `catalyst.query.v1`
-in-process.
+A malformed response or a response tied to another profile is an explicit
+generation failure. It is not rewritten into a successful query.
 
-The finalized query object has:
+When the selected profile includes a reviewer, Catalyst supplies the candidate
+to that role and parses its response before presenting the final candidate.
+Profile review helps improve the candidate; it does not replace the person's
+review.
 
-| Field | Purpose |
-| --- | --- |
-| `contractVersion` | Must equal `catalyst.query.v1` |
-| `deploymentMode` | Must equal `demo` |
-| `status` | `ready`, `needs_clarification`, `unsupported`, or `rejected` |
-| `question` | Exact original request text |
-| `target` | Source, catalog version, readable relations and SQL dialect; the existing field name is `approvedViews` |
-| `sql` | One candidate read-only statement when status is `ready` |
-| `parameters` | Typed values bound outside the SQL text |
-| `expectedColumns` | Expected output names and types |
-| `clarification` | User-facing clarification when required |
-| `message` | User-facing reason when status is `unsupported` or `rejected` |
-| `validation` | Gateway deterministic checks plus reviewer findings |
-| `provenance` | Profile ID, trace ID and context source IDs |
+Parser, reviewer, and SQL checks may produce visible findings. Those findings
+are advice. They do not disable Run, rewrite the editor, or prevent a
+user-selected query from reaching the configured connection. A syntactically or
+semantically wrong query may therefore return a normal database error, which is
+useful feedback rather than an invalid turn.
 
-Catalyst rejects prose masquerading as the contract, a missing version, unknown
-fields that change execution meaning, or a `ready` response without complete
-target and provenance metadata.
+Clarification and unsupported responses execute no SQL and leave the previous
+selected query intact.
 
-Gateway fills `approvedViews` from the current readable request catalog; the
-model does not select or narrow that set. Catalyst rejects a question or target
-data source/catalog/dialect mismatch, and rejects generated SQL that references
-a relation absent from that request catalog. Normalized intent may appear in
-Gateway trace metadata but cannot replace the execution contract question.
+## Query record
 
-Named SQL placeholders use `:name` when the candidate uses parameters. Literal
-read-only SQL remains valid; named parameters are a recommendation for longer
-queries, not a mandatory generation gate.
+For each turn, Catalyst records enough information to explain what produced the
+visible query:
 
-The colon syntax is the Catalyst contract grammar, not a claim that every
-warehouse driver accepts it directly. The execution adapter for the selected
-MVP dialect translates placeholders to native bindings without string
-interpolation.
+- source identity, dialect, and readable-schema version;
+- selected profile and declared role models;
+- prompt references and effective model settings supplied by Hub;
+- request, turn, and trace identifiers;
+- the writer and optional reviewer outcomes;
+- the resulting query version and its parent editor state; and
+- any later execution and database outcome.
 
-After JSON Schema validation, Catalyst performs runtime invariants that JSON
-Schema cannot fully express: parameter names are unique, every SQL placeholder
-has exactly one parameter, no extra parameter exists, and tagged parameter
-types match the selected SQL dialect.
+This record belongs to Catalyst operating state. It is not clinical data and is
+not a reason to send result rows back to Hub.
 
-## Report profiles
+## Failure behavior
 
-Report generation uses demo result rows and the local demo hub/model router.
-
-### `single-e4b-checked`
-
-This is the planned default Catalyst report profile because it is an
-advertised, checked hub product path optimized for a fast answer followed by
-validation and in-depth output. It owns deterministic temporal checks,
-reference resolution, review, final grounding and trace production.
-
-### `team-med-checked`
-
-This is an optional deeper profile. It adds hub-owned team gathering and
-specialist model roles. Catalyst treats it exactly like any other product
-profile and does not orchestrate those roles.
-
-A deployment may disable deep reports if local hardware cannot serve this
-profile. It must not silently map the deep-report choice to an unvalidated
-profile.
-
-Catalyst must not claim that every report is grounded unless the selected
-profile advertises a versioned fail-closed grounding capability. Current
-`validation: true` metadata alone does not guarantee that unchecked grounding
-cannot ship.
-
-## Report evidence
-
-Catalyst sends only evidence created from an already accepted query result.
-Every evidence record requires:
-
-- stable source ID;
-- source view and view version;
-- row or aggregate identity;
-- effective date when applicable;
-- compact display text;
-- typed values and units;
-- filters and reporting scope;
-- source-data freshness;
-- query and execution correlation IDs.
-
-The initial implementation is restricted to bounded tables serialized as
-numbered inline records compatible with the hub evidence ledger. A dedicated
-Catalyst analytics `ContextSource` is a future hub dependency for larger or
-richer tables because patient-chart serialization does not fully represent
-aggregate reporting provenance.
-
-Oversized or mandatory evidence must fail with a clear context error rather
-than silently drop required rows.
-
-## Streaming report events
-
-Report requests use `stream: true`. Catalyst relays the hub's staged SSE
-semantics:
-
-| Event | Catalyst behavior |
-| --- | --- |
-| `answer_done` | Display a provisional fast answer with resolved references and current validation state; do not label it finally grounded |
-| `answer_validation` | Apply the provisional reviewed replacement while preserving the original in trace metadata |
-| `indepth_pending` | Mark the in-depth section as running |
-| `indepth_done` | Display in-depth output with its current gate metadata |
-| `indepth_error` | Preserve the table and answer; show the section failure |
-| `done` | Finalize the response; mark output validated only when a versioned fail-closed grounding verdict is present |
-| `error` | Surface structured source/code/message without inventing partial success |
-| heartbeat comment | Keep the connection alive; do not expose as report content |
-
-Catalyst must preserve event order and must not reinterpret hub validation
-verdicts.
-
-## Error behavior
-
-Catalyst maps Hub transport/profile failures and governed-query terminal
-outcomes into stable categories:
-
-- `hub_unavailable`
-- `profile_unavailable`
-- `profile_incompatible`
-- `hub_timeout`
-- `hub_cancelled`
-- `hub_invalid_response`
-- `insufficient_context`
-- `query_needs_clarification`
-- `query_unsupported`
-- `query_rejected`
-
-Gateway performs bounded model correction only when it has structured
-deterministic findings. Transport retries are limited to requests known to be
-safe to replay; Catalyst must not retry an ambiguous completion after receiving
-response bytes unless the Hub contract supplies an idempotency mechanism.
-
-Report failure never changes the status of a successfully executed table.
+- Unreachable or malformed profile discovery makes profile selection
+  unavailable and returns an explicit error.
+- A selected profile that is no longer available fails that turn without a
+  fallback.
+- A failed writer or reviewer call remains a model-generation failure; Catalyst
+  does not label it clarification, unsupported data, or a database error.
+- An invalid response remains visible as a response or parsing failure and does
+  not create a runnable generated version.
+- The current editor and earlier successful result remain available after a
+  generation failure.
+- Database errors occur only after explicit Run and are recorded as execution
+  outcomes, not Hub failures.
 
 ## Configuration
 
-Implemented query-path integration settings are:
+The current integration reads:
 
-- `MED_AGENT_HUB_BASE_URL`
-- `CATALYST_HUB_TIMEOUT_SECONDS`;
-- `CATALYST_HUB_QUERY_PROFILE_URL` only when discovery is not at the standard
-  Hub path.
+- `MED_AGENT_HUB_BASE_URL` for Hub health and profile discovery;
+- `CATALYST_HUB_QUERY_PROFILE_URL` as the base used for named role calls; and
+- `CATALYST_HUB_TIMEOUT_SECONDS` for the named role-call timeout.
 
-Query profiles and prompt IDs are versioned Hub source configuration in the
-same shared catalog as clinical profiles. Planned report integration adds:
+Hub and its model router own provider credentials and physical model setup.
+Catalyst configuration must not duplicate those settings.
 
-- `CATALYST_REPORT_PROFILE`
-- `CATALYST_DEEP_REPORT_PROFILE`
-- connection, first-byte, idle-stream and total timeouts;
-- report and deep-report enable flags.
+## Acceptance
 
-The demo configuration points to the local hub and local model router.
-Production service authentication, endpoint identity, egress policy and trace
-governance are deferred to the roadmap's production-security milestone.
+The integration is acceptable when one real browser flow shows that:
 
-The following belong to med-agent-hub or its model router, not Catalyst:
+- the UI options match live Hub profile discovery;
+- the selected profile's writer and optional reviewer roles use their
+  Hub-configured models, prompts, and settings;
+- each role receives the selected source, declared dialect, and complete
+  readable schema, with no credentials or result rows;
+- a query candidate appears in the single editor with any findings shown as
+  advice;
+- clarification and unsupported responses run no SQL;
+- a Hub or profile failure is explicit and does not trigger fallback;
+- the person can edit the candidate and Run sends the exact visible SQL through
+  the configured source connection; and
+- Catalyst retains the resulting query version and either typed rows or the
+  database error after refresh.
 
-- `LLM_BASE_URL`
-- provider credentials and transport authentication;
-- model files and the router's served-model inventory;
-- router concurrency and backend timeouts.
+This check proves the integration boundary without adding another database path
+or automatic scoring.
 
-Catalyst owns governed-query stage ordering, review, deterministic query policy,
-execution, and query trace evidence. Hub owns role-to-model mapping, prompts,
-temperature/DRY/token knobs, and physical model execution. Hub-hosted clinical
-profiles retain their temporal, grounding, and drug-safety workflow adapter.
+## Keep the boundary small
 
-Legacy `CATALYST_LLM_PROVIDER`, `LMSTUDIO_BASE_URL`, `GOOGLE_API_KEY`, and
-`GEMINI_MODEL` settings apply only to the legacy Catalyst-local compatibility
-path, not the governed-query MVP.
-
-## Future production boundary
-
-The demo contract does not claim production security. Before real clinical data
-is enabled, the integration requires service authentication, trusted endpoint
-identity, PHI/provider-routing policy, restricted egress, protected traces,
-retention/deletion policy, authorization scope, audit and security testing.
-Those controls belong to the future production-security milestone.
-
-## Readiness and observability
-
-Catalyst reports separate states for:
-
-1. Catalyst process readiness.
-2. Hub health.
-3. Availability of at least one configured Hub query profile whose exact
-   role-model IDs are advertised by the router.
-4. Hub-owned model-router catalog reachability.
-5. Enabled report-profile availability when R4 is implemented.
-6. Analytics catalog and source freshness.
-7. Query execution service readiness.
-
-Logs and traces correlate:
-
-- Catalyst request ID;
-- Catalyst trace ID;
-- profile ID;
-- writer/reviewer invocation IDs, roles, models, configurations, durations,
-  request/response digests, and outcomes;
-- catalog/view versions;
-- query validation decision;
-- execution trace ID.
-
-Ordinary logs should avoid unnecessary result rows even in demo mode.
-
-## Contract testing
-
-Before enabling a Hub Catalyst-query profile in a supported deployment, tests cover:
-
-- Hub profile discovery and exact profile evidence;
-- writer-only and reviewed role sequences;
-- unknown profiles and unserved-model failures;
-- named-role request serialization and structured-output pass-through;
-- exact `catalyst.query.v1` finalization;
-- malformed and incompatible responses;
-- timeout, cancellation and transport failure;
-- oversized context;
-- trace correlation;
-- deterministic writer lint/correction and reviewer-correction re-lint;
-- Hub and real external model-router configuration;
-- proof that database credentials and result rows are absent from role
-  requests.
-
-Planned report-profile tests separately cover product-profile discovery and SSE
-heartbeats, ordering, terminal events, and grounding states. Live query
-integration tests must use the real configured-role Hub API; mock-only engine tests are
-not sufficient for milestone sign-off.
+- Do not move source discovery, SQL execution, query versions, or UI findings
+  into Hub.
+- Do not let Hub configuration narrow the readable source schema.
+- Do not add a second profile-selection or direct-router path in Catalyst.
+- Do not add engine-specific SQL assumptions to this integration contract.
+- Do not turn advisory findings into a gate on the person's explicit Run.

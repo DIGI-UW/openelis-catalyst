@@ -1,11 +1,9 @@
 # Dashboard Builder MVP interactive references
 
 These static pages are interactive design references, not production
-application code. `Catalyst Dashboard Builder 4c.dc.html` now includes the
-lightweight reconciled populated Ask state: latest instruction → one active SQL
-workbench → Dataset tile after explicit successful Run → Dataset review panel.
-It is intended to make integration visible, not to reimplement the current
-workbench in prototype JavaScript.
+application code. `Catalyst Dashboard Builder 4c.dc.html` is the populated
+binding Workbench state: latest instruction → one active SQL workbench → Dataset
+tile after explicit successful Run → Dataset review panel.
 
 From the Catalyst repository root, run:
 
@@ -21,7 +19,7 @@ Then open:
 
 Set `CATALYST_DASHBOARD_PROTOTYPE_PORT` to use another localhost port.
 
-The normative design text and reconciliation gate live in
+The normative design text and acceptance gate live in
 `docs/dashboard-builder-mvp-design.md`.
 
 Reference priority:
@@ -29,10 +27,10 @@ Reference priority:
 1. The written invariants in `docs/dashboard-builder-mvp-design.md`.
 2. The running current Catalyst query workbench and its tests for SQL editing,
    Format/Validate/Run, evidence, versions, restoration, and result semantics.
-3. The reconciled 4c page for the target shell, chronology, fixed composer,
+3. The populated binding 4c page for the target shell, chronology, fixed composer,
    Dataset/Widget tiles, panels, and library navigation.
-4. `Catalyst Query Screen.dc.html` and the wireframes as historical visual
-   rationale only.
+4. `Catalyst Query Screen.dc.html` and the wireframes as supporting,
+   non-binding explorations.
 
 The populated 4c reference deliberately shows:
 

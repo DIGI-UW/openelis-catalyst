@@ -1,16 +1,17 @@
 # Catalyst Agents
 
-This package contains the A2A agents inherited from the OGC-70 prototype:
+**Status:** Standalone prototype package; not used by the active Catalyst
+Gateway or UI request path.
+
+This package contains four A2A agents:
 
 - RouterAgent
 - CatalystAgent
 - SchemaAgent
 - SQLGenAgent
 
-The target architecture makes Catalyst a client of med-agent-hub and moves
-model, provider, prompt, review, and model-team orchestration out of this
-package. Existing agents remain migration scaffolding until the hub-client
-roadmap replaces their production path.
+The active product path uses Catalyst Gateway and med-agent-hub. No code outside
+this package imports these agents. Catalyst core does not require the package.
 
 See the repository
 [product specification](../docs/specification.md),

@@ -1,15 +1,11 @@
-# Catalyst MCP
+# Catalyst MCP prototype
 
-MCP server for deterministic Catalyst schema/context and query-policy tools.
+**Status:** Mock component outside the active product flow.
 
-MCP does not execute user queries and does not own LLM orchestration. The
-current implementation serves mock approved schema context and SQL allowlist
-checks; the target architecture applies those boundaries to approved analytics
-views independently of med-agent-hub profile review.
+The component serves mock schema and query-policy tools. It does not execute
+user queries, own model orchestration, or participate in the active Gateway and
+UI path. Catalyst core does not require it.
 
-See the repository
-[product specification](../docs/specification.md),
+See the repository [product specification](../docs/specification.md),
 [roadmap](../docs/roadmap.md), and
 [hub client contract](../docs/med-agent-hub.md).
-
-Use `uv sync` to set up dependencies.
