@@ -311,7 +311,7 @@ The linear notebook extends R3 without adding chat or branching:
 3. Validate and Run the exact active version, preserving version-labelled stale
    results.
 4. Generate one complete successor from the exact editor snapshot and current
-   instruction, using at most five prior follow-up instructions.
+   instruction, using every prior user instruction in the session.
 5. When the selected profile declares a reviewer, invoke it after the writer
    and deterministic lint, re-lint its complete correction, and preserve
    writer/reviewer evidence. The recommended GPU lane uses a different-family

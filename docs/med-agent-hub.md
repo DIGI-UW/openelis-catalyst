@@ -159,8 +159,8 @@ complete Gateway engine request:
 - `catalystQuery`: analytics target, compact runtime catalog, non-secret query
   policy, correlation IDs, and `requiredOutputContract: catalyst.query.v1`;
 - for v2, the exact active editor SQL/parameters/digest, current stored version
-  and digest, initial instruction plus at most five prior follow-ups, and only
-  exact-base validation/execution summaries.
+  and digest, every prior user instruction in stored order, and only exact-base
+  validation/execution summaries.
 
 The demo request contains no production actor, facility, tenant, or
 authorization context.
