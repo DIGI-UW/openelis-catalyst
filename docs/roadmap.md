@@ -91,7 +91,8 @@ For every source packaged in this repository and actually included in the demo:
 - expose the readable tables through Spark SQL;
 - register Spark as an ordinary Catalyst source;
 - configure Superset for the same Spark source; and
-- prevent mutation of source data through the chosen query path.
+- visibly refuse one intentional write attempt through the Spark connection and
+  leave source data unchanged.
 
 Run one manual Spark query to prove materialization and a known fact. This is a
 one-time endpoint check, not a new acceptance framework.
@@ -101,6 +102,8 @@ Exit:
 - nonempty Parquet exists;
 - Spark and Catalyst expose the expected readable tables;
 - one successful query and one database error are visible in the browser;
+- one intentional write attempt is visibly refused and leaves source data
+  unchanged;
 - one generated query survives refresh;
 - one saved Dataset publishes, imports, and renders in Superset;
 - one displayed value is inspected against the originating Catalyst result

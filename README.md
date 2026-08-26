@@ -69,9 +69,9 @@ Generated and manually edited queries use the same connection-execution code.
 
 Catalyst relies on the configured connection's access, applies a time limit and
 returned-row limit, and records typed rows or the error returned by the database.
-The demo Spark path must prevent mutation of source data. Production
-authentication, authorization, row-level access, and sensitive-data controls are
-later work.
+The demo Spark path must visibly refuse one intentional write attempt and leave
+source data unchanged. Production authentication, authorization, row-level
+access, and sensitive-data controls are later work.
 
 ## Dashboard Builder
 

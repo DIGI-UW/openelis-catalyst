@@ -110,7 +110,9 @@ rewrite SQL.
 Run saves the exact visible draft as an immutable version and submits its exact
 SQL and typed parameters through the configured connection. Catalyst applies a
 time limit and returned-row limit. The connection or reference deployment
-prevents mutation of source data.
+prevents mutation of source data. Reference-deployment acceptance submits one
+intentional write attempt through the configured connection and records its
+visible refusal without changing source data.
 
 Success retains typed columns, bounded rows, counts, source, dialect, readable
 schema reference, query identity, and timing. Failure retains the error returned
@@ -213,8 +215,9 @@ Each included source receives one live end-to-end proof when integrated:
 - one manual Spark query proving the endpoint and a known fact;
 - the same readable tables discovered by Catalyst;
 - one successful exact query and one database error in the browser;
+- one intentional write attempt visibly refused without changing source data;
 - one Dataset-to-Superset render; and
-- proof that the chosen Spark query path cannot mutate source data.
+- confirmation that source data remains unchanged after the refused attempt.
 
 The manual Spark query is a one-time materialization check. It does not become a
 second harness or per-run comparison path.
