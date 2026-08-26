@@ -11,6 +11,7 @@ import copy
 import json
 from unittest.mock import patch
 
+import httpx
 import pytest
 
 from src.catalyst import query_engine
@@ -146,6 +147,53 @@ def _collaborative_profile() -> EngineProfile:
             },
         },
     )
+
+
+def _role_request_evidence(
+    *,
+    profile_id: str,
+    role: str,
+    model: str,
+    caller_messages: list[dict],
+    response_format: dict,
+    context_window: int = 4096,
+    prompt_tokens: int = 100,
+    output_reserve: int = 512,
+) -> dict:
+    exact_request = {
+        "profileId": profile_id,
+        "role": role,
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Exact Hub-owned system prompt."},
+            *copy.deepcopy(caller_messages),
+        ],
+        "responseFormat": copy.deepcopy(response_format),
+        "config": {
+            "temperature": 0.0,
+            "dryMultiplier": 0.0,
+            "maxTokens": output_reserve,
+        },
+    }
+    rendered_prompt = "<s>exact rendered role request</s>"
+    required_tokens = prompt_tokens + output_reserve
+    return {
+        "contractVersion": "med-agent-hub.catalyst-role-request-evidence.v1",
+        "request": exact_request,
+        "requestDigest": query_engine._canonical_evidence_digest(exact_request),
+        "prompt": {
+            "renderedPrompt": rendered_prompt,
+            "renderedPromptDigest": query_engine._evidence_digest(rendered_prompt),
+        },
+        "tokens": {
+            "tokenizer": model,
+            "contextWindow": context_window,
+            "outputReserve": output_reserve,
+            "promptTokens": prompt_tokens,
+            "requiredTokens": required_tokens,
+            "fits": required_tokens <= context_window,
+        },
+    }
 
 
 def _queued_backend(responses: list, captured_messages: list | None = None):
@@ -495,6 +543,121 @@ async def test_the_hubs_token_count_travels_with_the_invocation():
     assert invocations[0]["tokenAccounting"] == accounting
     assert invocations[1]["tokenAccounting"]["promptTokens"] == 999
     assert result["_hubEvidence"]["tokenAccounting"] == accounting
+
+
+@pytest.mark.asyncio
+async def test_exact_hub_role_request_evidence_travels_with_a_successful_invocation():
+    caller_messages = [{"role": "user", "content": "exact caller context"}]
+    response_format = {"type": "json_object"}
+    evidence = _role_request_evidence(
+        profile_id="profile-a",
+        role="query_generate",
+        model="model-a",
+        caller_messages=caller_messages,
+        response_format=response_format,
+    )
+    accounting = {
+        "tokenizer": "model-a",
+        "contextWindow": 4096,
+        "outputReserve": 512,
+        "promptTokens": 100,
+    }
+
+    async def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "content": json.dumps(_ready_candidate()),
+                "token_accounting": accounting,
+                "request_evidence": evidence,
+            },
+        )
+
+    invocations: list[dict] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        content = await query_engine._invoke_backend(
+            client,
+            "profile-a",
+            "query_generate",
+            "model-a",
+            caller_messages,
+            provider_id="med-agent-hub",
+            response_format=response_format,
+            temperature=0.0,
+            dry_multiplier=0.0,
+            max_tokens=512,
+            invocations=invocations,
+            role="writer",
+            stage="initial_generation",
+            attempt=1,
+        )
+
+    assert json.loads(content)["status"] == "ready"
+    assert invocations[0]["outcome"] == "succeeded"
+    assert invocations[0]["requestEvidence"] == evidence
+    assert invocations[0]["requestDigest"] == evidence["requestDigest"]
+    assert invocations[0]["tokenAccounting"] == accounting
+
+
+@pytest.mark.asyncio
+async def test_known_context_overflow_keeps_evidence_as_a_pre_dispatch_rejection():
+    caller_messages = [{"role": "user", "content": "oversized caller context"}]
+    response_format = {"type": "json_object"}
+    evidence = _role_request_evidence(
+        profile_id="profile-a",
+        role="query_generate",
+        model="model-a",
+        caller_messages=caller_messages,
+        response_format=response_format,
+        context_window=600,
+        prompt_tokens=100,
+    )
+    assert evidence["tokens"]["fits"] is False
+    message = "The exact rendered request exceeds the model context window."
+
+    async def reject(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "context_window_exceeded",
+                    "message": message,
+                    "request_evidence": evidence,
+                }
+            },
+        )
+
+    invocations: list[dict] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await query_engine._invoke_backend(
+                client,
+                "profile-a",
+                "query_generate",
+                "model-a",
+                caller_messages,
+                provider_id="med-agent-hub",
+                response_format=response_format,
+                temperature=0.0,
+                dry_multiplier=0.0,
+                max_tokens=512,
+                invocations=invocations,
+                role="writer",
+                stage="initial_generation",
+                attempt=1,
+            )
+
+    invocation = invocations[0]
+    assert invocation["outcome"] == "pre_dispatch_rejected"
+    assert invocation["requestEvidence"] == evidence
+    assert invocation["requestDigest"] == evidence["requestDigest"]
+    assert invocation["hubError"] == {
+        "code": "context_window_exceeded",
+        "httpStatus": 422,
+        "message": message,
+    }
+    assert invocation["responseDigest"] is None
+    assert invocation["failureDigest"]
 
 
 @pytest.mark.asyncio

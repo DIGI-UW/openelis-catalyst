@@ -886,13 +886,9 @@ class WorkbenchStore:
 
     # ---------------------------------------------------------- guidance
     #
-    # What a person pins so the writer stops having to be told twice. Entries
-    # are append-only: unpinning or replacing one appends a lifecycle event
-    # and leaves the text where it was, because a turn's evidence must keep
-    # meaning what it meant when it ran.
-
-    GUIDANCE_DELIVERY_CAP = 20
-    """Active entries delivered to the writer. History is not capped."""
+    # Optional session guidance remains an experimental seam. Entries are
+    # append-only: deactivating or replacing one appends a lifecycle event and
+    # leaves the original text intact so old turn evidence keeps its meaning.
 
     def pin_guidance(
         self,
@@ -904,7 +900,7 @@ class WorkbenchStore:
         supersedes: str | None = None,
         actor_id: str | None = None,
     ) -> dict[str, Any]:
-        """Pin one instruction to a session, exactly as written."""
+        """Record one optional experimental instruction exactly as written."""
         if not text.strip():
             raise ValueError("guidance text must not be blank")
         if source not in {"human", "system"}:
@@ -1044,7 +1040,7 @@ class WorkbenchStore:
         return self._guidance_row(row)
 
     def guidance_history(self, session_id: str) -> list[dict[str, Any]]:
-        """Every entry ever pinned to this session, in order."""
+        """Every experimental guidance entry for this session, in order."""
         rows = self._connection.execute(
             """
             SELECT * FROM catalyst_workbench_guidance
@@ -1055,12 +1051,7 @@ class WorkbenchStore:
         return [self._guidance_row(row) for row in rows]
 
     def active_guidance(self, session_id: str) -> list[dict[str, Any]]:
-        """The entries delivered to the writer, oldest first.
-
-        Past the cap the oldest active entries stop being delivered; the
-        omission is recorded where the request is assembled, and nothing is
-        deleted here.
-        """
+        """Every active entry delivered to the writer in recorded order."""
         rows = self._connection.execute(
             """
             SELECT * FROM catalyst_workbench_guidance
@@ -1068,22 +1059,7 @@ class WorkbenchStore:
             """,
             (session_id,),
         ).fetchall()
-        entries = [self._guidance_row(row) for row in rows]
-        return entries[-self.GUIDANCE_DELIVERY_CAP :]
-
-    def guidance_omitted_by_cap(self, session_id: str) -> list[dict[str, Any]]:
-        """Active entries the cap keeps out of the delivered set."""
-        rows = self._connection.execute(
-            """
-            SELECT * FROM catalyst_workbench_guidance
-            WHERE session_id = ? AND state = 'active' ORDER BY entry_order
-            """,
-            (session_id,),
-        ).fetchall()
-        entries = [self._guidance_row(row) for row in rows]
-        if len(entries) <= self.GUIDANCE_DELIVERY_CAP:
-            return []
-        return entries[: -self.GUIDANCE_DELIVERY_CAP]
+        return [self._guidance_row(row) for row in rows]
 
     @staticmethod
     def _guidance_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -1952,7 +1928,7 @@ class WorkbenchStore:
             failure = {
                 "stage": stage,
                 "code": code,
-                "message": message[:4000],
+                "message": message,
                 "evidenceAvailable": evidence_available,
                 "rawEvidenceRef": raw_ref,
                 "diagnostic": {

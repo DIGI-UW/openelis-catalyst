@@ -1,25 +1,14 @@
-"""The layered context the writer receives, and the order it arrives in.
-
-Phase 1 adds three bounded layers to a request: session guidance, verified
-examples from earlier in the session, and the one prior failure on this
-revision line. The roadmap fixes their order and their precedence, because a
-model reads position as authority: contract, catalog and policy outrank all
-user context; the current instruction outranks retained guidance; later
-guidance wins a guidance conflict; history, failures and examples are
-evidence rather than commands.
-"""
+"""The complete eligible session context the writer receives."""
 
 from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from src.catalyst.session_context import (
-    LAYER_ORDER,
     build_session_context,
     select_verified_examples,
 )
+from src.catalyst.service import CatalystService
 
 
 def _entry(order: int, text: str, **extra: Any) -> dict[str, Any]:
@@ -35,18 +24,6 @@ def _entry(order: int, text: str, **extra: Any) -> dict[str, Any]:
         "state": "active",
         **extra,
     }
-
-
-def test_the_layers_arrive_in_the_order_the_roadmap_fixes() -> None:
-    assert LAYER_ORDER == (
-        "guidance",
-        "verifiedExamples",
-        "editorSnapshot",
-        "instructionHistory",
-        "relevantFailure",
-        "currentValidation",
-        "currentInstruction",
-    )
 
 
 def test_guidance_is_delivered_verbatim_in_pin_order() -> None:
@@ -70,24 +47,23 @@ def test_guidance_is_delivered_verbatim_in_pin_order() -> None:
     }
 
 
-def test_guidance_says_it_is_standing_instruction_not_evidence() -> None:
-    """Precedence is stated, because position alone is ambiguous."""
+def test_guidance_is_labelled_as_optional_experimental_context() -> None:
     context = build_session_context(
         guidance=[_entry(1, "Exclude do_not_perform.")],
         omitted_guidance=[],
         verified_examples=[],
         relevant_failure=None,
     )
-    precedence = context["guidance"]["precedence"]
-
-    assert "current instruction" in precedence
-    assert "later" in precedence.lower()
+    assert "experiment" in context["guidance"]["role"]
+    assert "provenance" in context["guidance"]["role"]
 
 
-def test_an_entry_the_cap_pushed_out_is_recorded_as_omitted() -> None:
+def test_an_explicitly_omitted_entry_keeps_its_reason() -> None:
     context = build_session_context(
         guidance=[_entry(2, "kept")],
-        omitted_guidance=[_entry(1, "pushed out")],
+        omitted_guidance=[
+            _entry(1, "not supplied", omissionReason="operator_excluded")
+        ],
         verified_examples=[],
         relevant_failure=None,
     )
@@ -95,7 +71,7 @@ def test_an_entry_the_cap_pushed_out_is_recorded_as_omitted() -> None:
     omissions = context["omissions"]
     assert omissions[0]["layer"] == "guidance"
     assert omissions[0]["itemIds"] == ["guidance-1"]
-    assert omissions[0]["reason"] == "active_entry_cap"
+    assert omissions[0]["reason"] == "operator_excluded"
 
 
 def test_failures_and_examples_are_labelled_evidence_not_commands() -> None:
@@ -150,7 +126,7 @@ def _kept(turn: str, instruction: str, digest: str = "a" * 64) -> dict[str, Any]
     }
 
 
-def test_examples_rank_by_word_overlap_with_the_request() -> None:
+def test_examples_remain_in_recorded_session_order() -> None:
     chosen = select_verified_examples(
         [
             _kept("t1", "count medication requests by name"),
@@ -163,10 +139,10 @@ def test_examples_rank_by_word_overlap_with_the_request() -> None:
         exclude_turn_id=None,
     )
 
-    assert [item["turnId"] for item in chosen][:2] == ["t3", "t1"]
+    assert [item["turnId"] for item in chosen] == ["t1", "t2", "t3"]
 
 
-def test_at_most_three_examples_travel() -> None:
+def test_every_eligible_example_travels() -> None:
     chosen = select_verified_examples(
         [_kept(f"t{index}", "count medication requests") for index in range(6)],
         instruction="count medication requests",
@@ -175,7 +151,7 @@ def test_at_most_three_examples_travel() -> None:
         exclude_turn_id=None,
     )
 
-    assert len(chosen) == 3
+    assert len(chosen) == 6
 
 
 def test_a_turn_never_receives_its_own_answer_as_an_example() -> None:
@@ -205,8 +181,7 @@ def test_examples_from_another_source_or_catalog_are_not_eligible() -> None:
     assert chosen == []
 
 
-def test_selection_is_deterministic_when_overlap_ties() -> None:
-    """Ties break on the newest turn, then the stable id -- never on chance."""
+def test_selection_does_not_invent_a_relevance_ranking() -> None:
     candidates = [
         _kept("t1", "count medication requests"),
         _kept("t2", "count medication requests"),
@@ -227,76 +202,93 @@ def test_selection_is_deterministic_when_overlap_ties() -> None:
         exclude_turn_id=None,
     )
 
-    assert [item["turnId"] for item in first] == [item["turnId"] for item in second]
+    assert [item["turnId"] for item in first] == ["t1", "t2", "t3"]
+    assert [item["turnId"] for item in second] == ["t3", "t2", "t1"]
 
 
-# --- token accounting ------------------------------------------------------
-#
-# A profile declares its window, its output reserve, and the exact tokenizer.
-# The fully rendered messages are counted against them before the model is
-# called, so overflow is a refusal rather than a silent truncation that
-# quietly drops the guidance a person pinned.
+def test_only_validated_and_successfully_executed_kept_queries_become_examples() -> (
+    None
+):
+    version = {
+        "versionId": "version-1",
+        "sql": "SELECT 1",
+        "queryDigest": "a" * 64,
+    }
+    turn = {
+        "turnId": "turn-1",
+        "instruction": "Show one row",
+        "selectedVersionId": version["versionId"],
+        "dataSourceId": "openmrs-hiv",
+        "catalogVersion": "runtime-catalog",
+    }
+    base_session = {
+        "sessionId": "session-1",
+        "versions": [version],
+        "validations": [],
+        "executions": [],
+    }
+    validation = {
+        "validationId": "validation-1",
+        "versionId": version["versionId"],
+        "queryDigest": version["queryDigest"],
+        "status": "invalid",
+        "validatorRevision": "validator-1",
+        "validatorDigest": "b" * 64,
+        "findings": [{"ruleCode": "advisory.warning", "severity": "warning"}],
+        "createdAt": "2026-08-25T00:00:00Z",
+    }
+    failed_execution = {
+        "executionId": "execution-failed",
+        "sessionId": base_session["sessionId"],
+        "versionId": version["versionId"],
+        "queryDigest": version["queryDigest"],
+        "status": "failed",
+    }
+    successful_execution = {
+        "executionId": "execution-succeeded",
+        "sessionId": base_session["sessionId"],
+        "versionId": version["versionId"],
+        "queryDigest": version["queryDigest"],
+        "status": "succeeded",
+        "completedAt": "2026-08-25T00:01:00Z",
+        "durationMs": 8,
+        "result": {"rows": [[{"type": "string", "value": "not context"}]]},
+    }
 
-
-def test_accounting_reports_the_counted_prompt_against_the_declared_window() -> None:
-    from src.catalyst.session_context import account_for_tokens
-
-    accounting = account_for_tokens(
-        rendered="a b c d",
-        profile={"contextWindow": 100, "outputReserve": 10, "tokenizer": "gemma-4"},
-        included_item_ids=["guidance-1"],
-        omissions=[],
-        count_tokens=lambda text: len(text.split()),
-    )
-
-    assert accounting["promptTokens"] == 4
-    assert accounting["contextWindow"] == 100
-    assert accounting["outputReserve"] == 10
-    assert accounting["tokenizer"] == "gemma-4"
-    assert accounting["includedItemIds"] == ["guidance-1"]
-    assert accounting["fits"] is True
-
-
-def test_a_prompt_that_leaves_no_room_for_the_reply_does_not_fit() -> None:
-    from src.catalyst.session_context import account_for_tokens
-
-    accounting = account_for_tokens(
-        rendered="a b c d e f g h i j",
-        profile={"contextWindow": 12, "outputReserve": 5, "tokenizer": "gemma-4"},
-        included_item_ids=[],
-        omissions=[],
-        count_tokens=lambda text: len(text.split()),
-    )
-
-    assert accounting["fits"] is False
-
-
-def test_a_profile_without_an_exact_tokenizer_cannot_be_counted() -> None:
-    """A character-count substitute is the thing the roadmap forbids."""
-    from src.catalyst.session_context import TokenAccountingError, account_for_tokens
-
-    with pytest.raises(TokenAccountingError, match="tokenizer"):
-        account_for_tokens(
-            rendered="a b",
-            profile={"contextWindow": 100, "outputReserve": 10},
-            included_item_ids=[],
-            omissions=[],
-            count_tokens=lambda text: len(text.split()),
+    assert CatalystService._verified_examples(base_session, [turn]) == []
+    assert (
+        CatalystService._verified_examples(
+            base_session | {"validations": [validation]}, [turn]
         )
-
-
-def test_every_omission_travels_with_its_reason() -> None:
-    from src.catalyst.session_context import account_for_tokens
-
-    accounting = account_for_tokens(
-        rendered="a",
-        profile={"contextWindow": 100, "outputReserve": 10, "tokenizer": "gemma-4"},
-        included_item_ids=[],
-        omissions=[
-            {"layer": "guidance", "itemIds": ["g1"], "reason": "active_entry_cap"}
-        ],
-        count_tokens=lambda text: len(text.split()),
+        == []
+    )
+    assert (
+        CatalystService._verified_examples(
+            base_session
+            | {"validations": [validation], "executions": [failed_execution]},
+            [turn],
+        )
+        == []
     )
 
-    assert accounting["omittedItemIds"] == ["g1"]
-    assert accounting["omissions"][0]["reason"] == "active_entry_cap"
+    examples = CatalystService._verified_examples(
+        base_session
+        | {
+            "validations": [validation],
+            "executions": [failed_execution, successful_execution],
+        },
+        [turn],
+    )
+
+    assert len(examples) == 1
+    assert examples[0]["advisoryValidations"][0]["status"] == "invalid"
+    assert examples[0]["advisoryValidations"][0]["findings"] == validation["findings"]
+    assert examples[0]["successfulExecutions"] == [
+        {
+            "executionId": "execution-succeeded",
+            "status": "succeeded",
+            "completedAt": "2026-08-25T00:01:00Z",
+            "durationMs": 8,
+        }
+    ]
+    assert "result" not in examples[0]

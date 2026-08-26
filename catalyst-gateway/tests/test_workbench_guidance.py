@@ -1,9 +1,7 @@
-"""Session guidance: what a person pins so the writer stops being told once.
+"""Optional session guidance retained verbatim for experiments.
 
-An instruction that mattered on turn two mattered on turn five, and the only
-thing that accumulated in a session was the list of instructions themselves --
-text with no standing, which the prompt explicitly ranks below the current
-one. Guidance is durable, append-only, delivered verbatim, and capped.
+Guidance is durable and append-only. Delivery does not impose a fixed item
+limit or claim a precedence that the planned research has not established.
 """
 
 from __future__ import annotations
@@ -13,8 +11,6 @@ from pathlib import Path
 import pytest
 
 from src.catalyst.storage import WorkbenchStore
-
-GUIDANCE_CAP = 20
 
 
 def _store(tmp_path: Path) -> WorkbenchStore:
@@ -53,8 +49,8 @@ def test_a_pin_is_stored_verbatim_with_its_provenance(tmp_path: Path) -> None:
     assert [event["action"] for event in entry["events"]] == ["pinned"]
 
 
-def test_entries_keep_the_order_they_were_pinned_in(tmp_path: Path) -> None:
-    """Order is the tie-break when two entries conflict: later wins."""
+def test_entries_keep_the_order_they_were_recorded_in(tmp_path: Path) -> None:
+    """Recorded sequence is preserved without defining conflict precedence."""
     store = _store(tmp_path)
     session_id = _session(store)
     for text in ("first", "second", "third"):
@@ -103,22 +99,19 @@ def test_replacing_an_entry_supersedes_it_and_keeps_both(tmp_path: Path) -> None
     assert history[first["entryId"]]["supersededBy"] == second["entryId"]
 
 
-def test_the_twenty_first_entry_pushes_the_oldest_out_of_delivery(
+def test_more_than_twenty_active_entries_are_delivered_without_a_fixed_cap(
     tmp_path: Path,
 ) -> None:
-    """The cap bounds what is delivered, not what is remembered."""
     store = _store(tmp_path)
     session_id = _session(store)
-    for index in range(GUIDANCE_CAP + 1):
+    for index in range(25):
         store.pin_guidance(session_id, text=f"entry {index}", source="human")
 
     active = store.active_guidance(session_id)
 
-    assert len(active) == GUIDANCE_CAP
-    assert active[0]["text"] == "entry 1", "the oldest left the delivered set"
-    assert active[-1]["text"] == f"entry {GUIDANCE_CAP}"
-    # Nothing was forgotten.
-    assert len(store.guidance_history(session_id)) == GUIDANCE_CAP + 1
+    assert len(active) == 25
+    assert active[0]["text"] == "entry 0"
+    assert active[-1]["text"] == "entry 24"
 
 
 def test_guidance_never_leaks_between_sessions(tmp_path: Path) -> None:

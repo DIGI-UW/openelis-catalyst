@@ -83,19 +83,13 @@ def build_revision_context(
     effective_base: Mapping[str, Any] | None,
     editor_snapshot: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Build bounded, digest-bound context without rows or historical SQL copies."""
+    """Build complete, digest-bound context without rows or historical SQL copies."""
 
     ordered = sorted(prior_turns, key=lambda item: int(item["ordinal"]))
     session_id = str(session["sessionId"])
     if any(str(turn.get("sessionId")) != session_id for turn in ordered):
         raise ValueError("Revision history contains an unrelated session turn.")
-    initial = next((turn for turn in ordered if turn["kind"] == "initial"), None)
-    followups = [turn for turn in ordered if turn["kind"] == "followup"][-5:]
-    included = ([initial] if initial is not None else []) + followups
-    included_ids = {str(turn["turnId"]) for turn in included}
-    omitted = [turn for turn in ordered if str(turn["turnId"]) not in included_ids]
-    if len(omitted) > 1000:
-        raise ValueError("Revision history exceeds the deterministic omission bound.")
+    included = ordered
 
     history = [
         {
@@ -107,15 +101,7 @@ def build_revision_context(
         }
         for turn in included
     ]
-    omitted_refs = [
-        {
-            "turnId": str(turn["turnId"]),
-            "ordinal": int(turn["ordinal"]),
-            "kind": str(turn["kind"]),
-            "instructionDigest": str(turn["instructionDigest"]),
-        }
-        for turn in omitted
-    ]
+    omitted_refs: list[dict[str, Any]] = []
     # A turn answering the writer's question revises nothing: there is no
     # editor content, so evidence can only be looked up under the base.
     editor_digest = (
@@ -135,7 +121,6 @@ def build_revision_context(
     ]
     validation_context = None
     validation_ref = None
-    validation_omitted = 0
     if matching_validations:
         validation = matching_validations[-1]
         findings = [
@@ -150,9 +135,8 @@ def build_revision_context(
                     "message",
                 )
             }
-            for finding in validation.get("findings", [])[:50]
+            for finding in validation.get("findings", [])
         ]
-        validation_omitted = max(0, len(validation.get("findings", [])) - 50)
         validation_context = {
             "validationId": validation["validationId"],
             "versionId": validation["versionId"],
@@ -173,8 +157,6 @@ def build_revision_context(
     ]
     execution_context = None
     execution_ref = None
-    execution_columns_omitted = 0
-    diagnostic_truncated = False
     if matching_executions:
         execution = matching_executions[-1]
         result = (
@@ -182,7 +164,6 @@ def build_revision_context(
         )
         raw_columns = result.get("columns") if isinstance(result, dict) else []
         raw_columns = raw_columns if isinstance(raw_columns, list) else []
-        execution_columns_omitted = max(0, len(raw_columns) - 128)
         columns = [
             {
                 "ordinal": int(column["ordinal"]),
@@ -190,7 +171,7 @@ def build_revision_context(
                 "databaseType": str(column["databaseType"]),
                 "logicalType": str(column["logicalType"]),
             }
-            for column in raw_columns[:128]
+            for column in raw_columns
             if isinstance(column, Mapping)
             and all(
                 key in column
@@ -223,8 +204,8 @@ def build_revision_context(
                 ),
             )
         execution_warnings = [
-            _SENSITIVE_DIAGNOSTIC.sub("[redacted]", warning)[:2000]
-            for warning in raw_warnings[:8]
+            _SENSITIVE_DIAGNOSTIC.sub("[redacted]", warning)
+            for warning in raw_warnings
             if isinstance(warning, str) and warning.strip()
         ]
         diagnostic = execution.get("databaseDiagnostic")
@@ -241,9 +222,6 @@ def build_revision_context(
                 value = diagnostic.get(key)
                 if key in {"message", "detail", "hint"} and isinstance(value, str):
                     value = _SENSITIVE_DIAGNOSTIC.sub("[redacted]", value)
-                    if len(value) > 4000:
-                        diagnostic_truncated = True
-                    value = value[:4000]
                 bounded_diagnostic[key] = value
             diagnostic = bounded_diagnostic
         else:
@@ -270,9 +248,9 @@ def build_revision_context(
         "executionRef": execution_ref,
         "omissions": {
             "historyInstructionsOmitted": len(omitted_refs),
-            "validationFindingsOmitted": validation_omitted,
-            "executionColumnsOmitted": execution_columns_omitted,
-            "diagnosticTextTruncated": diagnostic_truncated,
+            "validationFindingsOmitted": 0,
+            "executionColumnsOmitted": 0,
+            "diagnosticTextTruncated": False,
             "prohibitedClasses": [
                 "database_credentials",
                 "database_connection_details",
@@ -309,10 +287,18 @@ def build_revision_context(
         "selection": selection,
         "contextDigest": "0" * 64,
     }
-    context["contextDigest"] = canonical_sha256(
+    finalize_revision_context_digest(context)
+    return context
+
+
+def finalize_revision_context_digest(context: dict[str, Any]) -> str:
+    """Bind every supplied revision-context field, including session context."""
+
+    digest = canonical_sha256(
         {key: value for key, value in context.items() if key != "contextDigest"}
     )
-    return context
+    context["contextDigest"] = digest
+    return digest
 
 
 def normalize_findings(
@@ -347,9 +333,9 @@ def normalize_findings(
         if suggested_action is None:
             suggested_action = source.get("suggested_action")
         repairability = _normalize_repairability(source.get("repairability"))
-        evidence = _bounded_json(source.get("evidence"))
-        ast_unit = _bounded_json(source.get("astUnit", source.get("ast_unit")))
-        span = _bounded_json(source.get("span"))
+        evidence = _evidence_json(source.get("evidence"))
+        ast_unit = _evidence_json(source.get("astUnit", source.get("ast_unit")))
+        span = _evidence_json(source.get("span"))
 
         identity = {
             "queryDigest": query_digest,
@@ -466,20 +452,15 @@ def _normalize_repairability(value: Any) -> str:
     return normalized if normalized in _REPAIRABILITY else "manual"
 
 
-def _bounded_json(value: Any, *, depth: int = 0) -> Any:
-    """Keep evidence useful without allowing unbounded model/database payloads."""
+def _evidence_json(value: Any) -> Any:
+    """Preserve finding evidence in a stable JSON-compatible form."""
 
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value[:1000]
-    if depth >= 4:
-        return str(value)[:1000]
+        return value
     if isinstance(value, Mapping):
-        items = list(value.items())[:25]
-        return {
-            str(key)[:200]: _bounded_json(item, depth=depth + 1) for key, item in items
-        }
+        return {str(key): _evidence_json(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_bounded_json(item, depth=depth + 1) for item in value[:25]]
-    return str(value)[:1000]
+        return [_evidence_json(item) for item in value]
+    return str(value)

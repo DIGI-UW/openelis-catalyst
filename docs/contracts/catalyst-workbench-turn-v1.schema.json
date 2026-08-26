@@ -1125,11 +1125,13 @@
       "properties": {
         "stage": {
           "enum": [
+            "writer_request",
             "writer_transport",
             "writer_output_contract",
             "writer_validation",
             "writer_findings",
             "writer_decision",
+            "reviewer_request",
             "reviewer_transport",
             "reviewer_output_contract",
             "reviewer_validation",
@@ -1146,8 +1148,7 @@
         },
         "message": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
+          "minLength": 1
         },
         "evidenceAvailable": {
           "type": "boolean"
@@ -1229,7 +1230,6 @@
         },
         "details": {
           "type": "array",
-          "maxItems": 32,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -1240,12 +1240,10 @@
             "properties": {
               "name": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 100
+                "minLength": 1
               },
               "value": {
-                "type": "string",
-                "maxLength": 4000
+                "type": "string"
               }
             }
           }

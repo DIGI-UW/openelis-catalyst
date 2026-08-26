@@ -508,7 +508,6 @@
       "properties": {
         "included": {
           "type": "array",
-          "maxItems": 6,
           "items": {"$ref": "#/$defs/historyReference"}
         },
         "includedDigest": {
@@ -516,7 +515,6 @@
         },
         "omitted": {
           "type": "array",
-          "maxItems": 1000,
           "items": {"$ref": "#/$defs/historyReference"}
         },
         "omittedDigest": {
@@ -689,10 +687,17 @@
                 }
               ]
         },
+        "requestEvidence": {
+          "$ref": "https://openelis-global.org/catalyst/contracts/catalyst-query-v1.schema.json#/$defs/roleRequestEvidence"
+        },
+        "hubError": {
+          "$ref": "https://openelis-global.org/catalyst/contracts/catalyst-query-v1.schema.json#/$defs/hubInvocationError"
+        },
         "outcome": {
           "enum": [
             "in_progress",
             "succeeded",
+            "pre_dispatch_rejected",
             "transport_failed",
             "contract_failed",
             "validation_failed",

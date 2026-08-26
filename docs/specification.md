@@ -215,6 +215,17 @@ generation may be active per session. A failed generation records raw typed
 evidence and leaves the preceding query editable. `New session` is the boundary
 for unrelated work.
 
+Follow-up generation supplies every prior user instruction. Query versions,
+verified model results, and failures are supplied through their structured
+records rather than replaying raw model replies as trusted conversation. It
+also supplies the relevant prior failure and every earlier kept query that has both advisory
+validation evidence and a successful database execution against the same
+source. Optional session guidance remains an experimental API seam. Catalyst
+does not cap or rank those items. Hub records each physical model request and
+rejects for context size only when its exact measured prompt and reply reserve exceed
+the selected model's advertised context window; Catalyst records that result
+without silently removing context and retrying.
+
 **The thread is one sequence of cells.** Model generations are recorded as
 turns and hand edits as query versions, but the analyst sees a single
 numbered thread: versions are numbered in the order they were appended, which
@@ -288,7 +299,7 @@ against.
     provenance. Later edits or successors mark those results stale rather than
     hiding them.
 11. A follow-up uses the exact active SQL/parameters, current instruction,
-    bounded instruction history and only exact-digest validation/execution
+    complete retained user-instruction history and only exact-digest validation/execution
     summaries. The writer returns a complete successor; when the selected Hub
     query profile includes a reviewer, it may approve or return one complete
     correction, which Gateway re-lints.
@@ -444,6 +455,12 @@ the actual model ID plus assistant content. Hub owns profile configuration,
 provider/auth/timeout transport, and the model-router connection; Catalyst owns
 query semantics, SQL policy, orchestration, execution, and lineage.
 
+For each configured-role call, Hub returns versioned evidence for the exact
+system-plus-caller messages, response format, effective configuration,
+canonical request digest, rendered prompt when available, tokenizer count,
+advertised context window, reply reserve, and fit result. Catalyst validates
+and retains that evidence on both successful calls and structured Hub errors.
+
 Planned narrative reports remain separate: `single-e4b-checked` and
 `team-med-checked` are Hub product profiles whose Catalyst integration is
 deferred to R4.
@@ -457,7 +474,7 @@ Contextual revisions use
 with the versioned revision-context, editor-snapshot and workbench-turn
 contracts. They bind the current instruction, target/catalog, policy,
 correlation IDs, current version/digest, exact editor SQL/parameters/digest,
-bounded instruction history and matching validation/execution summaries. They
+complete retained user-instruction history and matching validation/execution summaries. They
 exclude result rows, credentials, raw traces, historical SQL copies and
 unrelated sessions. Gateway selects the role-specific model-backend
 `response_format` and passes it through Hub's configured-role endpoint.
@@ -680,8 +697,8 @@ claimed by the demo MVP.
 - **CAT-FR-013:** Preserve a compact chronological turn timeline and restore it
   without invoking a model.
 - **CAT-FR-014:** Generate a complete successor from the exact active editor
-  buffer and current follow-up instruction, with bounded context and no result
-  rows.
+  buffer, current follow-up instruction, and complete eligible session context,
+  with no result rows or silent context removal.
 - **CAT-FR-015:** Keep prior results visible and label the exact query version
   that produced them; mark them stale after edits or successor generation.
 - **CAT-FR-016:** Promote only a successful query execution into a Dataset draft

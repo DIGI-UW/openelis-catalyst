@@ -772,6 +772,133 @@
         }
       ]
     },
+    "roleRequestEvidence": {
+      "description": "The exact configured-role request and the Hub's direct prompt/token measurements. Catalyst verifies the canonical request digest and consistency before retaining it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "request", "requestDigest", "prompt", "tokens"],
+      "properties": {
+        "contractVersion": {
+          "const": "med-agent-hub.catalyst-role-request-evidence.v1"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profileId", "role", "model", "messages", "responseFormat", "config"],
+          "properties": {
+            "profileId": {"type": "string", "minLength": 1},
+            "role": {"enum": ["query_generate", "query_review"]},
+            "model": {"type": "string", "minLength": 1},
+            "messages": {
+              "type": "array",
+              "minItems": 2,
+              "items": {"type": "object"}
+            },
+            "responseFormat": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "object"}
+              ]
+            },
+            "config": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["temperature", "dryMultiplier", "maxTokens"],
+              "properties": {
+                "temperature": {"type": "number"},
+                "dryMultiplier": {"type": "number", "minimum": 0},
+                "maxTokens": {"type": "integer", "minimum": 1}
+              }
+            }
+          }
+        },
+        "requestDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "prompt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["renderedPrompt", "renderedPromptDigest"],
+          "properties": {
+            "renderedPrompt": {"type": ["string", "null"]},
+            "renderedPromptDigest": {
+              "type": ["string", "null"],
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "unavailableReason": {"type": "string", "minLength": 1}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"renderedPrompt": {"type": "null"}},
+                "required": ["renderedPrompt"]
+              },
+              "then": {
+                "properties": {"renderedPromptDigest": {"type": "null"}},
+                "required": ["unavailableReason"]
+              },
+              "else": {
+                "properties": {
+                  "renderedPromptDigest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+                },
+                "not": {"required": ["unavailableReason"]}
+              }
+            }
+          ]
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tokenizer", "contextWindow", "outputReserve", "promptTokens", "requiredTokens", "fits"],
+          "properties": {
+            "tokenizer": {"type": "string", "minLength": 1},
+            "contextWindow": {"type": ["integer", "null"], "minimum": 1},
+            "contextWindowUnavailableReason": {"type": "string", "minLength": 1},
+            "outputReserve": {"type": "integer", "minimum": 0},
+            "promptTokens": {"type": ["integer", "null"], "minimum": 0},
+            "promptTokensUnavailableReason": {"type": "string", "minLength": 1},
+            "requiredTokens": {"type": ["integer", "null"], "minimum": 0},
+            "fits": {"type": ["boolean", "null"]}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"contextWindow": {"type": "null"}},
+                "required": ["contextWindow"]
+              },
+              "then": {"required": ["contextWindowUnavailableReason"]},
+              "else": {"not": {"required": ["contextWindowUnavailableReason"]}}
+            },
+            {
+              "if": {
+                "properties": {"promptTokens": {"type": "null"}},
+                "required": ["promptTokens"]
+              },
+              "then": {
+                "properties": {
+                  "requiredTokens": {"type": "null"},
+                  "fits": {"type": "null"}
+                },
+                "required": ["promptTokensUnavailableReason"]
+              },
+              "else": {
+                "properties": {"requiredTokens": {"type": "integer", "minimum": 0}},
+                "not": {"required": ["promptTokensUnavailableReason"]}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "hubInvocationError": {
+      "description": "A structured error returned by the configured Hub role endpoint.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "httpStatus"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "httpStatus": {"type": "integer", "minimum": 400, "maximum": 599}
+      }
+    },
     "modelInvocation": {
       "type": "object",
       "additionalProperties": false,
@@ -838,9 +965,12 @@
             }
           ]
         },
+        "requestEvidence": {"$ref": "#/$defs/roleRequestEvidence"},
+        "hubError": {"$ref": "#/$defs/hubInvocationError"},
         "outcome": {
           "enum": [
             "succeeded",
+            "pre_dispatch_rejected",
             "transport_failed",
             "contract_failed",
             "validation_failed",
