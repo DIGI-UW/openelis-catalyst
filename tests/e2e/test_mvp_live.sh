@@ -51,8 +51,10 @@ from pathlib import Path
 payload = json.loads(Path(os.environ["PREVIEW_PATH"]).read_text())
 runtime_catalog = json.loads(Path(os.environ["RUNTIME_CATALOG_PATH"]).read_text())
 readable_relations = sorted(
-    view["qualifiedName"]
+    view.get("qualifiedName") or f'{schema["name"]}.{view["name"]}'
     for schema in runtime_catalog["schemas"]
+    # The editor-catalog contract keeps every relation kind in this legacy
+    # array; relationType distinguishes tables, views, and the other kinds.
     for view in schema["views"]
 )
 assert payload["contractVersion"] == "catalyst.preview.v1", payload

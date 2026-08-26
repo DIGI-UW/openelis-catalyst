@@ -215,7 +215,7 @@ Catalyst rejects prose masquerading as the contract, a missing version, unknown
 fields that change execution meaning, or a `ready` response without complete
 target and provenance metadata.
 
-Catalyst fills `approvedViews` from the current readable request catalog; the
+Gateway fills `approvedViews` from the current readable request catalog; the
 model does not select or narrow that set. Catalyst rejects a question or target
 data source/catalog/dialect mismatch, and rejects generated SQL that references
 a relation absent from that request catalog. Normalized intent may appear in
