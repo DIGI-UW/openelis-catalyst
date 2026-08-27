@@ -165,16 +165,20 @@ def _spark_discover_relations(cursor: Any) -> list[dict[str, Any]]:
                 break
             database_type = str(row[1] or "").strip()
             comment = str(row[2]).strip() if len(row) > 2 and row[2] else ""
-            fields.append(
-                {
-                    "name": column_name,
-                    "type": _spark_logical_type(database_type),
-                    "databaseType": database_type,
-                    "description": comment
-                    or f"{qualified}.{column_name} (Spark {database_type})",
-                    "nullable": True,
-                }
-            )
+            field = {
+                "name": column_name,
+                "type": _spark_logical_type(database_type),
+                "databaseType": database_type,
+                "nullable": True,
+            }
+            # Only a real comment becomes a description. Synthesizing one from
+            # the native type duplicates databaseType into the model request,
+            # and FHIR resource tables carry deeply nested STRUCT types -- one
+            # Encounter column's type text alone is ~6 KB, which is how the
+            # complete schema stopped fitting the writer's context window.
+            if comment:
+                field["description"] = comment
+            fields.append(field)
         relations.append(
             {
                 "name": qualified,
