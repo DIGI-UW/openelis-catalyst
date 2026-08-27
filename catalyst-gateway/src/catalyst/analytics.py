@@ -4,18 +4,20 @@ import asyncio
 import base64
 import math
 import re
+import threading
+from contextlib import contextmanager
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 from uuid import UUID
 
-import psycopg
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from .catalog import DatasetBrowserProfile
+from .dialects import DialectAdapter
 
 
 class AnalyticsError(RuntimeError):
@@ -24,7 +26,7 @@ class AnalyticsError(RuntimeError):
 
 @dataclass(frozen=True)
 class DatabaseDiagnostic:
-    """Safe, stable fields from a PostgreSQL error response."""
+    """Safe, stable fields from a database error response."""
 
     sqlstate: str | None
     severity: str | None
@@ -70,7 +72,6 @@ class AnalyticsColumn:
     ordinal: int
     name: str
     database_type: str
-    type_oid: int | None
     logical_type: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -78,7 +79,6 @@ class AnalyticsColumn:
             "ordinal": self.ordinal,
             "name": self.name,
             "databaseType": self.database_type,
-            "typeOid": self.type_oid,
             "logicalType": self.logical_type,
         }
 
@@ -156,117 +156,106 @@ def _manual_cell_is_blank(cell: Mapping[str, Any]) -> bool:
     return cell.get("type") == "string" and not str(cell.get("value", "")).strip()
 
 
-_POSTGRES_TYPE_NAMES: dict[int, str] = {
-    16: "bool",
-    17: "bytea",
-    20: "int8",
-    21: "int2",
-    23: "int4",
-    25: "text",
-    26: "oid",
-    114: "json",
-    700: "float4",
-    701: "float8",
-    790: "money",
-    869: "inet",
-    1000: "bool[]",
-    1005: "int2[]",
-    1007: "int4[]",
-    1009: "text[]",
-    1015: "varchar[]",
-    1016: "int8[]",
-    1021: "float4[]",
-    1022: "float8[]",
-    1042: "bpchar",
-    1043: "varchar",
-    1082: "date",
-    1083: "time",
-    1114: "timestamp",
-    1115: "timestamp[]",
-    1182: "date[]",
-    1184: "timestamptz",
-    1185: "timestamptz[]",
-    1186: "interval",
-    1231: "numeric[]",
-    1700: "numeric",
-    2950: "uuid",
-    2951: "uuid[]",
-    3802: "jsonb",
-    3807: "jsonb[]",
-}
-
-_LOGICAL_TYPES: dict[str, str] = {
-    "bool": "boolean",
-    "boolean": "boolean",
-    "int2": "integer",
-    "int4": "integer",
-    "int8": "integer",
-    "smallint": "integer",
-    "integer": "integer",
-    "bigint": "integer",
-    "numeric": "decimal",
-    "decimal": "decimal",
-    "float4": "decimal",
-    "float8": "decimal",
-    "real": "decimal",
-    "double precision": "decimal",
-    "money": "decimal",
-    "date": "date",
-    "timestamp": "date-time",
-    "timestamp without time zone": "date-time",
-    "timestamptz": "date-time",
-    "timestamp with time zone": "date-time",
-    "time": "time",
-    "timetz": "time",
-    "interval": "interval",
-    "json": "json",
-    "jsonb": "json",
-    "bytea": "binary",
-    "text": "string",
-    "varchar": "string",
-    "character varying": "string",
-    "bpchar": "string",
-    "char": "string",
-    "character": "string",
-    "name": "string",
-    "uuid": "string",
-    "inet": "string",
-    "cidr": "string",
-    "macaddr": "string",
-    "oid": "integer",
-}
-
-_POSTGRES_DSN_PATTERN = re.compile(r"(?i)\bpostgres(?:ql)?://[^\s\"']+")
+# Any scheme's connection URI, so a driver error that quotes the URI cannot
+# leak its credentials regardless of which engine produced the message.
+_CONNECTION_URI_PATTERN = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"']+")
 _PASSWORD_PATTERN = re.compile(r"(?i)\b(password\s*=\s*)(?:'[^']*'|\"[^\"]*\"|[^\s;]+)")
 
 
-class PostgresAnalyticsAdapter:
+def _dbapi_connect(connection_uri: str, *, connect_timeout: int = 5) -> Any:
+    """Open a DB-API connection described entirely by the connection URI.
+
+    Transport is a client library, not a per-engine class: the URI carries the
+    host, port, credentials and database, and nothing here decides behavior
+    from which scheme it happens to name.
+    """
+    from impala.dbapi import connect as _hs2_connect
+
+    parts = urlsplit(connection_uri)
+    if not parts.hostname:
+        raise AnalyticsError(
+            f"Connection URI {connection_uri!r} names no host."
+        )
+    database = parts.path.lstrip("/") or "default"
+    return _hs2_connect(
+        host=parts.hostname,
+        port=parts.port or 10000,
+        database=database,
+        user=parts.username or "catalyst",
+        # HiveServer2's SASL PLAIN exchange rejects an empty secret in the
+        # client before the server ever sees it, so a URI without one still
+        # sends a placeholder. The endpoint's own auth policy decides.
+        password=parts.password or "catalyst",
+        auth_mechanism="PLAIN",
+        timeout=connect_timeout,
+    )
+
+
+@contextmanager
+def _time_limit(cursor: Any, statement_timeout_ms: int, dialect: DialectAdapter):
+    """Impose the configured time limit using whatever the engine supports.
+
+    Where the engine has no server-side statement timeout, the adapter records
+    that as an unenforced guarantee and this cancels the running operation
+    instead. It does not pretend the two are the same: a cancelled statement
+    may still be executing when the client stops waiting.
+    """
+    if statement_timeout_ms <= 0 or dialect.time_limit.enforced:
+        yield
+        return
+
+    expired = threading.Event()
+
+    def _cancel() -> None:
+        expired.set()
+        cancel = getattr(cursor, "cancel_operation", None)
+        if callable(cancel):
+            try:
+                cancel()
+            except Exception:
+                # The statement may have finished between the timer firing and
+                # this call; a failed cancel must not mask the real result.
+                pass
+
+    timer = threading.Timer(statement_timeout_ms / 1000.0, _cancel)
+    timer.start()
+    try:
+        yield
+    except Exception as error:
+        if expired.is_set():
+            raise AnalyticsError(
+                f"The query exceeded the {statement_timeout_ms} ms time limit "
+                "and was cancelled."
+            ) from error
+        raise
+    finally:
+        timer.cancel()
+
+
+class SqlAnalyticsAdapter:
+    """One connection/execution implementation for every configured source.
+
+    Everything engine-specific about *transport* is in the connection URI, and
+    everything engine-specific about *grammar* is in the dialect adapter this
+    is constructed with. Nothing here asks which engine answered, which is why
+    a second engine is configuration plus one adapter module rather than a
+    second class beside this one.
+    """
+
     def __init__(
         self,
-        dsn: str,
+        connection_uri: str,
         *,
+        dialect: DialectAdapter,
         data_source_id: str | None = None,
         connect: Callable[..., Any] | None = None,
         connect_timeout_seconds: int = 5,
-        dataset_browser: DatasetBrowserProfile | None = None,
     ) -> None:
-        self.dsn = dsn
+        self.connection_uri = connection_uri
+        self.dialect = dialect
         self.data_source_id = data_source_id
-        self._connect = connect or psycopg.connect
+        self._connect = connect or _dbapi_connect
         self.connect_timeout_seconds = connect_timeout_seconds
-        self.dataset_browser = dataset_browser
-
-    def _require_dataset_browser(self) -> DatasetBrowserProfile:
-        profile = self.dataset_browser
-        if profile is None:
-            raise AnalyticsError(
-                "Data source "
-                f"{self.data_source_id or self.dsn!r} declares no datasetBrowser "
-                "profile in its analytics catalog, so its dataset cannot be "
-                "browsed. Add one naming the fact view and its subject, "
-                "category, value, and timestamp columns."
-            )
-        return profile
 
     async def execute(
         self,
@@ -287,7 +276,7 @@ class PostgresAnalyticsAdapter:
         except AnalyticsError:
             raise
         except Exception as error:
-            raise AnalyticsError(f"PostgreSQL execution failed: {error}") from error
+            raise AnalyticsError(f"Query execution failed: {error}") from error
 
     async def execute_manual(
         self,
@@ -311,7 +300,7 @@ class PostgresAnalyticsAdapter:
             raise
         except Exception as error:
             raise ManualAnalyticsError(
-                self._database_diagnostic(error, self.dsn)
+                self._database_diagnostic(error, self.connection_uri)
             ) from error
 
     async def readiness(self) -> dict[str, Any]:
@@ -320,10 +309,15 @@ class PostgresAnalyticsAdapter:
         except Exception as error:
             return {
                 "ready": False,
-                "dataSource": "postgresql",
+                "dataSource": self.data_source_id,
+                "dialect": self.dialect.sql_dialect,
                 "message": str(error),
             }
-        return {"ready": True, "dataSource": "postgresql"}
+        return {
+            "ready": True,
+            "dataSource": self.data_source_id,
+            "dialect": self.dialect.sql_dialect,
+        }
 
     async def freshness(self) -> dict[str, Any]:
         try:
@@ -332,7 +326,7 @@ class PostgresAnalyticsAdapter:
             raise
         except Exception as error:
             raise AnalyticsError(
-                f"PostgreSQL freshness lookup failed: {error}"
+                f"Freshness lookup failed: {error}"
             ) from error
 
     async def discover_relations(self) -> list[dict[str, Any]]:
@@ -344,37 +338,8 @@ class PostgresAnalyticsAdapter:
             raise
         except Exception as error:
             raise AnalyticsError(
-                f"PostgreSQL relation discovery failed: {error}"
+                f"Relation discovery failed: {error}"
             ) from error
-
-    async def dataset_overview(self) -> dict[str, Any]:
-        try:
-            return await asyncio.to_thread(self._dataset_overview_sync)
-        except AnalyticsError:
-            raise
-        except Exception as error:
-            raise AnalyticsError(f"Dataset overview failed: {error}") from error
-
-    async def dataset_rows(
-        self,
-        *,
-        test_name: str | None,
-        patient_id: str | None,
-        limit: int,
-        offset: int,
-    ) -> dict[str, Any]:
-        try:
-            return await asyncio.to_thread(
-                self._dataset_rows_sync,
-                test_name,
-                patient_id,
-                limit,
-                offset,
-            )
-        except AnalyticsError:
-            raise
-        except Exception as error:
-            raise AnalyticsError(f"Dataset row lookup failed: {error}") from error
 
     def _execute_sync(
         self,
@@ -389,22 +354,18 @@ class PostgresAnalyticsAdapter:
         }
         driver_sql = self._driver_sql(sql, set(bindings))
         with self._connect(
-            self.dsn,
+            self.connection_uri,
             connect_timeout=self.connect_timeout_seconds,
         ) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    "SELECT set_config('statement_timeout', %s, true)",
-                    (f"{statement_timeout_ms}ms",),
-                )
-                # ``bindings`` is passed even when empty: _driver_sql doubled the
-                # literal per-cent signs, and psycopg only collapses them back
-                # when it has parameters to convert.
-                cursor.execute(driver_sql, bindings)
-                rows = list(cursor.fetchmany(max_rows + 1))
+                with _time_limit(cursor, statement_timeout_ms, self.dialect):
+                    # ``bindings`` is passed even when empty: _driver_sql doubled
+                    # the literal per-cent signs, and a pyformat driver only
+                    # collapses them back when it has parameters to convert.
+                    cursor.execute(driver_sql, bindings)
+                    rows = list(cursor.fetchmany(max_rows + 1))
                 description = cursor.description or ()
-                column_names = [column.name for column in description]
+                column_names = [str(column[0]) for column in description]
         truncated = len(rows) > max_rows
         truncation_reason = "configured_limit" if truncated else None
         sql_limit = self._literal_sql_limit(sql)
@@ -429,28 +390,21 @@ class PostgresAnalyticsAdapter:
             parameter["name"]: self._binding_value(parameter)
             for parameter in parameters
         }
-        # psycopg uses ``%(name)s`` for named bindings, and reads any other
+        # The driver uses ``%(name)s`` for named bindings and reads any other
         # per-cent sign as a malformed placeholder. Rewriting the named bindings
         # and doubling the literal per-cent signs are the only changes made to
         # the submitted SQL; no row limit is added.
         driver_sql = self._driver_sql(sql, set(bindings))
         with self._connect(
-            self.dsn,
+            self.connection_uri,
             connect_timeout=self.connect_timeout_seconds,
         ) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    "SELECT set_config('statement_timeout', %s, true)",
-                    (f"{statement_timeout_ms}ms",),
-                )
-                # ``bindings`` is passed even when empty: _driver_sql doubled the
-                # literal per-cent signs, and psycopg only collapses them back
-                # when it has parameters to convert.
-                cursor.execute(driver_sql, bindings)
-                raw_rows = list(cursor.fetchmany(max_rows + 1))
+                with _time_limit(cursor, statement_timeout_ms, self.dialect):
+                    cursor.execute(driver_sql, bindings)
+                    raw_rows = list(cursor.fetchmany(max_rows + 1))
                 description = tuple(cursor.description or ())
-                columns = self._manual_columns(description, raw_rows, cursor)
+                columns = self._manual_columns(description, raw_rows)
 
         truncated = len(raw_rows) > max_rows
         truncation_reason = "configured_limit" if truncated else None
@@ -466,10 +420,11 @@ class PostgresAnalyticsAdapter:
             truncation_reason=truncation_reason,
         )
 
-    @staticmethod
-    def _literal_sql_limit(sql: str) -> int | None:
+    def _literal_sql_limit(self, sql: str) -> int | None:
         try:
-            statement = sqlglot.parse_one(sql, read="postgres")
+            statement = sqlglot.parse_one(
+                sql, read=self.dialect.sqlglot_dialect
+            )
         except ParseError:
             return None
         limit = statement.args.get("limit")
@@ -485,348 +440,35 @@ class PostgresAnalyticsAdapter:
 
     def _check_ready_sync(self) -> None:
         with self._connect(
-            self.dsn,
+            self.connection_uri,
             connect_timeout=self.connect_timeout_seconds,
         ) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
                 cursor.execute("SELECT 1")
-                cursor.fetchmany(1)
+                cursor.fetchall()
 
     def _freshness_sync(self) -> dict[str, Any]:
-        with self._connect(
-            self.dsn,
-            connect_timeout=self.connect_timeout_seconds,
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    """
-                    SELECT
-                        pipeline_run_id,
-                        completion_state,
-                        source_watermark,
-                        observed_lag_seconds
-                    FROM analytics.pipeline_freshness_v1
-                    WHERE completion_state = 'succeeded'
-                    ORDER BY completed_at DESC NULLS LAST
-                    LIMIT 1
-                    """
-                )
-                row = cursor.fetchone()
-        if row is None:
-            raise AnalyticsError("No succeeded analytics pipeline run is available.")
-        pipeline_run_id, completion_state, source_watermark, observed_lag_seconds = row
-        if completion_state != "succeeded" or not isinstance(
-            source_watermark, datetime
-        ):
-            raise AnalyticsError("Latest analytics pipeline freshness is invalid.")
-        if source_watermark.tzinfo is None:
-            raise AnalyticsError("Analytics source watermark has no timezone.")
+        """What the connection can say about itself without a curated table.
+
+        The retired PostgreSQL path kept a hand-registered pipeline_run row.
+        Nothing writes one on the warehouse path, and inventing an equivalent
+        would be a second source of truth, so freshness reports only what the
+        connection actually knows.
+        """
         return {
-            "sourceWatermark": source_watermark.isoformat().replace("+00:00", "Z"),
-            "pipelineRunId": str(pipeline_run_id),
-            "completionState": "complete",
-            "observedLagSeconds": max(0, int(observed_lag_seconds)),
+            "dataSource": self.data_source_id,
+            "dialect": self.dialect.sql_dialect,
+            "relationCount": len(self._discover_relations_sync()),
         }
 
     def _discover_relations_sync(self) -> list[dict[str, Any]]:
+        """Every relation and column readable through this connection."""
         with self._connect(
-            self.dsn,
+            self.connection_uri,
             connect_timeout=self.connect_timeout_seconds,
         ) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    """
-                    SELECT
-                        namespace.nspname,
-                        relation.relname,
-                        relation.relkind,
-                        pg_catalog.pg_table_is_visible(relation.oid),
-                        attribute.attnum,
-                        attribute.attname,
-                        pg_catalog.format_type(attribute.atttypid, NULL),
-                        NOT attribute.attnotnull,
-                        pg_catalog.obj_description(relation.oid, 'pg_class'),
-                        pg_catalog.col_description(relation.oid, attribute.attnum)
-                    FROM pg_catalog.pg_class AS relation
-                    JOIN pg_catalog.pg_namespace AS namespace
-                      ON namespace.oid = relation.relnamespace
-                    JOIN pg_catalog.pg_attribute AS attribute
-                      ON attribute.attrelid = relation.oid
-                    WHERE relation.relkind IN ('r', 'p', 'v', 'm', 'f')
-                      AND attribute.attnum > 0
-                      AND NOT attribute.attisdropped
-                      AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
-                      AND namespace.nspname !~ '^pg_(toast|temp)'
-                      AND pg_catalog.has_schema_privilege(namespace.oid, 'USAGE')
-                      AND pg_catalog.has_column_privilege(
-                          relation.oid, attribute.attnum, 'SELECT'
-                      )
-                    ORDER BY namespace.nspname, relation.relname, attribute.attnum
-                    """
-                )
-                rows = cursor.fetchall()
-
-        relation_types = {
-            "r": "table",
-            "p": "partitioned-table",
-            "v": "view",
-            "m": "materialized-view",
-            "f": "foreign-table",
-        }
-        by_name: dict[str, dict[str, Any]] = {}
-        for (
-            schema_name,
-            relation_name,
-            relation_kind,
-            unqualified_visible,
-            _ordinal,
-            column_name,
-            database_type,
-            nullable,
-            relation_description,
-            column_description,
-        ) in rows:
-            qualified_name = f"{schema_name}.{relation_name}"
-            relation_type = relation_types.get(str(relation_kind), "relation")
-            relation = by_name.setdefault(
-                qualified_name,
-                {
-                    "name": qualified_name,
-                    "relationType": relation_type,
-                    "unqualifiedVisible": bool(unqualified_visible),
-                    "grain": (
-                        str(relation_description)
-                        if relation_description
-                        else f"Rows readable from {qualified_name} ({relation_type})"
-                    ),
-                    "fields": [],
-                },
-            )
-            rendered_database_type = str(database_type)
-            logical_type = self._logical_type(rendered_database_type)
-            if logical_type == "unknown":
-                logical_type = "string"
-            relation["fields"].append(
-                {
-                    "name": str(column_name),
-                    "type": logical_type,
-                    "databaseType": rendered_database_type,
-                    "description": (
-                        str(column_description)
-                        if column_description
-                        else (
-                            f"{qualified_name}.{column_name} "
-                            f"(PostgreSQL {rendered_database_type})"
-                        )
-                    ),
-                    "nullable": bool(nullable),
-                }
-            )
-        return list(by_name.values())
-
-    def _dataset_overview_sync(self) -> dict[str, Any]:
-        profile = self._require_dataset_browser()
-        with self._connect(
-            self.dsn,
-            connect_timeout=self.connect_timeout_seconds,
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    f"""
-                    SELECT
-                        count(DISTINCT {profile.subject_column}),
-                        count(*),
-                        count(DISTINCT {profile.category_column}),
-                        min({profile.observed_at_column}),
-                        max({profile.observed_at_column}),
-                        (
-                            SELECT pipeline_run_id
-                            FROM analytics.pipeline_freshness_v1
-                            WHERE completion_state = 'succeeded'
-                            ORDER BY completed_at DESC NULLS LAST
-                            LIMIT 1
-                        )
-                    FROM {profile.fact_view}
-                    """
-                )
-                row = cursor.fetchone()
-                # Single-row aggregate query (COUNT/MIN/MAX with no GROUP BY):
-                # always returns exactly one row, even over an empty table.
-                assert row is not None
-                (
-                    patients,
-                    results,
-                    test_types,
-                    first_at,
-                    last_at,
-                    pipeline_run_id,
-                ) = row
-                unit = profile.unit_column
-                value = profile.value_column
-                # A source without a unit or a numeric value column still gets
-                # per-category counts; only the columns it cannot supply are
-                # reported as NULL.
-                unit_select = unit if unit else "NULL"
-                unit_group = f", {unit}" if unit else ""
-                value_selects = (
-                    f"""min({value}),
-                        percentile_cont(0.5) WITHIN GROUP (ORDER BY {value}),
-                        max({value})"""
-                    if value
-                    else "NULL, NULL, NULL"
-                )
-                cursor.execute(
-                    f"""
-                    SELECT
-                        {profile.category_column},
-                        {unit_select},
-                        count(*),
-                        count(DISTINCT {profile.subject_column}),
-                        {value_selects}
-                    FROM {profile.fact_view}
-                    GROUP BY {profile.category_column}{unit_group}
-                    ORDER BY count(*) DESC, {profile.category_column}
-                    """
-                )
-                tests = cursor.fetchall()
-        return {
-            "contractVersion": "catalyst.dataset-overview.v1",
-            "datasetId": (
-                str(pipeline_run_id)
-                if pipeline_run_id is not None
-                else self.data_source_id
-            ),
-            "dataSource": self.data_source_id,
-            "pipelineRunId": (
-                str(pipeline_run_id) if pipeline_run_id is not None else None
-            ),
-            # The analytics pipeline does not currently carry a reviewed data
-            # classification. Do not infer that a live OpenELIS load is synthetic.
-            "synthetic": None,
-            "patients": int(patients),
-            "results": int(results),
-            "testTypes": int(test_types),
-            "firstObservedAt": self._iso(first_at),
-            "lastObservedAt": self._iso(last_at),
-            "tests": [
-                {
-                    "testName": str(test_name),
-                    "unit": str(unit) if unit is not None else None,
-                    "results": int(count),
-                    "patients": int(patient_count),
-                    "minimum": self._number_text(minimum),
-                    "median": self._number_text(median),
-                    "maximum": self._number_text(maximum),
-                }
-                for (
-                    test_name,
-                    unit,
-                    count,
-                    patient_count,
-                    minimum,
-                    median,
-                    maximum,
-                ) in tests
-            ],
-            "exampleQuestions": [],
-        }
-
-    def _dataset_rows_sync(
-        self,
-        test_name: str | None,
-        patient_id: str | None,
-        limit: int,
-        offset: int,
-    ) -> dict[str, Any]:
-        profile = self._require_dataset_browser()
-        conditions: list[str] = []
-        bindings: dict[str, Any] = {"limit": limit, "offset": offset}
-        if test_name:
-            conditions.append(f"{profile.category_column} = %(test_name)s")
-            bindings["test_name"] = test_name
-        if patient_id:
-            conditions.append(f"{profile.subject_column} = %(patient_id)s")
-            bindings["patient_id"] = patient_id
-        where = " WHERE " + " AND ".join(conditions) if conditions else ""
-        # Sources whose value is coded/text/boolean rather than numeric fall
-        # back in declared order so a row shows what it actually carries
-        # instead of an empty cell.
-        value_candidates = [
-            column
-            for column in (profile.value_column, *profile.value_fallback_columns)
-            if column
-        ]
-        if not value_candidates:
-            value_select = "NULL"
-        elif len(value_candidates) == 1:
-            value_select = value_candidates[0]
-        else:
-            casts = ", ".join(f"{column}::text" for column in value_candidates)
-            value_select = f"COALESCE({casts})"
-        selects = ", ".join(
-            (
-                profile.identity_column,
-                profile.subject_column,
-                profile.category_column,
-                value_select,
-                profile.unit_column or "NULL",
-                profile.observed_at_column,
-                profile.issued_at_column or "NULL",
-                profile.duration_column or "NULL",
-            )
-        )
-        with self._connect(
-            self.dsn,
-            connect_timeout=self.connect_timeout_seconds,
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SET TRANSACTION READ ONLY")
-                cursor.execute(
-                    f"SELECT count(*) FROM {profile.fact_view}" + where,
-                    {
-                        key: value
-                        for key, value in bindings.items()
-                        if key not in {"limit", "offset"}
-                    },
-                )
-                row = cursor.fetchone()
-                # Single-row aggregate query (COUNT with no GROUP BY): always
-                # returns exactly one row, even over an empty table.
-                assert row is not None
-                total = int(row[0])
-                cursor.execute(
-                    f"SELECT {selects}"
-                    f" FROM {profile.fact_view}"
-                    + where
-                    + f" ORDER BY {profile.observed_at_column} DESC NULLS LAST,"
-                    f" {profile.identity_column}"
-                    " LIMIT %(limit)s OFFSET %(offset)s",
-                    bindings,
-                )
-                rows = cursor.fetchall()
-        return {
-            "contractVersion": "catalyst.dataset-rows.v1",
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "rows": [
-                {
-                    "observationId": str(row[0]),
-                    "patientId": str(row[1]),
-                    "testName": str(row[2]),
-                    "value": self._number_text(row[3]),
-                    "unit": str(row[4]) if row[4] is not None else None,
-                    "observedAt": self._iso(row[5]),
-                    "issuedAt": self._iso(row[6]),
-                    "turnaroundMinutes": self._number_text(row[7]),
-                }
-                for row in rows
-            ],
-        }
+                return self.dialect.discover_relations(cursor)
 
     @staticmethod
     def _number_text(value: Any) -> str | None:
@@ -842,19 +484,23 @@ class PostgresAnalyticsAdapter:
             return value.isoformat().replace("+00:00", "Z")
         return str(value)
 
-    @classmethod
     def _manual_columns(
-        cls,
+        self,
         description: Sequence[Any],
         rows: Sequence[Sequence[Any]],
-        cursor: Any,
     ) -> list[AnalyticsColumn]:
+        """Typed columns from the driver's own description of the result.
+
+        DB-API says a description entry is a sequence whose first item is the
+        column name and whose second is its type; reading it positionally is
+        what keeps this generic across drivers.
+        """
         columns: list[AnalyticsColumn] = []
         for ordinal, description_column in enumerate(description):
-            type_oid, database_type = cls._database_type(
-                getattr(description_column, "type_code", None), cursor
+            database_type = str(description_column[1] or "").strip()
+            logical_type = (
+                self.dialect.logical_type(database_type) if database_type else "unknown"
             )
-            logical_type = cls._logical_type(database_type)
             if logical_type == "unknown":
                 sample = next(
                     (
@@ -864,55 +510,16 @@ class PostgresAnalyticsAdapter:
                     ),
                     None,
                 )
-                logical_type = cls._value_logical_type(sample)
+                logical_type = self._value_logical_type(sample)
             columns.append(
                 AnalyticsColumn(
                     ordinal=ordinal,
-                    name=str(description_column.name),
-                    database_type=database_type,
-                    type_oid=type_oid,
+                    name=str(description_column[0]),
+                    database_type=database_type or "unknown",
                     logical_type=logical_type,
                 )
             )
         return columns
-
-    @staticmethod
-    def _database_type(type_code: Any, cursor: Any) -> tuple[int | None, str]:
-        type_oid: int | None = None
-        if isinstance(type_code, int) and not isinstance(type_code, bool):
-            type_oid = type_code
-        else:
-            candidate_oid = getattr(type_code, "oid", None)
-            if isinstance(candidate_oid, int) and not isinstance(candidate_oid, bool):
-                type_oid = candidate_oid
-
-        if type_oid in _POSTGRES_TYPE_NAMES:
-            return type_oid, _POSTGRES_TYPE_NAMES[type_oid]
-
-        type_name = getattr(type_code, "name", None)
-        if not type_name and isinstance(type_code, str):
-            type_name = type_code
-        if not type_name and type_oid is not None:
-            adapters = getattr(cursor, "adapters", None)
-            registry = getattr(adapters, "types", None)
-            try:
-                type_info = registry.get(type_oid) if registry is not None else None
-            except (KeyError, TypeError):
-                type_info = None
-            type_name = getattr(type_info, "name", None)
-
-        if type_name:
-            return type_oid, str(type_name).strip().lower()
-        if type_oid is not None:
-            return type_oid, f"oid:{type_oid}"
-        return None, "unknown"
-
-    @staticmethod
-    def _logical_type(database_type: str) -> str:
-        normalized = database_type.strip().lower()
-        if normalized.endswith("[]"):
-            return "array"
-        return _LOGICAL_TYPES.get(normalized, "unknown")
 
     @staticmethod
     def _value_logical_type(value: Any) -> str:
@@ -1100,9 +707,9 @@ class PostgresAnalyticsAdapter:
         )
 
     @staticmethod
-    def _sanitize_diagnostic_text(value: str, dsn: str) -> str:
-        sanitized = value.replace(dsn, "[redacted-postgresql-dsn]") if dsn else value
-        sanitized = _POSTGRES_DSN_PATTERN.sub("[redacted-postgresql-dsn]", sanitized)
+    def _sanitize_diagnostic_text(value: str, uri: str) -> str:
+        sanitized = value.replace(uri, "[redacted-connection-uri]") if uri else value
+        sanitized = _CONNECTION_URI_PATTERN.sub("[redacted-connection-uri]", sanitized)
         return _PASSWORD_PATTERN.sub(r"\1[redacted]", sanitized)
 
     @staticmethod
@@ -1134,12 +741,12 @@ class PostgresAnalyticsAdapter:
         def emit(text: str) -> None:
             """Append text that came from the submitted SQL, per-cent signs doubled.
 
-            psycopg finds placeholders by scanning the whole statement with a
+            A pyformat driver finds placeholders by scanning the whole statement with a
             regular expression, without any knowledge of SQL quoting. A literal
             per-cent sign therefore reads as the start of a placeholder wherever
             it appears -- inside a string literal, a dollar-quoted body, or even
             a comment -- and ``TO_CHAR(x, '990D9%')`` is rejected outright. Every
-            per-cent sign that came from the caller is doubled here; psycopg
+            per-cent sign that came from the caller is doubled here; the driver
             collapses ``%%`` back to a single ``%`` when it converts the query.
 
             It only does that collapsing when parameters are supplied, so the
@@ -1229,7 +836,7 @@ class PostgresAnalyticsAdapter:
                 name = sql[index + 1 : end]
                 if name in parameter_names:
                     # Appended rather than emitted: this is the one per-cent sign
-                    # in the output that psycopg is meant to read as a placeholder.
+                    # in the output the driver is meant to read as a placeholder.
                     output.append(f"%({name})s")
                     index = end
                     continue

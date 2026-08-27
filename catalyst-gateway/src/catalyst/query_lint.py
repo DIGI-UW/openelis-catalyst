@@ -11,6 +11,8 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
+from .dialects import DialectAdapter, resolve_dialect_adapter
+
 
 @dataclass(frozen=True)
 class LintFinding:
@@ -28,7 +30,9 @@ class LintFinding:
         return {key: value for key, value in asdict(self).items() if value is not None}
 
 
-def _parse_finding(sql: str, error: ParseError) -> LintFinding:
+def _parse_finding(
+    sql: str, error: ParseError, dialect: DialectAdapter
+) -> LintFinding:
     detail = error.errors[0] if error.errors else {}
     line = detail.get("line") if isinstance(detail.get("line"), int) else None
     column = detail.get("col") if isinstance(detail.get("col"), int) else None
@@ -48,7 +52,10 @@ def _parse_finding(sql: str, error: ParseError) -> LintFinding:
             path="sql",
             line=line,
             column=column,
-            message="DATE cannot prefix a named bind parameter in PostgreSQL.",
+            message=(
+                "DATE cannot prefix a named bind parameter in "
+                f"{dialect.statement_label}."
+            ),
             evidence=typed_parameter.group(0),
             suggestedAction=(
                 f"Use {placeholder} directly and keep its declared parameter type date."
@@ -61,9 +68,14 @@ def _parse_finding(sql: str, error: ParseError) -> LintFinding:
         path="sql",
         line=line,
         column=column,
-        message=f"SQL could not be parsed as PostgreSQL: {error}",
+        message=(
+            f"SQL could not be parsed as {dialect.statement_label}: {error}"
+        ),
         evidence=evidence or sql[:240],
-        suggestedAction="Return one syntactically valid PostgreSQL SELECT statement.",
+        suggestedAction=(
+            f"Return one syntactically valid {dialect.statement_label} "
+            "SELECT statement."
+        ),
     )
 
 
@@ -254,10 +266,14 @@ def lint_candidate(
         return []
 
     sql = str(candidate.get("sql", ""))
+    # The dialect comes from the source's configuration, carried on the request
+    # target, and the adapter it names owns the grammar. Nothing here decides
+    # syntax from a hard-coded engine name.
+    dialect = resolve_dialect_adapter(str(extension["target"]["dialect"]))
     try:
-        statements = sqlglot.parse(sql, read="postgres")
+        statements = sqlglot.parse(sql, read=dialect.sqlglot_dialect)
     except ParseError as error:
-        return [_parse_finding(sql, error).as_dict()]
+        return [_parse_finding(sql, error, dialect).as_dict()]
 
     if len(statements) != 1 or statements[0] is None:
         return [
@@ -266,7 +282,9 @@ def lint_candidate(
                 stage="sql_parse",
                 severity="error",
                 path="sql",
-                message="Exactly one PostgreSQL statement is required.",
+                message=(
+                    f"Exactly one {dialect.statement_label} statement is required."
+                ),
                 evidence=sql[:240],
                 suggestedAction="Return one read-only SELECT statement only.",
             ).as_dict()
@@ -423,7 +441,7 @@ def lint_candidate(
                 suggestedAction=(
                     "Use ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY "
                     "observed_at DESC) and filter to the first rank with a named "
-                    "parameter, or use PostgreSQL DISTINCT ON (patient_id) with "
+                    "parameter, or use a per-patient ranking with "
                     "matching ordering."
                 ),
             )

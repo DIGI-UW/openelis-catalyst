@@ -23,14 +23,22 @@
     "assetContentDigest"
   ],
   "properties": {
-    "schemaVersion": { "const": "catalyst.superset.bundle.v1" },
-    "bundleId": { "$ref": "#/$defs/uuidV5" },
+    "schemaVersion": {
+      "const": "catalyst.superset.bundle.v1"
+    },
+    "bundleId": {
+      "$ref": "#/$defs/uuidV5"
+    },
     "bundleRoot": {
       "type": "string",
       "pattern": "^catalyst_dashboard_[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
-    "targetSupersetVersion": { "const": "6.1.0" },
-    "dashboard": { "$ref": "#/$defs/versionRef" },
+    "targetSupersetVersion": {
+      "const": "6.1.0"
+    },
+    "dashboard": {
+      "$ref": "#/$defs/versionRef"
+    },
     "dashboardSlug": {
       "type": "string",
       "pattern": "^catalyst-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -38,34 +46,54 @@
     "widgets": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/widgetRef" }
+      "items": {
+        "$ref": "#/$defs/widgetRef"
+      }
     },
     "datasets": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/datasetRef" }
+      "items": {
+        "$ref": "#/$defs/datasetRef"
+      }
     },
     "assetUuids": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["database", "dashboard", "datasetsByVersion", "chartsByVersion"],
+      "required": [
+        "database",
+        "dashboard",
+        "datasetsByVersion",
+        "chartsByVersion"
+      ],
       "properties": {
-        "database": { "$ref": "#/$defs/uuidV5" },
-        "dashboard": { "$ref": "#/$defs/uuidV5" },
+        "database": {
+          "$ref": "#/$defs/uuidV5"
+        },
+        "dashboard": {
+          "$ref": "#/$defs/uuidV5"
+        },
         "datasetsByVersion": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": { "$ref": "#/$defs/uuidV5" }
+          "additionalProperties": {
+            "$ref": "#/$defs/uuidV5"
+          }
         },
         "chartsByVersion": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": { "$ref": "#/$defs/uuidV5" }
+          "additionalProperties": {
+            "$ref": "#/$defs/uuidV5"
+          }
         }
       }
     },
     "credentialPolicy": {
-      "enum": ["local_demo_read_only", "receiver_supplied"]
+      "enum": [
+        "local_demo_read_only",
+        "receiver_supplied"
+      ]
     },
     "dataSensitivityNotice": {
       "enum": [
@@ -73,25 +101,39 @@
         "clinical_identifiers_may_be_present_in_sql_parameters"
       ]
     },
-    "containsResultRows": { "const": false },
-    "manifestContainsCredentials": { "const": false },
+    "containsResultRows": {
+      "const": false
+    },
+    "manifestContainsCredentials": {
+      "const": false
+    },
     "generator": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "parameterCompilerRevisions", "vizMappingRevisions"],
+      "required": [
+        "revision",
+        "parameterCompilerRevisions",
+        "vizMappingRevisions"
+      ],
       "properties": {
-        "revision": { "$ref": "#/$defs/nonEmpty" },
+        "revision": {
+          "$ref": "#/$defs/nonEmpty"
+        },
         "parameterCompilerRevisions": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/nonEmpty" }
+          "items": {
+            "$ref": "#/$defs/nonEmpty"
+          }
         },
         "vizMappingRevisions": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/nonEmpty" }
+          "items": {
+            "$ref": "#/$defs/nonEmpty"
+          }
         }
       }
     },
@@ -101,28 +143,47 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "sha256", "bytes"],
+        "required": [
+          "path",
+          "sha256",
+          "bytes"
+        ],
         "properties": {
           "path": {
             "type": "string",
             "pattern": "^(metadata\\.yaml|(databases|datasets|charts|dashboards)/[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.yaml)$"
           },
-          "sha256": { "$ref": "#/$defs/sha256" },
-          "bytes": { "type": "integer", "minimum": 1 }
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       },
       "description": "Native YAML members only, ordered lexicographically by relative path; paths are unique by runtime validation."
     },
     "assetContentDigest": {
-      "allOf": [{ "$ref": "#/$defs/sha256" }],
+      "allOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        }
+      ],
       "description": "SHA-256 of RFC 8785 canonical JSON for the ordered assetMembers array; excludes this manifest and final ZIP metadata."
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "credentialPolicy": { "const": "local_demo_read_only" } },
-        "required": ["credentialPolicy"]
+        "properties": {
+          "credentialPolicy": {
+            "const": "local_demo_read_only"
+          }
+        },
+        "required": [
+          "credentialPolicy"
+        ]
       },
       "then": {
         "properties": {
@@ -141,8 +202,14 @@
     }
   ],
   "$defs": {
-    "nonEmpty": { "type": "string", "minLength": 1 },
-    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nonEmpty": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "uuidCanonical": {
       "type": "string",
       "format": "uuid",
@@ -161,10 +228,20 @@
     "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["actorKind"],
+      "required": [
+        "actorKind"
+      ],
       "properties": {
-        "actorKind": { "enum": ["human", "model", "system"] },
-        "actorId": { "$ref": "#/$defs/nonEmpty" }
+        "actorKind": {
+          "enum": [
+            "human",
+            "model",
+            "system"
+          ]
+        },
+        "actorId": {
+          "$ref": "#/$defs/nonEmpty"
+        }
       }
     },
     "sourceRef": {
@@ -182,27 +259,63 @@
         "resultDigest"
       ],
       "properties": {
-        "sessionId": { "$ref": "#/$defs/uuidCanonical" },
-        "turnId": { "$ref": "#/$defs/uuidCanonical" },
-        "queryVersionId": { "$ref": "#/$defs/uuidCanonical" },
-        "queryDigest": { "$ref": "#/$defs/sha256" },
-        "executionId": { "$ref": "#/$defs/uuidCanonical" },
-        "dataSourceId": { "$ref": "#/$defs/nonEmpty" },
-        "catalogVersion": { "$ref": "#/$defs/nonEmpty" },
-        "resultSchemaDigest": { "$ref": "#/$defs/sha256" },
-        "resultDigest": { "$ref": "#/$defs/sha256" }
+        "sessionId": {
+          "$ref": "#/$defs/uuidCanonical"
+        },
+        "turnId": {
+          "$ref": "#/$defs/uuidCanonical"
+        },
+        "queryVersionId": {
+          "$ref": "#/$defs/uuidCanonical"
+        },
+        "queryDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "executionId": {
+          "$ref": "#/$defs/uuidCanonical"
+        },
+        "dataSourceId": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "catalogVersion": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "resultSchemaDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resultDigest": {
+          "$ref": "#/$defs/sha256"
+        }
       }
     },
     "versionRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "versionId", "configurationDigest", "author", "createdAt"],
+      "required": [
+        "id",
+        "versionId",
+        "configurationDigest",
+        "author",
+        "createdAt"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidV4" },
-        "versionId": { "$ref": "#/$defs/uuidV4" },
-        "configurationDigest": { "$ref": "#/$defs/sha256" },
-        "author": { "$ref": "#/$defs/actor" },
-        "createdAt": { "type": "string", "format": "date-time", "pattern": "Z$" }
+        "id": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "versionId": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "configurationDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
       }
     },
     "widgetRef": {
@@ -220,10 +333,18 @@
         "createdAt"
       ],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidV4" },
-        "versionId": { "$ref": "#/$defs/uuidV4" },
-        "configurationDigest": { "$ref": "#/$defs/sha256" },
-        "datasetVersionId": { "$ref": "#/$defs/uuidV4" },
+        "id": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "versionId": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "configurationDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "datasetVersionId": {
+          "$ref": "#/$defs/uuidV4"
+        },
         "presentationKind": {
           "enum": [
             "table",
@@ -235,46 +356,166 @@
             "proportion_bar"
           ]
         },
-        "compatibilityDigest": { "$ref": "#/$defs/sha256" },
-        "vizMappingRevision": { "$ref": "#/$defs/nonEmpty" },
-        "author": { "$ref": "#/$defs/actor" },
-        "createdAt": { "type": "string", "format": "date-time", "pattern": "Z$" }
+        "compatibilityDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "vizMappingRevision": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
       }
     },
     "typedParameter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "type", "source", "value"],
+      "required": [
+        "name",
+        "type",
+        "source",
+        "value"
+      ],
       "properties": {
-        "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,199}$" },
-        "type": {
-          "enum": ["string", "integer", "number", "boolean", "date", "date-time", "string-list", "integer-list"]
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,199}$"
         },
-        "source": { "enum": ["question", "human"] },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "date-time",
+            "string-list",
+            "integer-list"
+          ]
+        },
+        "source": {
+          "enum": [
+            "question",
+            "human"
+          ]
+        },
         "value": {}
       },
       "oneOf": [
-        { "properties": { "type": { "const": "string" }, "value": { "type": "string" } } },
-        { "properties": { "type": { "const": "integer" }, "value": { "type": "integer" } } },
-        { "properties": { "type": { "const": "number" }, "value": { "type": "number" } } },
-        { "properties": { "type": { "const": "boolean" }, "value": { "type": "boolean" } } },
-        { "properties": { "type": { "const": "date" }, "value": { "type": "string", "format": "date" } } },
-        { "properties": { "type": { "const": "date-time" }, "value": { "type": "string", "format": "date-time" } } },
-        { "properties": { "type": { "const": "string-list" }, "value": { "type": "array", "items": { "type": "string" } } } },
-        { "properties": { "type": { "const": "integer-list" }, "value": { "type": "array", "items": { "type": "integer" } } } }
+        {
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "value": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "number"
+            },
+            "value": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "date-time"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "string-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "integer-list"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        }
       ]
     },
     "column": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ordinal", "name", "databaseType", "typeOid", "logicalType"],
+      "required": [
+        "ordinal",
+        "name",
+        "databaseType",
+        "logicalType"
+      ],
       "properties": {
-        "ordinal": { "type": "integer", "minimum": 0 },
-        "name": { "$ref": "#/$defs/nonEmpty" },
-        "databaseType": { "$ref": "#/$defs/nonEmpty" },
-        "typeOid": {
-          "type": ["integer", "null"],
+        "ordinal": {
+          "type": "integer",
           "minimum": 0
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "databaseType": {
+          "$ref": "#/$defs/nonEmpty"
         },
         "logicalType": {
           "enum": [
@@ -297,12 +538,31 @@
     "resultBounds": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["returnedRows", "maxRows", "truncated", "truncationReason", "warningCodes"],
+      "required": [
+        "returnedRows",
+        "maxRows",
+        "truncated",
+        "truncationReason",
+        "warningCodes"
+      ],
       "properties": {
-        "returnedRows": { "type": "integer", "minimum": 0 },
-        "maxRows": { "type": "integer", "minimum": 1 },
-        "truncated": { "type": "boolean" },
-        "truncationReason": { "type": ["string", "null"] },
+        "returnedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "truncationReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "warningCodes": {
           "type": "array",
           "uniqueItems": true,
@@ -317,16 +577,29 @@
       "allOf": [
         {
           "if": {
-            "properties": { "truncated": { "const": true } },
-            "required": ["truncated"]
+            "properties": {
+              "truncated": {
+                "const": true
+              }
+            },
+            "required": [
+              "truncated"
+            ]
           },
           "then": {
             "properties": {
-              "truncationReason": { "type": "string", "minLength": 1 }
+              "truncationReason": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "else": {
-            "properties": { "truncationReason": { "type": "null" } }
+            "properties": {
+              "truncationReason": {
+                "type": "null"
+              }
+            }
           }
         }
       ]
@@ -351,27 +624,57 @@
         "createdAt"
       ],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidV4" },
-        "versionId": { "$ref": "#/$defs/uuidV4" },
-        "configurationDigest": { "$ref": "#/$defs/sha256" },
-        "parameterizedSql": { "$ref": "#/$defs/nonEmpty" },
-        "parameterizedSqlDigest": { "$ref": "#/$defs/sha256" },
-        "compiledSqlDigest": { "$ref": "#/$defs/sha256" },
+        "id": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "versionId": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "configurationDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parameterizedSql": {
+          "$ref": "#/$defs/nonEmpty"
+        },
+        "parameterizedSqlDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "compiledSqlDigest": {
+          "$ref": "#/$defs/sha256"
+        },
         "typedParameters": {
           "type": "array",
-          "items": { "$ref": "#/$defs/typedParameter" }
+          "items": {
+            "$ref": "#/$defs/typedParameter"
+          }
         },
-        "typedParametersDigest": { "$ref": "#/$defs/sha256" },
-        "parameterCompilerRevision": { "$ref": "#/$defs/nonEmpty" },
+        "typedParametersDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parameterCompilerRevision": {
+          "$ref": "#/$defs/nonEmpty"
+        },
         "resultSchema": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/column" }
+          "items": {
+            "$ref": "#/$defs/column"
+          }
         },
-        "resultBounds": { "$ref": "#/$defs/resultBounds" },
-        "source": { "$ref": "#/$defs/sourceRef" },
-        "author": { "$ref": "#/$defs/actor" },
-        "createdAt": { "type": "string", "format": "date-time", "pattern": "Z$" }
+        "resultBounds": {
+          "$ref": "#/$defs/resultBounds"
+        },
+        "source": {
+          "$ref": "#/$defs/sourceRef"
+        },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
       }
     }
   }

@@ -8,6 +8,8 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
+from .dialects import DialectAdapter, resolve_dialect_adapter
+
 
 @dataclass(frozen=True)
 class Violation:
@@ -129,7 +131,12 @@ def validate_query_invariants(
         placeholders: set[str] = set()
         statements: list[exp.Expression | None] = []
         try:
-            statements = sqlglot.parse(query.get("sql", ""), read="postgres")
+            statements = sqlglot.parse(
+                query.get("sql", ""),
+                read=resolve_dialect_adapter(
+                    str(context["target"]["dialect"])
+                ).sqlglot_dialect,
+            )
             for statement in statements:
                 if statement is None:
                     continue
@@ -184,11 +191,12 @@ class SqlPolicy:
         self,
         query: dict[str, Any],
         *,
+        dialect: DialectAdapter,
         available_relations: set[str] | None = None,
     ) -> list[Violation]:
         sql = query.get("sql", "")
         try:
-            statements = sqlglot.parse(sql, read="postgres")
+            statements = sqlglot.parse(sql, read=dialect.sqlglot_dialect)
         except ParseError as error:
             return [Violation("invalid_sql", f"SQL could not be parsed: {error}")]
 
@@ -196,7 +204,7 @@ class SqlPolicy:
             return [
                 Violation(
                     "multiple_statements",
-                    "Exactly one PostgreSQL statement is allowed.",
+                    f"Exactly one {dialect.statement_label} statement is allowed.",
                 )
             ]
         statement = statements[0]
@@ -262,7 +270,7 @@ class SqlPolicy:
                     Violation(
                         "relation_not_found",
                         "Query references relations not present in the current "
-                        "readable PostgreSQL schema: "
+                        "readable schema: "
                         + ", ".join(missing_relations)
                         + ".",
                     )

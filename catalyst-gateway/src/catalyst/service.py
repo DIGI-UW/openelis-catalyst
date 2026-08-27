@@ -18,6 +18,7 @@ from .analytics import (
 )
 from .catalog import Catalog
 from .contracts import ContractError, ContractRegistry
+from .dialects import resolve_dialect_adapter
 from .digest import canonical_sha256, query_digest, utf8_sha256
 from .hub import HubError
 from .policy import (
@@ -566,6 +567,7 @@ class CatalystService:
 
         violations = self.sql_policy.evaluate(
             query,
+            dialect=resolve_dialect_adapter(generation.catalog.dialect),
             available_relations=generation.catalog.available_relation_names,
         )
         if violations:
@@ -3485,6 +3487,7 @@ class CatalystService:
             }
             for violation in self.sql_policy.evaluate(
                 query,
+                dialect=resolve_dialect_adapter(catalog.dialect),
                 available_relations=catalog.available_relation_names,
             )
         )
@@ -3618,6 +3621,7 @@ class CatalystService:
         validate_query_invariants(query, request)
         violations = self.sql_policy.evaluate(
             query,
+            dialect=resolve_dialect_adapter(catalog.dialect),
             available_relations=catalog.available_relation_names,
         )
         if violations:

@@ -246,6 +246,24 @@ class Catalog:
         )
 
     @classmethod
+    def for_source(cls, *, data_source: str, dialect: str) -> Catalog:
+        """An empty catalog for a configured source.
+
+        Live discovery is authoritative, so a source starts with no relations
+        and is filled by ``with_discovered_relations``. Nothing is read from a
+        generated catalog file: what the connection exposes is the catalog.
+        """
+        return cls(
+            data_source=data_source,
+            catalog_version="live",
+            schema_version="live",
+            dialect=dialect,
+            context_source_id=data_source,
+            views=[],
+            freshness={},
+        )
+
+    @classmethod
     def load(cls, path: str | Path) -> Catalog:
         catalog_path = Path(path)
         payload = json.loads(catalog_path.read_text(encoding="utf-8"))

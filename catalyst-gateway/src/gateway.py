@@ -1,11 +1,11 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import cast
 
 from fastapi import FastAPI
 
-from .catalyst.analytics import PostgresAnalyticsAdapter
+from .catalyst.analytics import SqlAnalyticsAdapter
 from .catalyst.catalog import Catalog
+from .catalyst.dialects import resolve_dialect_adapter
 from .catalyst.contracts import ContractRegistry
 from .catalyst.dashboard_builder import DashboardBuilder
 from .catalyst.dashboard_routes import install_dashboard_routes
@@ -20,45 +20,24 @@ from .config import load_config
 def _default_catalyst_service() -> CatalystService:
     config = load_config()
     contracts = ContractRegistry.default()
-    catalog = Catalog.load(config.catalog_path)
-    analytics = PostgresAnalyticsAdapter(
-        config.analytics_dsn,
-        data_source_id=catalog.data_source,
-        dataset_browser=catalog.dataset_browser,
-    )
     bundles: list[DataSourceBundle] = []
     for source in config.data_sources:
-        if source.source_id == config.default_data_source_id:
-            bundles.append(
-                DataSourceBundle(
-                    source_id=source.source_id,
-                    label=source.label,
-                    catalog=catalog,
-                    analytics=analytics,
-                )
-            )
-            continue
-        if not Path(source.catalog_path).is_file():
-            # Registered but not provisioned yet: list as unavailable rather
-            # than fail boot; it cannot be targeted until its catalog exists.
-            bundles.append(
-                DataSourceBundle(
-                    source_id=source.source_id,
-                    label=source.label,
-                    available=False,
-                )
-            )
-            continue
-        source_catalog = Catalog.load(source.catalog_path)
+        # Configuration selects; code implements. The Gateway resolves the
+        # adapter a source names and hands it to the one connection
+        # implementation -- it never asks which engine this is.
+        adapter = resolve_dialect_adapter(source.dialect_adapter)
         bundles.append(
             DataSourceBundle(
                 source_id=source.source_id,
                 label=source.label,
-                catalog=source_catalog,
-                analytics=PostgresAnalyticsAdapter(
-                    source.analytics_dsn,
-                    data_source_id=source_catalog.data_source,
-                    dataset_browser=source_catalog.dataset_browser,
+                catalog=Catalog.for_source(
+                    data_source=source.source_id,
+                    dialect=source.dialect,
+                ),
+                analytics=SqlAnalyticsAdapter(
+                    source.connection_uri,
+                    dialect=adapter,
+                    data_source_id=source.source_id,
                 ),
             )
         )
