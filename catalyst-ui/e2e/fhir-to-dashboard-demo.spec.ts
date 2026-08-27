@@ -102,9 +102,9 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
    * leaves the reading of values to the picture.
    */
   const shots = process.env.CATALYST_DEMO_SHOT_DIR ?? "demo-screenshots";
-  const shot = async (name: string) => {
+  const shot = async (name: string, fullPage = false) => {
     const path = `${shots}/${name}.png`;
-    const buffer = await page.screenshot({ path, fullPage: false });
+    const buffer = await page.screenshot({ path, fullPage });
     await info.attach(name, { body: buffer, contentType: "image/png" });
   };
 
@@ -159,6 +159,7 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
     .click();
   await expect(page.getByText("fhirdata.fhirServerUrl").first()).toBeVisible();
   await expect(page.getByText(/\/ws\/fhir2\/R4/).first()).toBeVisible();
+  await page.getByText(/\/ws\/fhir2\/R4/).first().scrollIntoViewIfNeeded();
   timing.mark("fhir-endpoint-shown");
   await shot("01-fhir-endpoint");
   await dwell(4_000);
@@ -433,7 +434,12 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   await expect(page.getByText("Loading...", { exact: false })).toHaveCount(0, {
     timeout: 180_000,
   });
-  await shot("07-superset-dashboard");
+  // Chart data arrives after the canvas exists, and ECharts animates the bars
+  // in. Waiting for the network to go quiet and letting the draw settle is the
+  // difference between a screenshot of axes and a screenshot of the answer.
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(4_000);
+  await shot("07-superset-dashboard", true);
 
   timing.mark("dashboard-rendered");
   await dwell(9_000);
