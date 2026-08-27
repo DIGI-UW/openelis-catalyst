@@ -394,12 +394,10 @@ class CatalystService:
                             "Catalog columns must declare logical types: "
                             f"{qualified_name}.{column_name}."
                         )
+                    # A description enriches a column; it is not something a
+                    # connection can always supply, and requiring one is what
+                    # made discovery synthesize the native type into it.
                     description = field.get("description")
-                    if not isinstance(description, str) or not description:
-                        raise ValueError(
-                            "Catalog columns must declare descriptions: "
-                            f"{qualified_name}.{column_name}."
-                        )
                     nullable = field.get("nullable", True)
                     if not isinstance(nullable, bool):
                         raise ValueError(
@@ -410,9 +408,10 @@ class CatalystService:
                     column = {
                         "name": column_name,
                         "logicalType": logical_type,
-                        "description": description,
                         "nullable": nullable,
                     }
+                    if isinstance(description, str) and description:
+                        column["description"] = description
                     database_type = field.get("databaseType")
                     if isinstance(database_type, str) and database_type:
                         column["databaseType"] = database_type
