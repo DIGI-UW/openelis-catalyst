@@ -331,13 +331,13 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn('"roleModels": role_models', self.health_script)
         self.assertIn('model_router["modelIds"] = sorted', self.health_script)
 
-    def test_gateway_image_contains_runtime_contracts_and_catalog(self):
+    def test_gateway_image_contains_runtime_contracts_not_a_catalog(self):
         dockerfile = (ROOT / "catalyst-gateway/Dockerfile").read_text()
         self.assertIn("COPY docs/contracts /docs/contracts", dockerfile)
-        self.assertIn(
-            "COPY analytics/catalog /app/config",
-            dockerfile,
-        )
+        # Live discovery replaced the generated catalog; baking one into the
+        # image would put a second, stale answer next to the connection's.
+        self.assertNotIn("analytics/catalog", dockerfile)
+        self.assertNotIn("CATALYST_CATALOG_PATH", dockerfile)
         self.assertIn("context: .", self.compose)
         self.assertIn("dockerfile: catalyst-gateway/Dockerfile", self.compose)
         legacy_compose = (ROOT / "catalyst-dev.docker-compose.yml").read_text()
