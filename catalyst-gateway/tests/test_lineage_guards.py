@@ -28,7 +28,7 @@ def _base_catalog() -> Catalog:
         data_source="openelis-demo",
         catalog_version="catalog-v1",
         schema_version="analytics-v1",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:catalog-v1",
         views=[
             {
@@ -387,7 +387,7 @@ class CatalogSwappingHub(LineageHub):
             data_source="openelis-demo",
             catalog_version="unrelated-catalog",
             schema_version="analytics-v1",
-            dialect="postgresql",
+            dialect="fixture",
             context_source_id="catalog:unrelated-catalog",
             views=[
                 {

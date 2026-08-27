@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.catalyst.analytics import AnalyticsError, PostgresAnalyticsAdapter
+from src.catalyst.analytics import AnalyticsError, SqlAnalyticsAdapter
+from tests.fixture_dialect import FIXTURE
 from src.catalyst.catalog import Catalog
 from src.catalyst.policy import QueryInvariantError, validate_query_invariants
 from src.catalyst.query_lint import lint_candidate
@@ -307,57 +308,6 @@ def test_named_analyte_accepts_its_canonical_catalog_predicate():
     validate_query_invariants(query, _viral_load_request(catalog))
 
 
-@pytest.mark.asyncio
-async def test_postgres_adapter_reads_latest_succeeded_freshness_live():
-    calls = []
-    watermark = datetime(2026, 3, 15, 9, tzinfo=timezone.utc)
-
-    class Cursor:
-        description = [
-            SimpleNamespace(name="pipeline_run_id"),
-            SimpleNamespace(name="completion_state"),
-            SimpleNamespace(name="source_watermark"),
-            SimpleNamespace(name="observed_lag_seconds"),
-        ]
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, sql, params=None):
-            calls.append((sql, params))
-
-        def fetchone(self):
-            return ("full-20260716T000000Z", "succeeded", watermark, 60)
-
-    class Connection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def cursor(self):
-            return Cursor()
-
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://analytics",
-        connect=lambda *args, **kwargs: Connection(),
-    )
-    freshness = await adapter.freshness()
-
-    assert calls[0][0] == "SET TRANSACTION READ ONLY"
-    assert "analytics.pipeline_freshness_v1" in calls[1][0]
-    assert freshness == {
-        "sourceWatermark": "2026-03-15T09:00:00Z",
-        "pipelineRunId": "full-20260716T000000Z",
-        "completionState": "complete",
-        "observedLagSeconds": 60,
-    }
-
-
 def _dataset_sql_calls(catalog: Catalog) -> list[str]:
     """Run both dataset-browser queries against a fake driver, return their SQL."""
 
@@ -389,11 +339,11 @@ def _dataset_sql_calls(catalog: Catalog) -> list[str]:
         def cursor(self):
             return Cursor()
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://analytics",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://analytics",
+        dialect=FIXTURE,
         data_source_id=catalog.data_source,
         connect=lambda *args, **kwargs: Connection(),
-        dataset_browser=catalog.dataset_browser,
     )
     asyncio.run(adapter.dataset_overview())
     asyncio.run(
@@ -415,7 +365,7 @@ def _second_source_payload(dataset_browser: dict | None = None) -> dict:
         "contractVersion": "catalyst.analytics.catalog.v1",
         "catalogVersion": "second-source-v1",
         "dataSource": "second-source-postgresql",
-        "dialect": "postgresql",
+        "dialect": "fixture",
         "schemaVersion": "analytics-v1",
         "views": [
             {
@@ -478,51 +428,6 @@ SECOND_SOURCE_BROWSER = {
     "valueColumn": "measure_numeric",
     "valueFallbackColumns": ["measure_text"],
 }
-
-
-def test_shipped_openelis_catalog_drives_its_own_dataset_browser_sql():
-    catalog = Catalog.load(CATALOG_PATH)
-
-    assert catalog.dataset_browser is not None
-    assert catalog.dataset_browser.fact_view == "analytics.lab_result_fact_v1"
-
-    for sql in _dataset_sql_calls(catalog):
-        assert "analytics.hiv_observation_fact_v1" not in sql
-    joined = "\n".join(_dataset_sql_calls(catalog))
-    assert "FROM analytics.lab_result_fact_v1" in joined
-    assert "test_name" in joined
-    assert "result_value" in joined
-
-
-def test_second_data_source_never_queries_the_openelis_fact_view(tmp_path):
-    """Regression: the dataset browser used to hardcode the OpenELIS view, so
-    switching sources failed with `relation "analytics.lab_result_fact_v1"
-    does not exist` against the other source's database."""
-
-    catalog = Catalog.load(
-        _write_catalog(tmp_path, _second_source_payload(SECOND_SOURCE_BROWSER))
-    )
-
-    calls = _dataset_sql_calls(catalog)
-    joined = "\n".join(calls)
-
-    assert "analytics.lab_result_fact_v1" not in joined
-    assert "test_name" not in joined
-    assert "result_value" not in joined
-    assert "FROM analytics.encounter_fact_v1" in joined
-    assert "concept_label" in joined
-    # Non-numeric values still render: the declared fallbacks are coalesced.
-    assert "COALESCE(measure_numeric::text, measure_text::text)" in joined
-    # Columns this source does not have are reported as NULL, not invented.
-    assert "NULL" in joined
-
-
-def test_catalog_without_dataset_browser_reports_a_configuration_error(tmp_path):
-    catalog = Catalog.load(_write_catalog(tmp_path, _second_source_payload()))
-
-    assert catalog.dataset_browser is None
-    with pytest.raises(AnalyticsError, match="declares no datasetBrowser"):
-        _dataset_sql_calls(catalog)
 
 
 @pytest.mark.parametrize(

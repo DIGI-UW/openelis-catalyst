@@ -83,7 +83,7 @@ def _hiv_catalog() -> Catalog:
         data_source="openmrs-hiv-demo",
         catalog_version="2026.07-hiv",
         schema_version="analytics-v1",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:openmrs-hiv-demo:2026.07-hiv",
         views=[
             {

@@ -308,7 +308,7 @@ class CatalystService:
             catalog = bundle.catalog.with_discovered_relations(relations)
         except (KeyError, TypeError, ValueError) as error:
             raise AnalyticsError(
-                f"PostgreSQL schema discovery returned an unusable catalog: {error}"
+                f"Schema discovery returned an unusable catalog: {error}"
             ) from error
         bundle.runtime_snapshot = catalog
         return catalog
@@ -486,7 +486,7 @@ class CatalystService:
             return self._workbench_error(
                 503,
                 "editor_catalog_unavailable",
-                f"The readable PostgreSQL catalog is unavailable: {error}",
+                f"The readable catalog is unavailable: {error}",
             )
         return ServiceResponse(200, body)
 
@@ -2397,7 +2397,7 @@ class CatalystService:
         return self._workbench_error(
             409,
             "stale_catalog_version",
-            "The readable PostgreSQL catalog changed after this workbench session "
+            "The readable catalog changed after this workbench session "
             "was created. Start a new session before saving, validating, running, "
             "or refining this query.",
             details={

@@ -10,6 +10,9 @@ VIEW = "analytics.lab_result_fact_v1"
 
 def _extension() -> dict:
     return {
+        # The production request carries the source's declared dialect on the
+        # target; lint reads the grammar from there rather than assuming one.
+        "target": {"dialect": "fixture"},
         "catalog": {
             "views": [
                 {

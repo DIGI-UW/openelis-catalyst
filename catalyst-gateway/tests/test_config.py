@@ -19,8 +19,8 @@ def test_registry_file_registers_extra_sources(monkeypatch, tmp_path: Path) -> N
                     {
                         "id": "openmrs-hiv",
                         "label": "OpenMRS HIV/ART program",
-                        "analyticsDsn": "postgresql://u:p@localhost:5/hiv",
-                        "catalogPath": str(tmp_path / "openmrs-hiv-catalog.json"),
+                        "connectionUri": "hive2://u:p@spark-thriftserver:10000/hiv",
+                        "dialect": "spark",
                     }
                 ]
             }
@@ -31,8 +31,10 @@ def test_registry_file_registers_extra_sources(monkeypatch, tmp_path: Path) -> N
     assert [s.source_id for s in config.data_sources] == ["openelis", "openmrs-hiv"]
     extra = config.data_sources[1]
     assert extra.label == "OpenMRS HIV/ART program"
-    assert extra.analytics_dsn == "postgresql://u:p@localhost:5/hiv"
-    assert extra.catalog_path.endswith("openmrs-hiv-catalog.json")
+    assert extra.connection_uri == "hive2://u:p@spark-thriftserver:10000/hiv"
+    assert extra.dialect == "spark"
+    # A source that names no adapter uses the one implementing its dialect.
+    assert extra.dialect_adapter == "spark"
 
 
 def test_unset_registry_path_yields_default_source_only(monkeypatch) -> None:

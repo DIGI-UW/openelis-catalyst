@@ -27,7 +27,7 @@ VIEW_NAME = "analytics.lab_result_fact_v1"
 TARGET = {
     "dataSource": "openelis-demo-analytics",
     "catalogVersion": "analytics-catalog-v1",
-    "dialect": "postgresql",
+    "dialect": "fixture",
 }
 RESPONSE_TARGET = {**TARGET, "approvedViews": [VIEW_NAME]}
 

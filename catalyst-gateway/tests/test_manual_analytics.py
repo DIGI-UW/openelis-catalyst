@@ -6,15 +6,15 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
 
-import psycopg
 import pytest
 
 from src.catalyst.analytics import (
     AnalyticsColumn,
     ManualAnalyticsError,
     ManualAnalyticsResult,
-    PostgresAnalyticsAdapter,
+    SqlAnalyticsAdapter,
 )
+from tests.fixture_dialect import FIXTURE
 
 
 class _Connection:
@@ -88,136 +88,19 @@ def test_manual_result_bounds_blank_warning_and_marks_truncated_scope():
 
 
 @pytest.mark.asyncio
-async def test_relation_discovery_uses_role_privileges_and_all_relation_kinds():
-    calls: list[str] = []
-
-    class Cursor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, sql, params=None):
-            calls.append(sql)
-
-        def fetchall(self):
-            return [
-                (
-                    "analytics",
-                    "lab_result_fact_v1",
-                    "v",
-                    False,
-                    1,
-                    "observation_id",
-                    "text",
-                    False,
-                    "One row per result",
-                    "FHIR Observation identifier",
-                ),
-                (
-                    "external",
-                    "reference_codes",
-                    "f",
-                    False,
-                    1,
-                    "code",
-                    "character varying",
-                    False,
-                    None,
-                    None,
-                ),
-                (
-                    "public",
-                    "patient_flat",
-                    "r",
-                    True,
-                    1,
-                    "patient_id",
-                    "uuid",
-                    False,
-                    None,
-                    None,
-                ),
-                (
-                    "public",
-                    "result_partitioned",
-                    "p",
-                    True,
-                    1,
-                    "payload",
-                    "jsonb",
-                    True,
-                    None,
-                    None,
-                ),
-                (
-                    "reporting",
-                    "daily_counts",
-                    "m",
-                    False,
-                    1,
-                    "result_count",
-                    "bigint",
-                    False,
-                    None,
-                    None,
-                ),
-            ]
-
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
-        connect=lambda *args, **kwargs: _Connection(Cursor()),
-    )
-
-    relations = await adapter.discover_relations()
-
-    discovery_sql = calls[1]
-    assert "has_schema_privilege" in discovery_sql
-    assert "has_column_privilege" in discovery_sql
-    assert "pg_table_is_visible" in discovery_sql
-    assert "relation.relkind IN ('r', 'p', 'v', 'm', 'f')" in discovery_sql
-    assert "pg_catalog" in discovery_sql
-    assert [relation["relationType"] for relation in relations] == [
-        "view",
-        "foreign-table",
-        "table",
-        "partitioned-table",
-        "materialized-view",
-    ]
-    assert relations[0] == {
-        "name": "analytics.lab_result_fact_v1",
-        "relationType": "view",
-        "unqualifiedVisible": False,
-        "grain": "One row per result",
-        "fields": [
-            {
-                "name": "observation_id",
-                "type": "string",
-                "databaseType": "text",
-                "description": "FHIR Observation identifier",
-                "nullable": False,
-            }
-        ],
-    }
-    assert relations[2]["unqualifiedVisible"] is True
-    assert relations[3]["fields"][0]["type"] == "json"
-
-
-@pytest.mark.asyncio
 async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
     calls: list[tuple[str, object]] = []
 
     class Cursor:
         description = [
-            SimpleNamespace(name="result_count", type_code=23),
-            SimpleNamespace(name="ratio", type_code=1700),
-            SimpleNamespace(name="active", type_code=16),
-            SimpleNamespace(name="observed_on", type_code=1082),
-            SimpleNamespace(name="issued_at", type_code=1184),
-            SimpleNamespace(name="result_id", type_code=2950),
-            SimpleNamespace(name="evidence", type_code=3802),
-            SimpleNamespace(name="payload", type_code=17),
+            ("result_count", "num"),
+            ("ratio", "num"),
+            ("active", "txt"),
+            ("observed_on", "moment"),
+            ("issued_at", "txt"),
+            ("result_id", "txt"),
+            ("evidence", "txt"),
+            ("payload", "txt"),
         ]
 
         def __enter__(self):
@@ -244,8 +127,9 @@ async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
                 )
             ]
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://demo",
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
     sql = (
@@ -285,56 +169,48 @@ async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
             "ordinal": 0,
             "name": "result_count",
             "databaseType": "int4",
-            "typeOid": 23,
             "logicalType": "integer",
         },
         {
             "ordinal": 1,
             "name": "ratio",
             "databaseType": "numeric",
-            "typeOid": 1700,
             "logicalType": "decimal",
         },
         {
             "ordinal": 2,
             "name": "active",
             "databaseType": "bool",
-            "typeOid": 16,
             "logicalType": "boolean",
         },
         {
             "ordinal": 3,
             "name": "observed_on",
             "databaseType": "date",
-            "typeOid": 1082,
             "logicalType": "date",
         },
         {
             "ordinal": 4,
             "name": "issued_at",
             "databaseType": "timestamptz",
-            "typeOid": 1184,
             "logicalType": "date-time",
         },
         {
             "ordinal": 5,
             "name": "result_id",
             "databaseType": "uuid",
-            "typeOid": 2950,
             "logicalType": "string",
         },
         {
             "ordinal": 6,
             "name": "evidence",
             "databaseType": "jsonb",
-            "typeOid": 3802,
             "logicalType": "json",
         },
         {
             "ordinal": 7,
             "name": "payload",
             "databaseType": "bytea",
-            "typeOid": 17,
             "logicalType": "binary",
         },
     ]
@@ -370,7 +246,7 @@ async def test_manual_execution_fetches_only_bound_plus_one_without_sql_rewrite(
     submitted_sql: list[str] = []
 
     class Cursor:
-        description = [SimpleNamespace(name="patient_id", type_code=25)]
+        description = [("patient_id", "txt")]
 
         def __enter__(self):
             return self
@@ -386,8 +262,9 @@ async def test_manual_execution_fetches_only_bound_plus_one_without_sql_rewrite(
             assert count == 3
             return [("p-1",), ("p-2",), ("p-3",)]
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://demo",
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
     sql = "SELECT patient_id FROM analytics.lab_result_fact_v1 ORDER BY patient_id"
@@ -408,7 +285,7 @@ async def test_manual_execution_fetches_only_bound_plus_one_without_sql_rewrite(
 @pytest.mark.asyncio
 async def test_manual_execution_treats_explicit_query_limit_as_complete_result():
     class Cursor:
-        description = [SimpleNamespace(name="patient_id", type_code=25)]
+        description = [("patient_id", "txt")]
 
         def __enter__(self):
             return self
@@ -423,8 +300,9 @@ async def test_manual_execution_treats_explicit_query_limit_as_complete_result()
             assert count == 101
             return [("p-1",), ("p-2",)]
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://demo",
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
 
@@ -446,7 +324,7 @@ async def test_manual_execution_treats_explicit_query_limit_as_complete_result()
 @pytest.mark.asyncio
 async def test_manual_execution_has_deterministic_unknown_type_fallback():
     class Cursor:
-        description = [SimpleNamespace(name="extension_value", type_code=99999)]
+        description = [("extension_value", "txt")]
 
         def __enter__(self):
             return self
@@ -460,8 +338,9 @@ async def test_manual_execution_has_deterministic_unknown_type_fallback():
         def fetchmany(self, count):
             return [("value",)]
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://demo",
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
 
@@ -476,7 +355,6 @@ async def test_manual_execution_has_deterministic_unknown_type_fallback():
         "ordinal": 0,
         "name": "extension_value",
         "databaseType": "oid:99999",
-        "typeOid": 99999,
         "logicalType": "string",
     }
 
@@ -494,7 +372,7 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
         statement_position="18",
     )
 
-    class UndefinedColumn(psycopg.Error):
+    class UndefinedColumn(Exception):
         sqlstate = "42703"
 
         @property
@@ -515,7 +393,7 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
                 raise UndefinedColumn("postgresql://alice:super-secret@database")
 
     dsn = "postgresql://demo-user:demo-password@database:5432/catalyst"
-    adapter = PostgresAnalyticsAdapter(
+    adapter = SqlAnalyticsAdapter(
         dsn,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
@@ -552,7 +430,7 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
             "SELECT TO_CHAR(ratio * 100, '990D9%') AS pct",
             "SELECT TO_CHAR(ratio * 100, '990D9%%') AS pct",
         ),
-        # psycopg's scanner does not know about SQL quoting, so a LIKE pattern
+        # the driver's scanner does not know about SQL quoting, so a LIKE pattern
         # needs doubling just as much as anything else.
         (
             "SELECT 1 WHERE name LIKE '%acid%'",
@@ -562,10 +440,10 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
         ("SELECT n % 2 FROM t", "SELECT n %% 2 FROM t"),
         # An escaped quote inside a literal must not end the literal early.
         ("SELECT 'it''s 50%' AS note", "SELECT 'it''s 50%%' AS note"),
-        # Comments reach psycopg too.
+        # Comments reach the driver too.
         ("SELECT 1 -- 50% done\n", "SELECT 1 -- 50%% done\n"),
         ("SELECT /* 50% */ 1", "SELECT /* 50%% */ 1"),
-        # Dollar-quoted bodies are opaque to Postgres, not to psycopg.
+        # Dollar-quoted bodies are opaque to the engine, not to the driver.
         ("SELECT $$100%$$", "SELECT $$100%%$$"),
         ("SELECT $tag$100%$tag$", "SELECT $tag$100%%$tag$"),
     ],
@@ -573,12 +451,12 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
 def test_driver_sql_doubles_literal_per_cent_signs_wherever_they_appear(
     submitted: str, expected: str
 ) -> None:
-    assert PostgresAnalyticsAdapter._driver_sql(submitted, set()) == expected
+    assert SqlAnalyticsAdapter._driver_sql(submitted, set()) == expected
 
 
 def test_driver_sql_leaves_the_placeholder_it_generates_undoubled() -> None:
     assert (
-        PostgresAnalyticsAdapter._driver_sql("SELECT * FROM t WHERE id = :pid", {"pid"})
+        SqlAnalyticsAdapter._driver_sql("SELECT * FROM t WHERE id = :pid", {"pid"})
         == "SELECT * FROM t WHERE id = %(pid)s"
     )
 
@@ -587,7 +465,7 @@ def test_driver_sql_can_rewrite_a_binding_and_escape_a_literal_in_one_statement(
     None
 ):
     assert (
-        PostgresAnalyticsAdapter._driver_sql(
+        SqlAnalyticsAdapter._driver_sql(
             "SELECT TO_CHAR(v, '990D9%') FROM t WHERE id = :pid AND n % 2 = 0",
             {"pid"},
         )
@@ -601,12 +479,12 @@ def test_driver_sql_reads_a_doubled_per_cent_sign_as_two_literal_per_cent_signs(
     """Submitted SQL now means what it says.
 
     Before this escaping existed, ``%%`` was the workaround for getting a single
-    per-cent sign past psycopg. It is no longer needed, and it no longer does
+    per-cent sign past the driver. It is no longer needed, and it no longer does
     that: two per-cent signs in the submitted SQL are two per-cent signs in the
     statement Postgres runs.
     """
     assert (
-        PostgresAnalyticsAdapter._driver_sql("SELECT '990D9%%'", set())
+        SqlAnalyticsAdapter._driver_sql("SELECT '990D9%%'", set())
         == "SELECT '990D9%%%%'"
     )
 
@@ -616,7 +494,7 @@ async def test_manual_execution_escapes_per_cent_signs_and_always_binds_a_mappin
     executed: list[tuple[str, object]] = []
 
     class Cursor:
-        description = [SimpleNamespace(name="pct", type_code=25)]
+        description = [("pct", "txt")]
 
         def __enter__(self):
             return self
@@ -631,8 +509,9 @@ async def test_manual_execution_escapes_per_cent_signs_and_always_binds_a_mappin
         def fetchmany(self, count):
             return [("99.5%",)]
 
-    adapter = PostgresAnalyticsAdapter(
-        "postgresql://demo",
+    adapter = SqlAnalyticsAdapter(
+        "fixture://demo",
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
 

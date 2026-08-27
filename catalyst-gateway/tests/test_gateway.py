@@ -20,8 +20,11 @@ def test_config_builds_default_data_source_registry():
     default = next(
         s for s in config.data_sources if s.source_id == config.default_data_source_id
     )
-    assert default.analytics_dsn == config.analytics_dsn
-    assert default.catalog_path == config.catalog_path
+    # A source is identity, connection, dialect and adapter -- there is no
+    # gateway-wide analytics DSN or catalog path for it to echo.
+    assert default.connection_uri
+    assert default.dialect
+    assert default.dialect_adapter
 
 
 def test_data_sources_endpoint_registered_and_lists_default():

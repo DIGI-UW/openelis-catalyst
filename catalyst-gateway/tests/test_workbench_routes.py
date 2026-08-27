@@ -36,7 +36,7 @@ def _catalog() -> Catalog:
         data_source="openelis-demo",
         catalog_version="2026.07",
         schema_version="analytics-v1",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
             {
@@ -67,7 +67,7 @@ def _candidate(sql: str) -> dict:
         "target": {
             "dataSource": "openelis-demo",
             "catalogVersion": "2026.07",
-            "dialect": "postgresql",
+            "dialect": "fixture",
             "approvedViews": ["analytics.lab_results"],
         },
         "sql": sql,
@@ -755,7 +755,7 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
         data_source="openelis-demo",
         catalog_version="catalog-v3",
         schema_version="schema-v2",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:openelis-demo:catalog-v3",
         views=[
             {
@@ -826,7 +826,7 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
         "contractVersion": "catalyst.workbench.editor-catalog.v1",
         "catalogVersion": "catalog-v3",
         "schemaVersion": "schema-v2",
-        "dialect": "postgresql",
+        "dialect": "fixture",
         "schemas": [
             {
                 "name": "analytics",
@@ -971,7 +971,7 @@ def test_editor_catalog_failure_is_useful_and_does_not_mutate_state(
         data_source="openelis-demo",
         catalog_version="catalog-v3",
         schema_version="schema-v2",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:openelis-demo:catalog-v3",
         views=[
             {
@@ -2825,7 +2825,7 @@ def test_a_hand_written_query_can_use_every_relation_the_writer_sees(
         data_source="openelis-demo",
         catalog_version="2026.07",
         schema_version="analytics-v1",
-        dialect="postgresql",
+        dialect="fixture",
         context_source_id="catalog:openelis-demo:2026.07",
         views=[
             {
