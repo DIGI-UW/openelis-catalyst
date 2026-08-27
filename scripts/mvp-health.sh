@@ -388,7 +388,7 @@ MODEL_REPO="${MVP_MODEL_REPO:-bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF}" \
 MODEL_FILE="${MVP_MODEL_FILE:-Qwen2.5-Coder-1.5B-Instruct-Q4_K_M.gguf}" \
 SUPERSET_IMAGE="apache/superset:6.1.0-dev@sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef" \
 SUPERSET_PLATFORM="${SUPERSET_PLATFORM:-linux/arm64}" \
-SUPERSET_DRIVER_REVISION="${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}" \
+SUPERSET_DRIVER_REVISION="${SUPERSET_DRIVER_REVISION:-pyhive[hive_pure_sasl]==0.7.0}" \
 python3 - <<'PY'
 import datetime
 import json

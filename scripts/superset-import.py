@@ -291,7 +291,7 @@ def _importer_metadata(
         ),
         "platform": os.environ.get("CATALYST_SUPERSET_PLATFORM", "linux/unknown"),
         "driverRevision": os.environ.get(
-            "CATALYST_SUPERSET_DRIVER_REVISION", "psycopg2-binary==2.9.9"
+            "CATALYST_SUPERSET_DRIVER_REVISION", "pyhive[hive_pure_sasl]==0.7.0"
         ),
         "commandDigest": hashlib.sha256(
             state.canonical_json_bytes(command)
@@ -590,7 +590,7 @@ def _last_verified_payload(
             ),
             "platform": os.environ.get("CATALYST_SUPERSET_PLATFORM", "linux/unknown"),
             "driverRevision": os.environ.get(
-                "CATALYST_SUPERSET_DRIVER_REVISION", "psycopg2-binary==2.9.9"
+                "CATALYST_SUPERSET_DRIVER_REVISION", "pyhive[hive_pure_sasl]==0.7.0"
             ),
             "importerRevision": importer_revision,
         },

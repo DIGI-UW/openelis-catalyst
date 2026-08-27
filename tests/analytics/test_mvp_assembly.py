@@ -14,7 +14,7 @@ SUPERSET_IMAGE = (
     "5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
 )
 SUPERSET_PLATFORM = "linux/arm64"
-SUPERSET_DRIVER_REVISION = "pyhive[hive]==0.7.0"
+SUPERSET_DRIVER_REVISION = "pyhive[hive_pure_sasl]==0.7.0"
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -357,7 +357,15 @@ class MvpComposeContractTests(unittest.TestCase):
             "superset-importer",
         ):
             self.assertRegex(self.compose, rf"(?m)^  {service}:")
-        self.assertGreaterEqual(self.compose.count(f"image: {SUPERSET_IMAGE}"), 3)
+        # The three Superset services run an image built FROM the pinned
+        # digest, adding the Hive driver the published image does not carry.
+        # Pinning moves to the build arg; the digest is still what this is.
+        self.assertGreaterEqual(
+            self.compose.count("image: catalyst/superset:hive"), 3
+        )
+        self.assertGreaterEqual(
+            self.compose.count(f'SUPERSET_IMAGE: "{SUPERSET_IMAGE}"'), 3
+        )
         self.assertIn("catalyst_superset_metadata", self.compose)
         init_script = (ROOT / "scripts/superset-init.sh").read_text()
         self.assertIn("superset db upgrade", init_script)
@@ -383,7 +391,7 @@ class MvpComposeContractTests(unittest.TestCase):
         )
         self.assertIn(
             'CATALYST_SUPERSET_DRIVER_REVISION: '
-            '"${SUPERSET_DRIVER_REVISION:-pyhive[hive]==0.7.0}"',
+            '"${SUPERSET_DRIVER_REVISION:-pyhive[hive_pure_sasl]==0.7.0}"',
             self.compose,
         )
         self.assertIn("SUPERSET_PLATFORM=", self.health_script)
