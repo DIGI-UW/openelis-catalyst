@@ -64,7 +64,7 @@ class DataPipesConfigTests(unittest.TestCase):
         cls.config_text = cls.config_path.read_text()
         cls.config = load_simple_yaml_section(cls.config_text, "fhirdata")
 
-    def test_controller_uses_fhir_search_to_postgresql_without_spark(self):
+    def test_controller_materializes_the_shipped_spark_warehouse(self):
         self.assertEqual("FHIR_SEARCH", self.config["fhirFetchMode"])
         self.assertEqual(
             "http://hapi-mtls-proxy:8080/fhir",
@@ -74,20 +74,39 @@ class DataPipesConfigTests(unittest.TestCase):
             "Patient,Observation,ServiceRequest,Specimen,DiagnosticReport",
             self.config["resourceList"],
         )
-        self.assertFalse(self.config["generateParquetFiles"])
-        self.assertFalse(self.config["createParquetViews"])
-        self.assertFalse(self.config["createHiveResourceTables"])
+        self.assertTrue(self.config["generateParquetFiles"])
+        self.assertTrue(self.config["createParquetViews"])
+        self.assertTrue(self.config["createHiveResourceTables"])
         self.assertEqual("config/views", self.config["viewDefinitionsDir"])
-        self.assertEqual(
-            "config/postgres-sink.json", self.config["sinkDbConfigPath"]
-        )
-        self.assertNotIn("spark", self.config_text.lower())
 
-        sink = json.loads(
-            (ANALYTICS / "config/postgres-sink.json").read_text()
+        # The controller registers absolute Parquet locations into the Hive
+        # metastore, so the prefix must be the same absolute path the
+        # thriftserver mounts. A relative prefix resolves against the
+        # container's /app working directory and silently diverges.
+        self.assertTrue(
+            self.config["dwhRootPrefix"].startswith("/dwh/"),
+            self.config["dwhRootPrefix"],
         )
-        self.assertEqual("postgresql", sink["databaseService"])
-        self.assertEqual("org.postgresql.Driver", sink["jdbcDriverClass"])
+
+        # The PostgreSQL sink is retired, not merely unused: leaving the key
+        # behind is what would let the substituted path quietly come back.
+        self.assertNotIn("sinkDbConfigPath", self.config)
+        self.assertFalse((ANALYTICS / "config/postgres-sink.json").exists())
+
+        self.assertEqual(
+            "config/thriftserver-hive-config.json",
+            self.config["thriftserverHiveConfig"],
+        )
+        thriftserver = json.loads(
+            (ANALYTICS / "config/thriftserver-hive-config.json").read_text()
+        )
+        self.assertEqual("hive2", thriftserver["databaseService"])
+        self.assertEqual(
+            "org.apache.hive.jdbc.HiveDriver", thriftserver["jdbcDriverClass"]
+        )
+        # Container-network address, not upstream's 172.17.0.1 host gateway.
+        self.assertEqual("spark-thriftserver", thriftserver["databaseHostName"])
+        self.assertEqual("10000", thriftserver["databasePort"])
 
     def test_view_definitions_are_upstream_defaults_plus_gap_fills(self):
         # The ingestion layer is the upstream fhir-data-pipes default views

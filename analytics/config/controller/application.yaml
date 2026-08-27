@@ -14,13 +14,13 @@ fhirdata:
   numOfDwhSnapshotsToRetain: 2
   recursiveDepth: 1
 
-  generateParquetFiles: false
-  dwhRootPrefix: "dwh/catalyst_DWH"
-  createHiveResourceTables: false
-  createParquetViews: false
+  generateParquetFiles: true
+  dwhRootPrefix: "/dwh/catalyst_DWH"
+  createHiveResourceTables: true
+  createParquetViews: true
 
   viewDefinitionsDir: "config/views"
-  sinkDbConfigPath: "config/postgres-sink.json"
+  thriftserverHiveConfig: "config/thriftserver-hive-config.json"
 
 management:
   endpoints:

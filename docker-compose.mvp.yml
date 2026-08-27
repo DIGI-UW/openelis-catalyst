@@ -199,21 +199,26 @@ services:
         -Djavax.net.ssl.keyStore=/etc/openelis-global/client_facing_keystore
         -Djavax.net.ssl.keyStorePassword=kspass
         -Djavax.net.ssl.keyStoreType=PKCS12
-      FHIRDATA_GENERATEPARQUETFILES: "false"
-      FHIRDATA_CREATEHIVERESOURCETABLES: "false"
-      FHIRDATA_CREATEPARQUETVIEWS: "false"
-      FHIRDATA_SINKDBCONFIGPATH: "config/postgres-sink.json"
+      FHIRDATA_GENERATEPARQUETFILES: "true"
+      FHIRDATA_CREATEHIVERESOURCETABLES: "true"
+      FHIRDATA_CREATEPARQUETVIEWS: "true"
+      FHIRDATA_THRIFTSERVERHIVECONFIG: "config/thriftserver-hive-config.json"
       FHIRDATA_NUMTHREADS: "1"
     ports:
       - "127.0.0.1:${DATA_PIPES_PORT:-8090}:8080"
     volumes:
       - ./analytics/config:/app/config:ro
-      - data-pipes-dwh:/app/dwh
+      # Upstream's compose-controller-spark-sql-single.yaml shares the warehouse
+      # at /dwh, and the controller registers absolute Parquet locations into
+      # the Hive metastore. The thriftserver must therefore mount this volume at
+      # the identical path, or the registered views resolve to nothing and
+      # queries return zero rows against a warehouse that looks healthy.
+      - data-pipes-dwh:/dwh
       - key_trust-store-volume:/etc/openelis-global:ro
     networks:
       - openelis-network
     depends_on:
-      analytics-db:
+      spark-thriftserver:
         condition: service_healthy
       hapi-mtls-proxy:
         condition: service_healthy
@@ -227,6 +232,35 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+
+  # Upstream's single-process Spark SQL environment, copied from
+  # .fhir-data-pipes/docker/compose-controller-spark-sql-single.yaml at the
+  # pinned revision. It reads the Parquet the controller writes and serves it
+  # over Hive Thrift; Catalyst and Superset are ordinary SQL clients of it.
+  spark-thriftserver:
+    image: docker.io/bitnamilegacy/spark:4.0.0
+    restart: unless-stopped
+    command:
+      - sbin/start-thriftserver.sh
+      - --driver-memory
+      - "${SPARK_DRIVER_MEMORY:-5g}"
+    environment:
+      HIVE_SERVER2_THRIFT_PORT: "10000"
+    ports:
+      - "127.0.0.1:${SPARK_THRIFT_PORT:-10001}:10000"
+    volumes:
+      - data-pipes-dwh:/dwh
+      # The embedded Derby metastore lives under the Spark install; persisting
+      # it is what keeps registered tables and views across a restart.
+      - spark-thriftserver-home:/opt/bitnami/spark
+    networks:
+      - openelis-network
+    healthcheck:
+      test: ["CMD-SHELL", "beeline help || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 5s
+      timeout: 60s
 
   med-agent-hub:
     # Survives a daemon restart or an OrbStack reboot: these four were the
@@ -336,6 +370,7 @@ services:
 volumes:
   analytics-db-data:
   data-pipes-dwh:
+  spark-thriftserver-home:
   gateway-state:
   superset-metadata-data:
   superset-home:
