@@ -18,7 +18,7 @@ hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
 ui_port_override="${CATALYST_UI_PORT:-}"
-analytics_port_override="${ANALYTICS_DB_PORT:-}"
+spark_thrift_port_override="${SPARK_THRIFT_PORT:-}"
 data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
@@ -64,8 +64,8 @@ fi
 if [ -n "${ui_port_override}" ]; then
   export CATALYST_UI_PORT="${ui_port_override}"
 fi
-if [ -n "${analytics_port_override}" ]; then
-  export ANALYTICS_DB_PORT="${analytics_port_override}"
+if [ -n "${spark_thrift_port_override}" ]; then
+  export SPARK_THRIFT_PORT="${spark_thrift_port_override}"
 fi
 if [ -n "${data_pipes_port_override}" ]; then
   export DATA_PIPES_PORT="${data_pipes_port_override}"
@@ -134,7 +134,7 @@ mkdir -p \
   db.openelis.org \
   oe.openelis.org \
   fhir.openelis.org \
-  analytics-db \
+  spark-thriftserver \
   superset-metadata-db \
   superset-init \
   superset \

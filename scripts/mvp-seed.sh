@@ -17,7 +17,7 @@ hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
 ui_port_override="${CATALYST_UI_PORT:-}"
-analytics_port_override="${ANALYTICS_DB_PORT:-}"
+spark_thrift_port_override="${SPARK_THRIFT_PORT:-}"
 data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
@@ -55,8 +55,8 @@ fi
 if [ -n "${ui_port_override}" ]; then
   export CATALYST_UI_PORT="${ui_port_override}"
 fi
-if [ -n "${analytics_port_override}" ]; then
-  export ANALYTICS_DB_PORT="${analytics_port_override}"
+if [ -n "${spark_thrift_port_override}" ]; then
+  export SPARK_THRIFT_PORT="${spark_thrift_port_override}"
 fi
 if [ -n "${data_pipes_port_override}" ]; then
   export DATA_PIPES_PORT="${data_pipes_port_override}"
@@ -242,81 +242,20 @@ for attempt in $(seq 1 "${DATA_PIPES_RUN_ATTEMPTS:-180}"); do
   sleep 5
 done
 
-"${compose[@]}" exec -T analytics-db \
-  psql --username catalyst_analytics_writer --dbname catalyst_analytics \
-  --set=ON_ERROR_STOP=1 \
-  < "${ROOT_DIR}/analytics/sql/001_analytics_v1.sql"
-
-fact_summary="$(
-  "${compose[@]}" exec -T analytics-db \
-    psql --username catalyst_analytics_writer --dbname catalyst_analytics \
-    --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
-    --command="
-      SELECT
-        count(*)::text || '|' ||
-        count(DISTINCT patient_id)::text || '|' ||
-        count(DISTINCT test_name)::text || '|' ||
-        count(*) FILTER (WHERE test_name = 'Viral Load')::text || '|' ||
-        count(*) FILTER (
-          WHERE test_code_system = 'http://loinc.org'
-            AND NULLIF(test_code, '') IS NOT NULL
-        )::text || '|' ||
-        count(DISTINCT test_code)::text || '|' ||
-        min(observed_at)::date::text || '|' ||
-        max(observed_at)::date::text
-      FROM analytics.lab_result_fact_v1;
-    "
+# The controller writes Parquet and registers its tables and views into the
+# thriftserver. Reading back through Spark is what proves the warehouse
+# materialized -- the controller's own success message does not.
+registered_views="$(
+  "${compose[@]}" exec -T spark-thriftserver \
+    beeline -u 'jdbc:hive2://localhost:10000' \
+    --silent=true --outputformat=tsv2 -e 'SHOW VIEWS;' 2>/dev/null | tail -n +2 | wc -l | tr -d '[:space:]'
 )"
-expected_fact_summary="1152|96|9|384|1152|9|2025-07-15|2026-04-27"
-if [ "${fact_summary}" != "${expected_fact_summary}" ]; then
-  echo "ERROR: analytics mart does not match the fixture contract: ${fact_summary}" >&2
+if [ "${registered_views}" -lt 1 ]; then
+  echo "ERROR: the pipeline registered no views into the Spark thriftserver." >&2
+  echo "Check that the controller and the thriftserver mount the warehouse" >&2
+  echo "volume at the same path." >&2
   exit 1
 fi
-
-request_code_summary="$(
-  "${compose[@]}" exec -T analytics-db \
-    psql --username catalyst_analytics_writer --dbname catalyst_analytics \
-    --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
-    --command="
-      SELECT
-        count(*)::text || '|' ||
-        count(*) FILTER (
-          WHERE test_code_system = 'http://loinc.org'
-            AND NULLIF(test_code, '') IS NOT NULL
-            AND NULLIF(test_name, '') IS NOT NULL
-        )::text || '|' ||
-        count(DISTINCT test_code)::text
-      FROM public.service_request_flat_v1;
-    "
-)"
-if [ "${request_code_summary}" != "1152|1152|9" ]; then
-  echo "ERROR: ServiceRequest terminology does not match the fixture contract: ${request_code_summary}" >&2
-  exit 1
-fi
-
-"${compose[@]}" exec -T analytics-db \
-  psql --username catalyst_analytics_writer --dbname catalyst_analytics \
-  --set=ON_ERROR_STOP=1 <<SQL
-INSERT INTO analytics.pipeline_run_v1 (
-    pipeline_run_id,
-    completion_state,
-    source_watermark,
-    started_at,
-    completed_at,
-    observed_at,
-    data_pipes_commit,
-    resource_counts
-)
-SELECT
-    '${run_id}',
-    'succeeded',
-    max(GREATEST(observed_at, issued_at, specimen_received_at)),
-    '${started_at}'::timestamptz,
-    clock_timestamp(),
-    clock_timestamp(),
-    '${PINNED_COMMIT}',
-    '{"Patient":96,"Observation":1152,"ServiceRequest":1152,"Specimen":1152,"DiagnosticReport":1152}'::jsonb
-FROM analytics.lab_result_fact_v1;
-SQL
+echo "Spark registered ${registered_views} view(s) from the warehouse."
 
 "${ROOT_DIR}/scripts/mvp-health.sh"

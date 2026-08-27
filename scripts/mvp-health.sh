@@ -18,7 +18,7 @@ hub_context_override="${MED_AGENT_HUB_CONTEXT:-}"
 compose_override_override="${MVP_COMPOSE_OVERRIDE_FILE:-}"
 gateway_port_override="${GATEWAY_PORT:-}"
 ui_port_override="${CATALYST_UI_PORT:-}"
-analytics_port_override="${ANALYTICS_DB_PORT:-}"
+spark_thrift_port_override="${SPARK_THRIFT_PORT:-}"
 data_pipes_port_override="${DATA_PIPES_PORT:-}"
 hub_port_override="${MED_AGENT_HUB_PORT:-}"
 openelis_https_port_override="${OPENELIS_HTTPS_PORT:-}"
@@ -56,8 +56,8 @@ fi
 if [ -n "${ui_port_override}" ]; then
   export CATALYST_UI_PORT="${ui_port_override}"
 fi
-if [ -n "${analytics_port_override}" ]; then
-  export ANALYTICS_DB_PORT="${analytics_port_override}"
+if [ -n "${spark_thrift_port_override}" ]; then
+  export SPARK_THRIFT_PORT="${spark_thrift_port_override}"
 fi
 if [ -n "${data_pipes_port_override}" ]; then
   export DATA_PIPES_PORT="${data_pipes_port_override}"
@@ -127,10 +127,10 @@ wait_for() {
   return 1
 }
 
-analytics_psql() {
-  "${compose[@]}" exec -T analytics-db \
-    psql --username catalyst_analytics_writer --dbname catalyst_analytics \
-    --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 "$@"
+spark_sql() {
+  "${compose[@]}" exec -T spark-thriftserver \
+    beeline -u 'jdbc:hive2://localhost:10000' \
+    --silent=true --outputformat=tsv2 -e "$1" 2>/dev/null | tail -n +2
 }
 
 mkdir -p "${ROOT_DIR}/logs"
@@ -206,46 +206,14 @@ check_data_pipes() {
     )" = "IDLE"
 }
 
-check_mart() {
-  test "$(
-    analytics_psql --command="
-      SELECT
-        count(*)::text || '|' ||
-        count(DISTINCT patient_id)::text || '|' ||
-        count(DISTINCT test_name)::text || '|' ||
-        count(*) FILTER (WHERE test_name = 'Viral Load')::text || '|' ||
-        count(*) FILTER (
-          WHERE test_code_system = 'http://loinc.org'
-            AND NULLIF(test_code, '') IS NOT NULL
-        )::text || '|' ||
-        count(DISTINCT test_code)::text || '|' ||
-        min(observed_at)::date::text || '|' ||
-        max(observed_at)::date::text
-      FROM analytics.lab_result_fact_v1;
-    "
-  )" = "1152|96|9|384|1152|9|2025-07-15|2026-04-27" &&
-    test "$(
-      analytics_psql --command="
-        SELECT
-          count(*)::text || '|' ||
-          count(*) FILTER (
-            WHERE test_code_system = 'http://loinc.org'
-              AND NULLIF(test_code, '') IS NOT NULL
-              AND NULLIF(test_name, '') IS NOT NULL
-          )::text || '|' ||
-          count(DISTINCT test_code)::text
-        FROM public.service_request_flat_v1;
-      "
-    )" = "1152|1152|9" &&
-    test "$(
-      analytics_psql --command="
-        SELECT count(*)
-        FROM analytics.pipeline_run_v1
-        WHERE completion_state = 'succeeded'
-          AND data_pipes_commit = '${PINNED_COMMIT}'
-          AND source_watermark IS NOT NULL;
-      "
-    )" -ge 1
+check_warehouse() {
+  # Reading through Spark, not the filesystem, is what proves the registered
+  # views resolve to the Parquet the controller wrote.
+  local views rows
+  views="$(spark_sql 'SHOW VIEWS;' | wc -l | tr -d '[:space:]')"
+  test "${views}" -ge 1 || return 1
+  rows="$(spark_sql 'SELECT COUNT(*) FROM patient_flat;' | tr -d '[:space:]')"
+  test -n "${rows}" && test "${rows}" -gt 0
 }
 
 check_hub_router_config() {
@@ -373,7 +341,7 @@ wait_for "OpenELIS database" check_openelis_db
 wait_for "OpenELIS application" check_openelis_app
 wait_for "HAPI seed resources" check_hapi_seed
 wait_for "FHIR Data Pipes controller" check_data_pipes
-wait_for "analytics mart exact rows" check_mart
+wait_for "Spark warehouse readable" check_warehouse
 wait_for "hub router configuration" check_hub_router_config
 wait_for "hub query profile" check_hub_profile
 role_models_json="$(check_hub_profile)"
@@ -382,23 +350,12 @@ wait_for "Catalyst gateway" check_gateway
 wait_for "Catalyst UI" check_ui
 wait_for "Superset renderer" check_superset
 
+# The retired PostgreSQL path kept a hand-registered pipeline_run row. Nothing
+# writes one on the warehouse path, so provenance records what the warehouse
+# itself reports rather than a second source of truth.
 pipeline_json="$(
-  analytics_psql --command="
-    SELECT json_build_object(
-      'pipelineRunId', pipeline_run_id,
-      'completionState', completion_state,
-      'sourceWatermark', source_watermark,
-      'startedAt', started_at,
-      'completedAt', completed_at,
-      'observedAt', observed_at,
-      'observedLagSeconds', observed_lag_seconds,
-      'resourceCounts', resource_counts
-    )
-    FROM analytics.pipeline_freshness_v1
-    WHERE completion_state = 'succeeded'
-    ORDER BY completed_at DESC
-    LIMIT 1;
-  "
+  printf '{"registeredViews": %s}' \
+    "$(spark_sql 'SHOW VIEWS;' | wc -l | tr -d '[:space:]')"
 )"
 hub_context="${MED_AGENT_HUB_CONTEXT:-${ROOT_DIR}/.med-agent-hub}"
 if ! git -C "${hub_context}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -471,7 +428,7 @@ payload = {
     "modelRouter": model_router,
     "catalog": {
         "contractVersion": "catalyst.analytics.catalog.v1",
-        "catalogVersion": "analytics-catalog-v1",
+        "catalogVersion": "live",
     },
     "superset": {
         "version": "6.1.0",

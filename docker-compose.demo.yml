@@ -1,29 +1,13 @@
 name: catalyst-demo
 
 # Minimal demo stack: no OpenELIS/OpenMRS EMR containers, no fhir-data-pipes
-# ingestion. analytics-db is seeded from a pg_dump snapshot of an already-
+# ingestion. The warehouse is seeded from an already-
 # validated local demo stack instead of live FHIR ETL. catalyst-gateway and
 # catalyst-ui have no runtime dependency on the EMR layer, only on
-# analytics-db + a static catalog JSON + med-agent-hub, so this is the
+# the Spark warehouse + med-agent-hub, so this is the
 # full real query path minus the (not-needed-at-runtime) ingestion machinery.
 
 services:
-  analytics-db:
-    image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: catalyst_analytics
-      POSTGRES_USER: catalyst_analytics_writer
-      POSTGRES_PASSWORD: demo-only-change-me
-    volumes:
-      - analytics-db-data:/var/lib/postgresql/data
-      - ./analytics/sql/000_analytics_roles.sql:/docker-entrypoint-initdb.d/000_analytics_roles.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -q -d catalyst_analytics -U catalyst_analytics_writer"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-
   med-agent-hub:
     restart: unless-stopped
     # The hub is a separate repo, so it builds from a source checkout. Default
@@ -65,8 +49,8 @@ services:
     environment:
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
       CATALYST_QUERY_PROFILE_ID: "${MVP_QUERY_PROFILE_ID:-catalyst-query-e4b-qwen14b}"
-      CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
-      CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
+      CATALYST_CONNECTION_URI: "hive2://catalyst@spark-thriftserver:10000/default"
+      CATALYST_DIALECT: "spark"
       # No CATALYST_DATA_SOURCES_PATH here: unset means "just the built-in
       # OpenELIS source", which is what makes this stack bootable from a bare
       # clone. Register additional sources by layering
@@ -77,11 +61,10 @@ services:
       CATALYST_EXECUTION_LEASE_SECONDS: "60"
       CATALYST_HUB_TIMEOUT_SECONDS: "1800"
     volumes:
-      - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
       - ./docs/contracts:/docs/contracts:ro
       - gateway-state:/app/state
     depends_on:
-      analytics-db:
+      spark-thriftserver:
         condition: service_healthy
       med-agent-hub:
         condition: service_healthy
@@ -123,7 +106,6 @@ services:
       - catalyst-ui
 
 volumes:
-  analytics-db-data:
   gateway-state:
   caddy-data:
   caddy-config:

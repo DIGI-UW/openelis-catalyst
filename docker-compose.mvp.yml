@@ -18,34 +18,6 @@ services:
   fhir.openelis.org:
     image: itechuw/openelis-global-2-fhir@sha256:667680632b8fe491bb1955f3935751562e60933d3aea91d79256ccd4eac857c3
 
-  analytics-db:
-    # Survives a daemon restart or an OrbStack reboot: these four were the
-    # only long-lived services here without a policy, so a reboot left the
-    # stack half-up (the OpenELIS and Superset services inherit one from
-    # their own compose file). One-shot jobs keep restart: "no" on purpose.
-    restart: unless-stopped
-    image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
-    environment:
-      POSTGRES_DB: catalyst_analytics
-      POSTGRES_USER: catalyst_analytics_writer
-      POSTGRES_PASSWORD: demo-only-change-me
-    ports:
-      - "127.0.0.1:${ANALYTICS_DB_PORT:-15433}:5432"
-    volumes:
-      - analytics-db-data:/var/lib/postgresql/data
-      - ./analytics/sql/000_analytics_roles.sql:/docker-entrypoint-initdb.d/000_analytics_roles.sql:ro
-    networks:
-      - openelis-network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -q -d catalyst_analytics -U catalyst_analytics_writer",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-
   superset-metadata-db:
     image: postgres:16.9-alpine3.22@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
     environment:
@@ -119,7 +91,7 @@ services:
     command: ["status"]
     environment:
       <<: *superset-environment
-      CATALYST_ANALYTICS_DATABASE_URI: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
+      CATALYST_ANALYTICS_DATABASE_URI: "hive://catalyst@spark-thriftserver:10000/default"
       CATALYST_SUPERSET_OUTBOX: /opt/catalyst/outbox
       CATALYST_SUPERSET_RECEIPTS: /opt/catalyst/receipts
       CATALYST_SUPERSET_PUBLIC_URL: "http://localhost:${SUPERSET_PORT:-8088}"
@@ -128,7 +100,7 @@ services:
       CATALYST_SUPERSET_IMAGE_DIGEST: "sha256:5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
       CATALYST_SUPERSET_METADATA_IMAGE_DIGEST: "sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7"
       CATALYST_SUPERSET_PLATFORM: "${SUPERSET_PLATFORM:-linux/arm64}"
-      CATALYST_SUPERSET_DRIVER_REVISION: "${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}"
+      CATALYST_SUPERSET_DRIVER_REVISION: "${SUPERSET_DRIVER_REVISION:-pyhive[hive]==0.7.0}"
     volumes:
       - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
       - ./scripts/superset-import.py:/opt/catalyst/superset-import.py:ro
@@ -141,8 +113,6 @@ services:
       - openelis-network
     depends_on:
       superset:
-        condition: service_healthy
-      analytics-db:
         condition: service_healthy
     restart: "no"
 
@@ -314,18 +284,17 @@ services:
     environment:
       MED_AGENT_HUB_BASE_URL: "http://med-agent-hub:8080"
       CATALYST_QUERY_PROFILE_ID: "${MVP_RESOLVED_PROFILE_ID:-catalyst-query-e4b-qwen14b}"
-      CATALYST_ANALYTICS_DSN: "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
-      CATALYST_CATALOG_PATH: "/app/config/analytics-catalog-v1.json"
+      CATALYST_CONNECTION_URI: "hive2://catalyst@spark-thriftserver:10000/default"
+      CATALYST_DIALECT: "spark"
       CATALYST_PREVIEW_STORE_PATH: "/app/state/previews.sqlite3"
       CATALYST_SUPERSET_OUTBOX: "/app/superset-outbox"
       CATALYST_SUPERSET_RECEIPTS: "/app/superset-receipts"
-      CATALYST_SUPERSET_ANALYTICS_URI: "postgresql+psycopg2://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics"
+      CATALYST_SUPERSET_ANALYTICS_URI: "hive://catalyst@spark-thriftserver:10000/default"
       CATALYST_QUERY_MAX_ROWS: "${CATALYST_QUERY_MAX_ROWS:-100}"
       CATALYST_STATEMENT_TIMEOUT_MS: "${CATALYST_STATEMENT_TIMEOUT_MS:-10000}"
       CATALYST_EXECUTION_LEASE_SECONDS: "${CATALYST_EXECUTION_LEASE_SECONDS:-60}"
       CATALYST_HUB_TIMEOUT_SECONDS: "${CATALYST_HUB_TIMEOUT_SECONDS:-360}"
     volumes:
-      - ./analytics/catalog/analytics-catalog-v1.json:/app/config/analytics-catalog-v1.json:ro
       - ./docs/contracts:/docs/contracts:ro
       - gateway-state:/app/state
       - ./runtime/superset/outbox:/app/superset-outbox
@@ -333,7 +302,7 @@ services:
     networks:
       - openelis-network
     depends_on:
-      analytics-db:
+      spark-thriftserver:
         condition: service_healthy
       med-agent-hub:
         condition: service_healthy
@@ -368,7 +337,6 @@ services:
         condition: service_healthy
 
 volumes:
-  analytics-db-data:
   data-pipes-dwh:
   spark-thriftserver-home:
   gateway-state:

@@ -43,7 +43,7 @@ case "${1:-}" in
     # Make dependency readiness explicit instead of letting `compose run`
     # race an implicit dependency startup. The one-shot importer itself then
     # joins the existing project network without changing service state.
-    "${compose[@]}" up -d --wait --wait-timeout 180 analytics-db superset
+    "${compose[@]}" up -d --wait --wait-timeout 180 spark-thriftserver superset
     "${compose[@]}" run --rm --no-deps superset-importer import
     ;;
   reset)

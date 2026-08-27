@@ -14,7 +14,7 @@ SUPERSET_IMAGE = (
     "5822dff49c41fd745ce33e38af502f9c64df30d133aeba148c5d89b35a1004ef"
 )
 SUPERSET_PLATFORM = "linux/arm64"
-SUPERSET_DRIVER_REVISION = "psycopg2-binary==2.9.9"
+SUPERSET_DRIVER_REVISION = "pyhive[hive]==0.7.0"
 
 
 class MvpComposeContractTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_compose_assembles_only_the_required_mvp_services(self):
         self.assertIn(".openelis-docker/docker-compose.yml", self.compose)
         for service in (
-            "analytics-db",
+            "spark-thriftserver",
             "hapi-mtls-proxy",
             "fhir-data-pipes",
             "med-agent-hub",
@@ -46,7 +46,8 @@ class MvpComposeContractTests(unittest.TestCase):
             self.assertRegex(self.compose, rf"(?m)^  {re.escape(service)}:")
         self.assertNotRegex(self.compose, r"(?m)^  model-router(?:-fake)?:")
         self.assertFalse((ROOT / "scripts/fake-model-router.py").exists())
-        self.assertNotRegex(self.compose, r"(?m)^  spark:")
+        # The PostgreSQL analytics engine is retired, not merely unused.
+        self.assertNotRegex(self.compose, r"(?m)^  analytics-db:")
 
     def test_openelis_checkout_and_runtime_images_are_immutable(self):
         self.assertIn(
@@ -129,7 +130,7 @@ class MvpComposeContractTests(unittest.TestCase):
             "mvp-up.sh": (
                 "GATEWAY_PORT",
                 "CATALYST_UI_PORT",
-                "ANALYTICS_DB_PORT",
+                "SPARK_THRIFT_PORT",
                 "DATA_PIPES_PORT",
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
@@ -139,7 +140,7 @@ class MvpComposeContractTests(unittest.TestCase):
             "mvp-seed.sh": (
                 "GATEWAY_PORT",
                 "CATALYST_UI_PORT",
-                "ANALYTICS_DB_PORT",
+                "SPARK_THRIFT_PORT",
                 "DATA_PIPES_PORT",
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
@@ -149,7 +150,7 @@ class MvpComposeContractTests(unittest.TestCase):
             "mvp-health.sh": (
                 "GATEWAY_PORT",
                 "CATALYST_UI_PORT",
-                "ANALYTICS_DB_PORT",
+                "SPARK_THRIFT_PORT",
                 "DATA_PIPES_PORT",
                 "MED_AGENT_HUB_PORT",
                 "OPENELIS_HTTPS_PORT",
@@ -206,7 +207,7 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn("${MED_AGENT_HUB_PORT:-8082}:8080", self.compose)
         self.assertIn("${CATALYST_UI_PORT:-3000}:8080", self.compose)
         for port_mapping in (
-            "127.0.0.1:${ANALYTICS_DB_PORT:-15433}:5432",
+            "127.0.0.1:${SPARK_THRIFT_PORT:-10001}:10000",
             "127.0.0.1:${DATA_PIPES_PORT:-8090}:8080",
             "127.0.0.1:${MED_AGENT_HUB_PORT:-8082}:8080",
             "127.0.0.1:${GATEWAY_PORT:-8000}:8000",
@@ -382,7 +383,7 @@ class MvpComposeContractTests(unittest.TestCase):
         )
         self.assertIn(
             'CATALYST_SUPERSET_DRIVER_REVISION: '
-            '"${SUPERSET_DRIVER_REVISION:-psycopg2-binary==2.9.9}"',
+            '"${SUPERSET_DRIVER_REVISION:-pyhive[hive]==0.7.0}"',
             self.compose,
         )
         self.assertIn("SUPERSET_PLATFORM=", self.health_script)
@@ -405,16 +406,10 @@ class MvpComposeContractTests(unittest.TestCase):
     def test_superset_runtime_separates_read_only_input_and_writable_receipts(self):
         gitignore = (ROOT / ".gitignore").read_text()
         config = (ROOT / "superset/superset_config.py").read_text()
-        roles = (ROOT / "analytics/sql/000_analytics_roles.sql").read_text()
         self.assertIn("/runtime/superset/", gitignore)
         self.assertIn("CATALYST_SUPERSET_METADATA_DSN", config)
         self.assertIn("SQLALCHEMY_DATABASE_URI", config)
         self.assertNotIn("catalyst_readonly", config)
-        self.assertIn(
-            "ALTER ROLE catalyst_readonly SET default_transaction_read_only = on;",
-            roles,
-        )
-        self.assertIn("REVOKE CREATE ON SCHEMA public FROM PUBLIC;", roles)
 
     def test_superset_lifecycle_retains_state_until_explicit_reset(self):
         down_script = (ROOT / "scripts/mvp-down.sh").read_text()
@@ -467,7 +462,7 @@ class MvpComposeContractTests(unittest.TestCase):
             'run --rm --no-deps superset-importer status', self.superset_script
         )
         self.assertIn(
-            'up -d --wait --wait-timeout 180 analytics-db superset',
+            'up -d --wait --wait-timeout 180 spark-thriftserver superset',
             self.superset_script,
         )
         self.assertIn(
@@ -477,8 +472,9 @@ class MvpComposeContractTests(unittest.TestCase):
         self.assertIn(
             "./runtime/superset/receipts:/opt/catalyst/receipts:rw", self.compose
         )
+        # Superset renders against the same Spark source Catalyst queried.
         self.assertIn(
-            "postgresql://catalyst_readonly:demo-readonly-change-me@analytics-db:5432/catalyst_analytics",
+            "hive://catalyst@spark-thriftserver:10000/default",
             self.compose,
         )
         self.assertNotIn("set-database-uri", self.compose)
@@ -527,7 +523,6 @@ class MvpScriptContractTests(unittest.TestCase):
             "mvp-seed.sh",
             "mvp-health.sh",
             "mvp-down.sh",
-            "../tests/e2e/test_data_pipes_incremental.sh",
         ):
             with self.subTest(name=name):
                 script = ROOT / "scripts" / name
@@ -589,16 +584,10 @@ class MvpScriptContractTests(unittest.TestCase):
         script = (ROOT / "scripts/mvp-seed.sh").read_text()
         self.assertIn("--set=ON_ERROR_STOP=1", script)
 
-    def test_seed_gates_the_semantic_cohort_not_only_its_row_count(self):
+    def test_seed_gates_the_warehouse_through_spark_not_the_controller_log(self):
         script = (ROOT / "scripts/mvp-seed.sh").read_text()
-        self.assertIn("count(DISTINCT test_name)", script)
-        self.assertIn("WHERE test_name = 'Viral Load'", script)
-        self.assertIn(
-            "1152|96|9|384|1152|9|2025-07-15|2026-04-27",
-            script,
-        )
-        self.assertIn("FROM public.service_request_flat_v1", script)
-        self.assertIn("1152|1152|9", script)
+        self.assertIn("SHOW VIEWS;", script)
+        self.assertIn("registered no views into the Spark thriftserver", script)
 
     def test_http_readiness_and_backfill_calls_are_bounded(self):
         for relative_path in (
@@ -618,7 +607,7 @@ class MvpScriptContractTests(unittest.TestCase):
             "OpenELIS application",
             "HAPI seed resources",
             "FHIR Data Pipes controller",
-            "analytics mart exact rows",
+            "Spark warehouse readable",
             "hub router configuration",
             "hub query profile",
             "gateway view of Hub query profile",
