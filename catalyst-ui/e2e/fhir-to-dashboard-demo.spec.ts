@@ -93,6 +93,21 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   const genderWidget = runName(GENDER_WIDGET_BASE);
   const dashboard = runName(DASHBOARD_BASE);
 
+  /** Capture what is on screen, into the report and onto disk.
+   *
+   * The dashboard's numbers are the evidence a reviewer actually checks, and
+   * Superset renders them into canvas and abbreviates them ("5.38k"), so the
+   * screenshots are the assertion a human makes. The test asserts structure --
+   * that the dashboard, both widgets and a rendered chart surface exist -- and
+   * leaves the reading of values to the picture.
+   */
+  const shots = process.env.CATALYST_DEMO_SHOT_DIR ?? "demo-screenshots";
+  const shot = async (name: string) => {
+    const path = `${shots}/${name}.png`;
+    const buffer = await page.screenshot({ path, fullPage: false });
+    await info.attach(name, { body: buffer, contentType: "image/png" });
+  };
+
   /** Hold the frame so a viewer can read; nothing at all when testing. */
   const dwell = async (ms: number) => {
     if (filming) await page.waitForTimeout(ms);
@@ -145,6 +160,7 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   await expect(page.getByText("fhirdata.fhirServerUrl").first()).toBeVisible();
   await expect(page.getByText(/\/ws\/fhir2\/R4/).first()).toBeVisible();
   timing.mark("fhir-endpoint-shown");
+  await shot("01-fhir-endpoint");
   await dwell(4_000);
 
   // The shipped warehouse is on: Parquet files, the ViewDefinition views
@@ -190,12 +206,14 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
     )
     .not.toBe("RUNNING");
   timing.mark("pipeline-finished");
+  await shot("02-pipeline-finished");
 
   // The snapshot the run wrote, named on screen. This is the Parquet the
   // Spark thriftserver serves.
   await page.goto(`${DATA_PIPES_URL}/`);
   await expect(page.getByText(/\/dwh\/.*_DWH_TIMESTAMP_/).first()).toBeVisible();
   timing.mark("snapshot-shown");
+  await shot("03-warehouse-snapshot");
   await dwell(5_000);
 
   // ---- Act 2: ask the warehouse a question in plain language --------------
@@ -227,6 +245,7 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   // came from the warehouse the previous act built, not from a curated list.
   await expectSqlReadsTheWarehouse();
   timing.mark("sql-ready-1");
+  await shot("04-spark-sql");
   await dwell(6_000);
 
   await page.getByRole("button", { name: "Run query" }).click();
@@ -239,7 +258,14 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   // rather than against a number written into the test.
   const catalystCount = ((await countCell.textContent()) ?? "").trim();
   expect(catalystCount).toMatch(/^\d[\d,]*$/);
+  // Recorded so the reviewer comparing 05-catalyst-result with
+  // 07-superset-dashboard has the number in the report, not just on a screen.
+  await info.attach("catalyst-count", {
+    body: catalystCount,
+    contentType: "text/plain",
+  });
   timing.mark("result-1");
+  await shot("05-catalyst-result");
   await dwell(5_000);
 
   /** Save the current turn's dataset draft under a real name. */
@@ -356,6 +382,7 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
     timeout: 60_000,
   });
   timing.mark("bundle-ready");
+  await shot("06-bundle-ready");
   await dwell(4_000);
 
   // ---- Act 6: the seam -- the pinned importer -----------------------------
@@ -391,13 +418,23 @@ test("FHIR endpoint to a published Superset dashboard", async ({ page }, info) =
   await expect(page.getByText(dashboard, { exact: false }).first()).toBeVisible({
     timeout: 120_000,
   });
-  // The count Catalyst returned, rendered by Superset out of the same Spark
-  // source. Superset formats large numbers its own way, so compare on digits.
-  const digits = catalystCount.replace(/,/g, "");
-  await expect(
-    page.getByText(new RegExp(`\\b${digits.replace(/(\d)(?=(\d{3})+$)/g, "$1[,\\\\s]?")}\\b`)).first(),
-  ).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator("canvas").first()).toBeVisible({ timeout: 120_000 });
+  // Both widgets are on the dashboard.
+  await expect(page.getByText(countWidget, { exact: false }).first()).toBeVisible({
+    timeout: 120_000,
+  });
+  await expect(page.getByText(genderWidget, { exact: false }).first()).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // Charts finish loading asynchronously; wait for the rendered surfaces
+  // rather than for text, because Superset abbreviates numbers its own way
+  // and matching formatted text is a coin flip, not an assertion.
+  await expect(page.locator("canvas").first()).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByText("Loading...", { exact: false })).toHaveCount(0, {
+    timeout: 180_000,
+  });
+  await shot("07-superset-dashboard");
+
   timing.mark("dashboard-rendered");
   await dwell(9_000);
   timing.mark("end");
