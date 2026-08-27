@@ -1,0 +1,138 @@
+{
+  "width": 1280,
+  "height": 720,
+  "fps": 25,
+  "font": "Helvetica Neue",
+  "footer": "openclinai.org",
+  "segments": [
+    {
+      "type": "card",
+      "duration": 4.0,
+      "kicker": "CATALYST DEMO",
+      "heading": "From a FHIR server to a dashboard",
+      "lines": [
+        "FHIR Data Pipes builds the warehouse; Catalyst asks it a question;",
+        "Superset shows the answer. Nothing here is a mock."
+      ]
+    },
+    {
+      "type": "clip",
+      "start": 0.5,
+      "end": 7.0,
+      "speed": 1.0,
+      "caption": "FHIR Data Pipes reads a live OpenMRS FHIR R4 endpoint."
+    },
+    {
+      "type": "clip",
+      "start": 7.0,
+      "end": 12.4,
+      "speed": 1.5,
+      "caption": "Parquet files and ViewDefinition views — the warehouse it ships with."
+    },
+    {
+      "type": "clip",
+      "start": 12.4,
+      "end": 18.5,
+      "speed": 1.2,
+      "caption": "A microbatch run merges what changed, then names the snapshot it wrote."
+    },
+    {
+      "type": "card",
+      "duration": 3.0,
+      "kicker": "STEP 2",
+      "heading": "Ask that warehouse a question",
+      "lines": ["Spark reports the schema. The model has never seen a curated list."]
+    },
+    {
+      "type": "clip",
+      "start": 22.6,
+      "end": 27.6,
+      "speed": 1.0,
+      "caption": "24 relations, discovered from Spark. One question, in plain language."
+    },
+    {
+      "type": "clip",
+      "start": 27.6,
+      "end": 107.4,
+      "speed": 14.0,
+      "caption": "A 12B writer drafts the SQL; a 14B reviewer checks it."
+    },
+    {
+      "type": "clip",
+      "start": 107.4,
+      "end": 116.0,
+      "speed": 1.0,
+      "caption": "Spark SQL against default.patient — 5,384 patients, read from Parquet."
+    },
+    {
+      "type": "clip",
+      "start": 116.0,
+      "end": 124.0,
+      "speed": 2.5,
+      "caption": "The exact result is saved as a Dataset."
+    },
+    {
+      "type": "card",
+      "duration": 3.0,
+      "kicker": "STEP 3",
+      "heading": "Refine it in conversation",
+      "lines": ["The follow-up starts from the query on screen, not from scratch."]
+    },
+    {
+      "type": "clip",
+      "start": 124.0,
+      "end": 127.0,
+      "speed": 1.0,
+      "caption": "“Now break that count down by gender, highest first.”"
+    },
+    {
+      "type": "clip",
+      "start": 127.0,
+      "end": 226.0,
+      "speed": 16.0,
+      "caption": "Same two models, same source, second turn."
+    },
+    {
+      "type": "clip",
+      "start": 226.0,
+      "end": 241.0,
+      "speed": 2.0,
+      "caption": "Counts by gender, saved as a second Dataset."
+    },
+    {
+      "type": "card",
+      "duration": 3.0,
+      "kicker": "STEP 4",
+      "heading": "Publish it to Superset",
+      "lines": ["Two Widgets, one Dashboard, one deterministic native bundle."]
+    },
+    {
+      "type": "clip",
+      "start": 241.0,
+      "end": 259.0,
+      "speed": 2.2,
+      "caption": "Widgets over the saved Datasets, collected into a Dashboard."
+    },
+    {
+      "type": "clip",
+      "start": 259.0,
+      "end": 295.0,
+      "speed": 8.0,
+      "caption": "A pinned importer brings the bundle in and records a receipt."
+    },
+    {
+      "type": "clip",
+      "start": 295.0,
+      "end": 318.0,
+      "speed": 1.3,
+      "caption": "The same numbers in Superset — 5.38k — from the same Spark source."
+    },
+    {
+      "type": "card",
+      "duration": 4.0,
+      "kicker": "OPEN CLINICAL AI",
+      "heading": "openclinai.org",
+      "lines": ["FHIR Data Pipes → Parquet → Spark SQL → Catalyst → Superset"]
+    }
+  ]
+}
