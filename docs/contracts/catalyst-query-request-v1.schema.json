@@ -165,8 +165,7 @@
             "additionalProperties": false,
             "required": [
               "name",
-              "type",
-              "description"
+              "type"
             ],
             "properties": {
               "name": {
@@ -206,7 +205,11 @@
     "semanticDimension": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field", "semanticType", "values"],
+      "required": [
+        "field",
+        "semanticType",
+        "values"
+      ],
       "properties": {
         "field": {
           "type": "string",
@@ -227,7 +230,10 @@
     "semanticValue": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["canonical", "aliases"],
+      "required": [
+        "canonical",
+        "aliases"
+      ],
       "properties": {
         "canonical": {
           "type": "string",
