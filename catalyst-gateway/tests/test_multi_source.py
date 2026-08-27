@@ -339,36 +339,6 @@ def test_staleness_is_judged_against_the_session_catalog(tmp_path: Path) -> None
     assert error["details"]["runtimeCatalogVersion"] != baseline
 
 
-def test_dataset_and_editor_catalog_http_params_route_to_bundle(
-    tmp_path: Path,
-) -> None:
-    """?dataSourceId= on the GET endpoints selects the bundle end to end."""
-
-    class HivOverviewAnalytics(CountingAnalytics):
-        async def dataset_overview(self) -> dict:
-            body = await super().dataset_overview()
-            return {**body, "dataSource": "openmrs-hiv-demo"}
-
-    client, _, _, _ = _two_source_client(tmp_path, analytics_b=HivOverviewAnalytics())
-
-    assert client.get("/v1/catalyst/dataset").json()["dataSource"] == "openelis-demo"
-    assert (
-        client.get("/v1/catalyst/dataset?dataSourceId=openmrs-hiv").json()["dataSource"]
-        == "openmrs-hiv-demo"
-    )
-
-    default_catalog = client.get("/v1/catalyst/workbench/catalog").json()
-    hiv_catalog = client.get(
-        "/v1/catalyst/workbench/catalog?dataSourceId=openmrs-hiv"
-    ).json()
-    assert default_catalog["catalogVersion"] == "2026.07"
-    assert hiv_catalog["catalogVersion"] == "2026.07-hiv"
-
-    unknown = client.get("/v1/catalyst/dataset?dataSourceId=does-not-exist")
-    assert unknown.status_code == 400
-    assert unknown.json()["error"]["code"] == "unknown_data_source"
-
-
 def test_execution_routes_to_version_source_adapter(tmp_path: Path) -> None:
     client, _, analytics_a, analytics_b = _two_source_client(tmp_path)
     session = _create_session(client, dataSourceId="openmrs-hiv")

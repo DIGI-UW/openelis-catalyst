@@ -112,16 +112,6 @@ class AnalyticsProtocol(Protocol):
 
     async def readiness(self) -> dict[str, Any]: ...
 
-    async def dataset_overview(self) -> dict[str, Any]: ...
-
-    async def dataset_rows(
-        self,
-        *,
-        test_name: str | None,
-        patient_id: str | None,
-        limit: int,
-        offset: int,
-    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -490,42 +480,6 @@ class CatalystService:
             )
         return ServiceResponse(200, body)
 
-    async def dataset_overview(
-        self, data_source_id: str | None = None
-    ) -> ServiceResponse:
-        bundle = self._require_bundle(data_source_id, workbench=False)
-        if isinstance(bundle, ServiceResponse):
-            return bundle
-        assert bundle.analytics is not None  # _resolve_data_source guards this
-        try:
-            return ServiceResponse(200, await bundle.analytics.dataset_overview())
-        except Exception as error:
-            return self._error(502, "dataset_unavailable", str(error))
-
-    async def dataset_rows(
-        self,
-        *,
-        test_name: str | None,
-        patient_id: str | None,
-        limit: int,
-        offset: int,
-        data_source_id: str | None = None,
-    ) -> ServiceResponse:
-        bundle = self._require_bundle(data_source_id, workbench=False)
-        if isinstance(bundle, ServiceResponse):
-            return bundle
-        assert bundle.analytics is not None  # _resolve_data_source guards this
-        try:
-            body = await bundle.analytics.dataset_rows(
-                test_name=test_name,
-                patient_id=patient_id,
-                limit=limit,
-                offset=offset,
-            )
-            return ServiceResponse(200, body)
-        except Exception as error:
-            return self._error(502, "dataset_unavailable", str(error))
-
     async def submit_question(self, payload: dict[str, Any]) -> ServiceResponse:
         try:
             self.contracts.validate(
@@ -724,10 +678,8 @@ class CatalystService:
             )
 
         assert bundle.analytics is not None  # _resolve_data_source guards this
-        try:
-            overview = await bundle.analytics.dataset_overview()
-        except Exception:
-            overview = {}
+        # The connection reports a schema, not a curated dataset identity.
+        overview: dict[str, Any] = {}
         provenance: dict[str, Any] = {
             "dataSourceId": bundle.source_id,
             "catalogContextSourceId": runtime_catalog.context_source_id,

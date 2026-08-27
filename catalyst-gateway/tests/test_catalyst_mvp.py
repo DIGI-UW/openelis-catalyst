@@ -726,32 +726,6 @@ def test_query_route_rejects_sql_policy_violation_from_hub(tmp_path: Path):
     ]
 
 
-def test_dataset_routes_expose_overview_and_bounded_rows(tmp_path: Path):
-    service, _, _, _ = make_service(tmp_path)
-    client = TestClient(gateway.create_app(catalyst_service=service))
-
-    overview = client.get("/v1/catalyst/dataset")
-    assert overview.status_code == 200
-    assert overview.json()["contractVersion"] == "catalyst.dataset-overview.v1"
-    assert overview.json()["patients"] == 2
-
-    rows = client.get(
-        "/v1/catalyst/dataset/rows",
-        params={"testName": "Viral Load", "limit": 25, "offset": 0},
-    )
-    assert rows.status_code == 200
-    assert rows.json() == {
-        "contractVersion": "catalyst.dataset-rows.v1",
-        "total": 0,
-        "limit": 25,
-        "offset": 0,
-        "rows": [],
-    }
-
-    invalid = client.get("/v1/catalyst/dataset/rows", params={"limit": 101})
-    assert invalid.status_code == 422
-
-
 def test_query_route_maps_invalid_policy_and_hub_failures(tmp_path: Path):
     unsafe = ready_query()
     unsafe["sql"] = "DROP TABLE analytics.lab_results"

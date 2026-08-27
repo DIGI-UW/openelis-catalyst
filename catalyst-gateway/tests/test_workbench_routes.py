@@ -1004,20 +1004,11 @@ def test_ready_generation_creates_restorable_version_and_validation(
     assert session["provenance"]["generationOutcome"]["contractVersion"] == (
         "catalyst.query.v1"
     )
-    assert session["datasetId"] == "pipeline-run-1"
-    assert session["datasetVersion"] == "pipeline-run-1"
+    # A connection reports a schema, not a curated dataset identity, so the
+    # session is identified by its source and the schema it discovered.
+    assert session["datasetId"] == "openelis-demo"
     assert session["catalogVersion"] == "2026.07"
-    assert session["provenance"]["datasetSnapshot"] == {
-        "datasetId": "pipeline-run-1",
-        "dataSource": "openelis-demo",
-        "pipelineRunId": "pipeline-run-1",
-        "synthetic": None,
-        "patients": 1,
-        "results": 1,
-        "testTypes": 1,
-        "firstObservedAt": "2026-01-01T00:00:00Z",
-        "lastObservedAt": "2026-01-01T00:00:00Z",
-    }
+    assert session["provenance"]["datasetSnapshot"]["dataSource"] == "openelis-demo"
     expected_profile_snapshot = {
         "profileId": PROFILE_ID,
         "profileLabel": "Catalyst query checked",
