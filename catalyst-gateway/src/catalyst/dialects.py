@@ -106,15 +106,24 @@ def _spark_logical_type(database_type: str) -> str:
     if base in {"tinyint", "smallint", "int", "integer", "bigint"}:
         return "integer"
     if base in {"float", "double", "decimal", "numeric"}:
-        return "number"
+        return "decimal"
     if base in {"date"}:
         return "date"
     if base in {"timestamp", "timestamp_ntz", "timestamp_ltz"}:
         return "date-time"
     if base in {"string", "varchar", "char"}:
         return "string"
-    # Arrays, structs and maps stay visible with their native type text rather
-    # than being hidden or flattened; the model is told what they really are.
+    if base in {"binary"}:
+        return "binary"
+    if base in {"interval"}:
+        return "interval"
+    # Complex types stay visible rather than being hidden or flattened: the
+    # ViewDefinition output is full of arrays, and the model is told so. Their
+    # native type text is carried alongside on databaseType either way.
+    if base.startswith("array"):
+        return "array"
+    if base.startswith(("struct", "map")):
+        return "json"
     return "string"
 
 
