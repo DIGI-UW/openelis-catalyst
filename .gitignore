@@ -56,3 +56,11 @@ Thumbs.db
 
 # Build metadata produced by an editable install.
 *.egg-info/
+
+# Demo run output. The specs write these while running, and the MVP
+# wrapper refuses to act on a dirty submodule -- so leaving them
+# untracked makes the demo break the importer it then calls.
+**/demo-milestones/
+**/demo-screenshots/
+**/test-results/
+**/playwright-report/
