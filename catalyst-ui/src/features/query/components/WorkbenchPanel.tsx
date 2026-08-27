@@ -636,6 +636,7 @@ export const WorkbenchPanel = ({
           value={sql}
           onChange={onSqlChange}
           catalog={relations}
+          dialect={editorCatalog?.dialect ?? "sql"}
           readOnly={busy !== null}
           wrapLines={wrapLines}
           onWrapLinesChange={onWrapLinesChange}

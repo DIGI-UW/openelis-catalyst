@@ -18,14 +18,14 @@ import type {
 import type { DetailsTab } from "./DetailsPanel";
 import { lineDiffSummary } from "../lineDiff";
 import { highlightSql } from "./sqlHighlight";
-import { formatPostgresqlSql } from "./sqlEditorSupport";
+import { formatSql } from "./sqlEditorSupport";
 import { ExecutionResult } from "./WorkbenchPanel";
 import "./TurnNotebook.css";
 
 /** The layout both diff sides share; unformattable text stays as written. */
-const comparableSqlText = (sql: string): string => {
+const comparableSqlText = (sql: string, dialect = "sql"): string => {
   try {
-    return formatPostgresqlSql(sql);
+    return formatSql(sql, dialect);
   } catch {
     return sql;
   }

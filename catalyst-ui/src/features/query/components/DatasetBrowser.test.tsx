@@ -55,7 +55,7 @@ const catalog: WorkbenchEditorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1",
   catalogVersion: "analytics-catalog-v1",
   schemaVersion: "analytics-v1",
-  dialect: "postgresql",
+  dialect: "spark",
   schemas: [
     {
       name: "fhir",
@@ -166,7 +166,7 @@ describe("DatasetBrowser", () => {
     ).toEqual(["analytics.lab_result_fact_v1", "fhir.patient_flat_v1"]);
 
     // The first relation is shown without an extra click.
-    expect(screen.getByText("2 columns · postgresql")).toBeVisible();
+    expect(screen.getByText("2 columns · spark")).toBeVisible();
     expect(screen.getByText("result_value")).toBeVisible();
     expect(screen.getByText(/Exactly one row per FHIR Observation/)).toBeVisible();
 
@@ -181,7 +181,7 @@ describe("DatasetBrowser", () => {
     ).toBeInTheDocument();
 
     await user.selectOptions(relations, "fhir.patient_flat_v1");
-    expect(screen.getByText("1 column · postgresql")).toBeVisible();
+    expect(screen.getByText("1 column · spark")).toBeVisible();
     expect(screen.queryByText("result_value")).not.toBeInTheDocument();
   });
 
@@ -195,7 +195,7 @@ describe("DatasetBrowser", () => {
       await screen.findByLabelText("Filter columns"),
       "result_value",
     );
-    expect(screen.getByText("1 of 2 columns · postgresql")).toBeVisible();
+    expect(screen.getByText("1 of 2 columns · spark")).toBeVisible();
     expect(screen.getByText("result_value")).toBeVisible();
   });
 

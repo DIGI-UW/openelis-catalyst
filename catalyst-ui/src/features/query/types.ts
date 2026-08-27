@@ -304,7 +304,7 @@ export interface WorkbenchEditorCatalog {
   contractVersion: "catalyst.workbench.editor-catalog.v1";
   catalogVersion: string;
   schemaVersion: string;
-  dialect: "postgresql";
+  dialect: string;
   schemas: WorkbenchEditorCatalogSchema[];
 }
 

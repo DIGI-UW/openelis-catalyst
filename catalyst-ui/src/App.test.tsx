@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { CatalystApi } from "./features/query/api";
-import { formatPostgresqlSql } from "./features/query/components/sqlEditorSupport";
+import { formatSql } from "./features/query/components/sqlEditorSupport";
 import { workbenchEditorDigest } from "./features/query/editorDigest";
 import type {
   WorkbenchEditorCatalog,
@@ -24,7 +24,7 @@ import {
 // The editor lays model SQL out for reading on arrival, and a run persists what
 // the editor holds, so these expectations are written through the same formatter
 // the app uses rather than as hand-copied strings.
-const asEditorText = (sql: string) => formatPostgresqlSql(sql);
+const asEditorText = (sql: string) => formatSql(sql, "spark");
 
 // The editor renders SQL across lines, so its textContent has no spaces at the
 // line breaks. These assertions are about *which* query is on screen, not how it
@@ -451,7 +451,7 @@ const editorCatalog: WorkbenchEditorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1",
   catalogVersion: "analytics-catalog-v1",
   schemaVersion: "analytics-v1",
-  dialect: "postgresql",
+  dialect: "spark",
   schemas: [
     {
       name: "analytics",

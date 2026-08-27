@@ -39,7 +39,7 @@ const editorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1" as const,
   catalogVersion: "catalog-v1",
   schemaVersion: "schema-v1",
-  dialect: "postgresql" as const,
+  dialect: "spark" as const,
   schemas: [
     {
       name: "analytics",

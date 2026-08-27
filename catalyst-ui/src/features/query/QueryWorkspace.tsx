@@ -35,7 +35,7 @@ import {
   sqlLayoutMatches,
   workbenchEditorDigest,
 } from "./editorDigest";
-import { formatPostgresqlSql } from "./components/sqlEditorSupport";
+import { formatSql } from "./components/sqlEditorSupport";
 import { useGenerationEvidence } from "./hooks/useGenerationEvidence";
 import { useRunActions } from "./hooks/useRunActions";
 import { useEditorBuffer } from "./hooks/useEditorBuffer";
@@ -111,10 +111,10 @@ const sessionEditorDraft = (session: WorkbenchSession) =>
  * If sql-formatter cannot parse it, the original is shown untouched -- an
  * unreadable query beats a missing one.
  */
-const editorReadySql = (sql: string): string => {
+const editorReadySql = (sql: string, dialect = "sql"): string => {
   if (sql.trim().length === 0) return sql;
   try {
-    return formatPostgresqlSql(sql);
+    return formatSql(sql, dialect);
   } catch {
     return sql;
   }

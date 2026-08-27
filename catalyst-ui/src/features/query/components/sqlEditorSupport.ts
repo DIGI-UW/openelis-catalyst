@@ -42,9 +42,14 @@ export const buildSqlCompletionSchema = (
   return namespace;
 };
 
-export const formatPostgresqlSql = (source: string) =>
+// The editor formats in the source's declared dialect. sql-formatter names
+// Spark's grammar "spark"; anything the gateway declares that it does not
+// know falls back to standard SQL rather than to a specific engine.
+const FORMATTER_LANGUAGES = new Set(["spark"]);
+
+export const formatSql = (source: string, dialect: string) =>
   format(source, {
-    language: "postgresql",
+    language: (FORMATTER_LANGUAGES.has(dialect) ? dialect : "sql") as never,
     keywordCase: "upper",
     tabWidth: 2,
     useTabs: false,

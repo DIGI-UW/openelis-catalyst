@@ -18,7 +18,7 @@ export const preview: CatalystPreview = {
   target: {
     dataSource: "openelis-analytics",
     catalogVersion: "2026.07",
-    dialect: "postgresql",
+    dialect: "spark",
     approvedViews: ["analytics.vw_viral_load_results"],
   },
   sql: [

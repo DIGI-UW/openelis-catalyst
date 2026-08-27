@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SqlEditor } from "./SqlEditor";
 import {
   buildSqlCompletionSchema,
-  formatPostgresqlSql,
+  formatSql,
   type SqlCatalogRelation,
 } from "./sqlEditorSupport";
 
@@ -30,14 +30,14 @@ const catalog: SqlCatalogRelation[] = [
 ];
 
 describe("SqlEditor", () => {
-  it("renders a labelled PostgreSQL editor with syntax tokens and line numbers", () => {
+  it("renders a labelled Spark SQL editor with syntax tokens and line numbers", () => {
     const { container } = render(
-      <SqlEditor label="Generated SQL" value={SQL} onChange={vi.fn()} />,
+      <SqlEditor label="Generated SQL" value={SQL} onChange={vi.fn()} dialect="spark" />,
     );
 
     const editor = screen.getByRole("textbox", { name: "Generated SQL" });
     expect(editor).toHaveAttribute("aria-multiline", "true");
-    expect(container.querySelector("[data-language='postgresql']")).toBeVisible();
+    expect(container.querySelector("[data-language='spark']")).toBeVisible();
     expect(container.querySelector(".cm-lineNumbers")).toBeVisible();
     expect(
       container.querySelector(
@@ -56,7 +56,7 @@ describe("SqlEditor", () => {
         value={SQL}
         onChange={vi.fn()}
         onWrapLinesChange={onWrapLinesChange}
-      />,
+      dialect="spark" />,
     );
 
     const toggle = screen.getByRole("button", { name: "Wrap lines" });
@@ -71,8 +71,8 @@ describe("SqlEditor", () => {
   });
 
   it("formats PostgreSQL deterministically and preserves named placeholders", async () => {
-    const once = formatPostgresqlSql(SQL);
-    const twice = formatPostgresqlSql(once);
+    const once = formatSql(SQL, "spark");
+    const twice = formatSql(once, "spark");
 
     expect(once).toBe(twice);
     expect(once).toContain(":minimum_value");
@@ -80,7 +80,7 @@ describe("SqlEditor", () => {
 
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<SqlEditor label="Generated SQL" value={SQL} onChange={onChange} />);
+    render(<SqlEditor label="Generated SQL" value={SQL} onChange={onChange} dialect="spark" />);
     await user.click(screen.getByRole("button", { name: "Format SQL" }));
     expect(onChange).toHaveBeenLastCalledWith(once);
   });
@@ -103,7 +103,7 @@ describe("SqlEditor", () => {
   it("emits direct edits through onChange", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<SqlEditor label="Generated SQL" value="" onChange={onChange} />);
+    render(<SqlEditor label="Generated SQL" value="" onChange={onChange} dialect="spark" />);
 
     const editor = screen.getByRole("textbox", { name: "Generated SQL" });
     await user.click(editor);
@@ -115,7 +115,7 @@ describe("SqlEditor", () => {
   it("leaves Tab available for keyboard focus navigation", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<SqlEditor label="Generated SQL" value="SELECT 1" onChange={onChange} />);
+    render(<SqlEditor label="Generated SQL" value="SELECT 1" onChange={onChange} dialect="spark" />);
 
     const editor = screen.getByRole("textbox", { name: "Generated SQL" });
     await user.click(editor);
@@ -133,7 +133,7 @@ describe("SqlEditor", () => {
         onChange={vi.fn()}
         readOnly
         focusRequestId={1}
-      />,
+      dialect="spark" />,
     );
 
     expect(screen.getByRole("textbox", { name: "Generated SQL" })).not.toHaveFocus();
@@ -145,7 +145,7 @@ describe("SqlEditor", () => {
         onChange={vi.fn()}
         readOnly={false}
         focusRequestId={1}
-      />,
+      dialect="spark" />,
     );
 
     await waitFor(() =>

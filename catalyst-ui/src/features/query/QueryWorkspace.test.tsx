@@ -1061,7 +1061,7 @@ describe("Dashboard Builder Ask shell", () => {
       contractVersion: "catalyst.workbench.editor-catalog.v1",
       catalogVersion: "catalog-1",
       schemaVersion: "schema-1",
-      dialect: "postgresql",
+      dialect: "spark",
       schemas: [
         {
           name: "analytics",
