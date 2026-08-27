@@ -143,7 +143,7 @@ const catalog: WorkbenchEditorCatalog = {
   contractVersion: "catalyst.workbench.editor-catalog.v1",
   catalogVersion: "catalog-2026.07",
   schemaVersion: "schema-v1",
-  dialect: "postgresql",
+  dialect: "spark",
   schemas: [
     {
       name: "public",
