@@ -363,8 +363,16 @@ class SqlAnalyticsAdapter:
                     # the literal per-cent signs, and a pyformat driver only
                     # collapses them back when it has parameters to convert.
                     cursor.execute(driver_sql, bindings)
-                    rows = list(cursor.fetchmany(max_rows + 1))
-                description = cursor.description or ()
+                    # A statement with no result set -- DDL, or anything the
+                    # engine answers without rows -- has no description to
+                    # fetch against. Reading it as zero rows is the honest
+                    # answer; fetching anyway raises from inside the driver
+                    # and looks like a Catalyst bug rather than the
+                    # engine's own response.
+                    description = cursor.description or ()
+                    rows = (
+                        list(cursor.fetchmany(max_rows + 1)) if description else []
+                    )
                 column_names = [str(column[0]) for column in description]
         truncated = len(rows) > max_rows
         truncation_reason = "configured_limit" if truncated else None
@@ -402,8 +410,16 @@ class SqlAnalyticsAdapter:
             with connection.cursor() as cursor:
                 with _time_limit(cursor, statement_timeout_ms, self.dialect):
                     cursor.execute(driver_sql, bindings)
-                    raw_rows = list(cursor.fetchmany(max_rows + 1))
-                description = tuple(cursor.description or ())
+                    # A statement with no result set -- DDL, or anything the
+                    # engine answers without rows -- has no description to
+                    # fetch against. Reading it as zero rows is the honest
+                    # answer; fetching anyway raises from inside the driver
+                    # and looks like a Catalyst bug rather than the
+                    # engine's own response.
+                    description = tuple(cursor.description or ())
+                    raw_rows = (
+                        list(cursor.fetchmany(max_rows + 1)) if description else []
+                    )
                 columns = self._manual_columns(description, raw_rows)
 
         truncated = len(raw_rows) > max_rows

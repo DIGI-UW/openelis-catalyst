@@ -219,7 +219,12 @@ services:
     ports:
       - "127.0.0.1:${SPARK_THRIFT_PORT:-10001}:10000"
     volumes:
-      - data-pipes-dwh:/dwh
+      # Read-only for the thriftserver: the pipeline controller writes this
+      # warehouse through its own read-write mount, and every query Catalyst
+      # sends arrives here. A statement that would modify source data reaches
+      # Spark and Spark's own filesystem layer refuses it, which is the
+      # read-only guarantee the Spark dialect adapter declares.
+      - data-pipes-dwh:/dwh:ro
       # The embedded Derby metastore lives under the Spark install; persisting
       # it is what keeps registered tables and views across a restart.
       - spark-thriftserver-home:/opt/bitnami/spark

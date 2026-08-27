@@ -210,9 +210,17 @@ SPARK = DialectAdapter(
         "running operation when the time limit elapses",
         enforced=False,
     ),
+    # Scoped deliberately to what the deployment actually enforces. The
+    # warehouse volume is read-only to the thriftserver, so no statement can
+    # modify the Parquet the pipeline wrote. Hive metastore DDL -- registering
+    # or dropping a table definition -- is NOT covered by that mount, and the
+    # controller re-registers those definitions on its next run. Claiming more
+    # than the mount delivers is what this whole change exists to stop, and
+    # real authorization is later work.
     read_only=ExecutionGuarantee(
-        "the warehouse volume is mounted read-only for the thriftserver, so "
-        "a write reaches Spark and Spark itself refuses it"
+        "the warehouse volume is mounted read-only for the thriftserver, so a "
+        "statement that would modify source data reaches Spark and Spark's own "
+        "filesystem layer refuses it; metastore definitions are not covered"
     ),
     discover_relations=_spark_discover_relations,
     logical_type=_spark_logical_type,
