@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from src import gateway
 from src.catalyst.analytics import AnalyticsResult, SqlAnalyticsAdapter
 from tests.fixture_dialect import FIXTURE
-from src.catalyst.catalog import Catalog, DatasetBrowserProfile
+from src.catalyst.catalog import Catalog
 from src.catalyst.contracts import ContractError, ContractRegistry
 from src.catalyst.digest import canonical_sha256
 from src.catalyst.hub import HubError
@@ -32,18 +32,6 @@ CONTRACTS = Path(__file__).resolve().parents[2] / "docs" / "contracts"
 # The OpenELIS dataset-browser mapping, mirroring what its shipped catalog
 # declares. The adapter composes every dataset query from a profile like this
 # one, so a source's own column names never leak into another source's SQL.
-OPENELIS_DATASET_BROWSER = DatasetBrowserProfile(
-    fact_view="analytics.lab_result_fact_v1",
-    identity_column="observation_id",
-    subject_column="patient_id",
-    category_column="test_name",
-    observed_at_column="observed_at",
-    value_column="result_value",
-    unit_column="result_unit",
-    issued_at_column="issued_at",
-    duration_column="receipt_to_release_minutes",
-)
-
 
 def catalog() -> Catalog:
     return Catalog(
@@ -962,7 +950,7 @@ def test_app_lifespan_closes_owned_clients(tmp_path: Path):
 def test_gateway_defaults_match_the_local_mvp(monkeypatch: pytest.MonkeyPatch):
     for name in (
         "MED_AGENT_HUB_BASE_URL",
-        "CATALYST_ANALYTICS_DSN",
+        "CATALYST_CONNECTION_URI",
         "CATALYST_HUB_TIMEOUT_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -970,8 +958,9 @@ def test_gateway_defaults_match_the_local_mvp(monkeypatch: pytest.MonkeyPatch):
     config = load_config()
 
     assert config.hub_base_url == "http://localhost:8082"
-    assert config.analytics_dsn == (
-        "postgresql://catalyst_readonly:demo-readonly-change-me"
-        "@localhost:15433/catalyst_analytics"
+    default = config.data_sources[0]
+    assert default.connection_uri == (
+        "hive2://catalyst@spark-thriftserver:10000/default"
     )
+    assert default.dialect == "spark"
     assert config.hub_timeout_seconds == 360

@@ -538,7 +538,7 @@ class FakeAnalytics:
         if self.error:
             raise self.error
         return ManualAnalyticsResult(
-            columns=[AnalyticsColumn(0, "test_name", "text", 25, "string")],
+            columns=[AnalyticsColumn(0, "test_name", "text", "string")],
             rows=[[{"type": "string", "value": "Malaria"}]],
             truncated=False,
         )
@@ -589,7 +589,7 @@ class BlockingFakeAnalytics(FakeAnalytics):
         self.started.set()
         await self.release.wait()
         return ManualAnalyticsResult(
-            columns=[AnalyticsColumn(0, "test_name", "text", 25, "string")],
+            columns=[AnalyticsColumn(0, "test_name", "text", "string")],
             rows=[[{"type": "string", "value": "Malaria"}]],
             truncated=False,
         )
@@ -909,19 +909,15 @@ def test_editor_catalog_route_exposes_versioned_contract(tmp_path: Path) -> None
     assert _workbench_session_count(tmp_path) == 0
 
 
-def test_editor_catalog_route_exposes_every_approved_fact_column(
+def test_editor_catalog_route_exposes_every_discovered_fact_column(
     tmp_path: Path,
 ) -> None:
-    catalog_path = (
-        Path(__file__).resolve().parents[2]
-        / "analytics"
-        / "catalog"
-        / "analytics-catalog-v1.json"
-    )
+    from tests.test_catalog_runtime import _base_catalog
+
     client, _ = _client(
         tmp_path,
         _ready_query(),
-        catalog=Catalog.load(catalog_path),
+        catalog=_base_catalog(),
     )
 
     response = client.get("/v1/catalyst/workbench/catalog")
@@ -953,15 +949,11 @@ def test_editor_catalog_route_exposes_every_approved_fact_column(
     result_value = next(
         column for column in view["columns"] if column["name"] == "result_value"
     )
-    assert result_value == {
-        "name": "result_value",
-        "logicalType": "decimal",
-        "description": (
-            "Numeric FHIR Quantity value; do not aggregate across unlike units."
-        ),
-        "nullable": True,
-        "unitColumn": "result_unit",
-    }
+    # Discovery reports the column and its type; curated unit linkage is not
+    # something a connection can tell us, so it is not asserted here.
+    assert result_value["name"] == "result_value"
+    assert result_value["logicalType"] == "decimal"
+    assert result_value["nullable"] is True
 
 
 def test_editor_catalog_failure_is_useful_and_does_not_mutate_state(

@@ -38,14 +38,12 @@ class _Workbench:
                 "ordinal": 0,
                 "name": "observed_at",
                 "databaseType": "date",
-                "typeOid": 1082,
                 "logicalType": "date",
             },
             {
                 "ordinal": 1,
                 "name": "result_value",
                 "databaseType": "numeric",
-                "typeOid": 1700,
                 "logicalType": "decimal",
             },
         ]
@@ -340,28 +338,24 @@ def test_native_bundle_maps_saved_result_schema_to_superset_metrics(
             "ordinal": 0,
             "name": "observed_at",
             "databaseType": "date",
-            "typeOid": 1082,
             "logicalType": "date",
         },
         {
             "ordinal": 1,
             "name": "test_name",
             "databaseType": "text",
-            "typeOid": 25,
             "logicalType": "string",
         },
         {
             "ordinal": 2,
             "name": "result_status",
             "databaseType": "text",
-            "typeOid": 25,
             "logicalType": "string",
         },
         {
             "ordinal": 3,
             "name": "result_value",
             "databaseType": "numeric",
-            "typeOid": 1700,
             "logicalType": "decimal",
         },
     ]

@@ -19,8 +19,13 @@ from src.catalyst.dialects import DialectAdapter, ExecutionGuarantee
 def _fixture_logical_type(database_type: str) -> str:
     return {
         "num": "integer",
-        "txt": "string",
+        "dec": "decimal",
+        "flag": "boolean",
+        "day": "date",
         "moment": "date-time",
+        "txt": "string",
+        "doc": "json",
+        "blob": "binary",
     }.get(database_type.strip().lower(), "unknown")
 
 

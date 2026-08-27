@@ -28,91 +28,6 @@ def _checked_identifier(value: str, *, role: str) -> str:
 
 
 @dataclass(frozen=True)
-class DatasetBrowserProfile:
-    """Which relation and columns the dataset browser reads for one data source.
-
-    The browser renders one generic shape — subject, category, value, unit,
-    timestamps — but every source spells those differently (OpenELIS calls the
-    category ``test_name``; the OpenMRS HIV source calls it ``concept_name``).
-    Declaring the mapping per catalog is what lets one adapter serve both
-    without the query text assuming a single source's schema.
-    """
-
-    fact_view: str
-    identity_column: str
-    subject_column: str
-    category_column: str
-    observed_at_column: str
-    value_column: str | None = None
-    unit_column: str | None = None
-    issued_at_column: str | None = None
-    duration_column: str | None = None
-    # Display-only fallbacks for sources whose value is coded/text/boolean
-    # rather than numeric; the aggregates still use value_column alone.
-    value_fallback_columns: tuple[str, ...] = ()
-
-    @classmethod
-    def from_payload(
-        cls,
-        payload: dict[str, Any],
-        *,
-        view_columns: dict[str, set[str]],
-    ) -> DatasetBrowserProfile:
-        fact_view = _checked_identifier(str(payload["factView"]), role="factView")
-        known = view_columns.get(fact_view)
-        if known is None:
-            raise ValueError(
-                "Dataset browser factView is not a curated catalog view: "
-                f"{fact_view!r}"
-            )
-
-        def column(key: str, *, required: bool) -> str | None:
-            raw = payload.get(key)
-            if raw is None:
-                if required:
-                    raise ValueError(f"Dataset browser profile is missing {key!r}")
-                return None
-            name = _checked_identifier(str(raw), role=key)
-            if name not in known:
-                raise ValueError(
-                    f"Dataset browser {key} references a column outside "
-                    f"{fact_view}: {name!r}"
-                )
-            return name
-
-        fallbacks = []
-        for raw in payload.get("valueFallbackColumns", []):
-            name = _checked_identifier(str(raw), role="valueFallbackColumns")
-            if name not in known:
-                raise ValueError(
-                    "Dataset browser valueFallbackColumns references a column "
-                    f"outside {fact_view}: {name!r}"
-                )
-            fallbacks.append(name)
-
-        identity = column("identityColumn", required=True)
-        subject = column("subjectColumn", required=True)
-        category = column("categoryColumn", required=True)
-        observed_at = column("observedAtColumn", required=True)
-        assert identity is not None
-        assert subject is not None
-        assert category is not None
-        assert observed_at is not None
-        return cls(
-            fact_view=fact_view,
-            identity_column=identity,
-            subject_column=subject,
-            category_column=category,
-            observed_at_column=observed_at,
-            value_column=column("valueColumn", required=False),
-            unit_column=column("unitColumn", required=False),
-            issued_at_column=column("issuedAtColumn", required=False),
-            duration_column=column("durationColumn", required=False),
-            value_fallback_columns=tuple(fallbacks),
-        )
-
-
-@dataclass(frozen=True)
 class Catalog:
     data_source: str
     catalog_version: str
@@ -121,7 +36,6 @@ class Catalog:
     context_source_id: str
     views: list[dict[str, Any]]
     freshness: dict[str, Any]
-    dataset_browser: DatasetBrowserProfile | None = dataclass_field(default=None)
 
     @property
     def approved_view_names(self) -> set[str]:
@@ -242,7 +156,6 @@ class Catalog:
             freshness=deepcopy(self.freshness),
             # Runtime discovery re-describes the schema; it does not change
             # which relation the dataset browser was curated to read.
-            dataset_browser=self.dataset_browser,
         )
 
     @classmethod
@@ -261,141 +174,4 @@ class Catalog:
             context_source_id=data_source,
             views=[],
             freshness={},
-        )
-
-    @classmethod
-    def load(cls, path: str | Path) -> Catalog:
-        catalog_path = Path(path)
-        payload = json.loads(catalog_path.read_text(encoding="utf-8"))
-        if payload.get("contractVersion") != "catalyst.analytics.catalog.v1":
-            raise ValueError(f"Unsupported analytics catalog: {catalog_path}")
-
-        views = []
-        for source_view in payload.get("views", []):
-            if source_view.get("approved") is not True:
-                continue
-            fields = []
-            for column in source_view.get("columns", []):
-                logical_type = column["logicalType"]
-                nullable = column.get("nullable")
-                if not isinstance(nullable, bool):
-                    raise ValueError(
-                        "Catalog columns must declare boolean nullability: "
-                        f"{source_view.get('name')}.{column.get('name')}"
-                    )
-                field = {
-                    "name": column["name"],
-                    "type": (
-                        "date-time" if logical_type == "timestamp" else logical_type
-                    ),
-                    "description": column["description"],
-                    "nullable": nullable,
-                }
-                if "unit" in column:
-                    field["unit"] = column["unit"]
-                if "unitColumn" in column:
-                    field["unitColumn"] = column["unitColumn"]
-                fields.append(field)
-            semantic_dimensions = deepcopy(source_view.get("semanticDimensions", []))
-            field_names = {field["name"] for field in fields}
-            for field in fields:
-                unit_column = field.get("unitColumn")
-                if unit_column is not None and unit_column not in field_names:
-                    raise ValueError(
-                        "Catalog unit column references a field outside its view: "
-                        f"{source_view.get('name')}.{unit_column}"
-                    )
-            for dimension in semantic_dimensions:
-                if dimension.get("field") not in field_names:
-                    raise ValueError(
-                        "Semantic dimension references a field outside its view: "
-                        f"{dimension.get('field')}"
-                    )
-                canonical_values = [
-                    value.get("canonical") for value in dimension.get("values", [])
-                ]
-                if len(canonical_values) != len(set(canonical_values)):
-                    raise ValueError(
-                        "Semantic dimension canonical values must be unique: "
-                        f"{dimension.get('field')}"
-                    )
-            views.append(
-                {
-                    "name": source_view["name"],
-                    "version": source_view["version"],
-                    "grain": source_view["grain"],
-                    "fields": fields,
-                    **(
-                        {
-                            "semanticDimensions": deepcopy(
-                                source_view["semanticDimensions"]
-                            )
-                        }
-                        if semantic_dimensions
-                        else {}
-                    ),
-                }
-            )
-        if not views:
-            raise ValueError(f"Analytics catalog has no curated views: {catalog_path}")
-
-        catalog_version = payload["catalogVersion"]
-        dataset_browser = None
-        if "datasetBrowser" in payload:
-            dataset_browser = DatasetBrowserProfile.from_payload(
-                payload["datasetBrowser"],
-                view_columns={
-                    view["name"]: {field["name"] for field in view["fields"]}
-                    for view in views
-                },
-            )
-        return cls(
-            data_source=payload["dataSource"],
-            catalog_version=catalog_version,
-            schema_version=payload["schemaVersion"],
-            dialect=payload["dialect"],
-            context_source_id=f"catalog:{catalog_version}",
-            views=views,
-            freshness={},
-            dataset_browser=dataset_browser,
-        )
-
-    @classmethod
-    def demo(cls) -> Catalog:
-        return cls(
-            data_source="openelis-demo-analytics",
-            catalog_version="2026.07",
-            schema_version="analytics-v1",
-            dialect="postgresql",
-            context_source_id="catalog:openelis-demo-analytics:2026.07",
-            views=[
-                {
-                    "name": "analytics.lab_results",
-                    "version": "1",
-                    "grain": "one row per laboratory result",
-                    "fields": [
-                        {
-                            "name": "test_name",
-                            "type": "string",
-                            "description": "Laboratory test display name",
-                        },
-                        {
-                            "name": "result_value",
-                            "type": "decimal",
-                            "description": "Numeric result value when available",
-                        },
-                        {
-                            "name": "result_date",
-                            "type": "date",
-                            "description": "Result effective date",
-                        },
-                    ],
-                }
-            ],
-            freshness={
-                "sourceWatermark": "1970-01-01T00:00:00Z",
-                "pipelineRunId": "demo-unconfigured",
-                "completionState": "partial",
-                "observedLagSeconds": 0,
-            },
         )

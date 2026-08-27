@@ -31,30 +31,6 @@ def _phrase_in_question(question: str, phrase: str) -> bool:
     return re.search(pattern, question, flags=re.IGNORECASE) is not None
 
 
-def _named_semantic_requirements(
-    question: str, catalog: dict[str, Any]
-) -> list[tuple[str, str]]:
-    requirements: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for view in catalog.get("views", []):
-        for dimension in view.get("semanticDimensions", []):
-            if dimension.get("semanticType") != "analyte":
-                continue
-            field = str(dimension.get("field", ""))
-            for value in dimension.get("values", []):
-                canonical = str(value.get("canonical", ""))
-                phrases = [canonical, *value.get("aliases", [])]
-                if not canonical or not any(
-                    _phrase_in_question(question, phrase) for phrase in phrases
-                ):
-                    continue
-                key = (field.casefold(), canonical.casefold())
-                if key not in seen:
-                    requirements.append((field, canonical))
-                    seen.add(key)
-    return requirements
-
-
 def _predicate_parameter_names(statement: exp.Expression, field: str) -> set[str]:
     names: set[str] = set()
 
@@ -155,28 +131,6 @@ def validate_query_invariants(
                     "SQL placeholders and bound parameter names must match exactly.",
                 )
             )
-
-        if len(statements) == 1 and statements[0] is not None:
-            parameter_values = {
-                parameter.get("name"): parameter.get("value")
-                for parameter in parameters
-            }
-            for field, canonical in _named_semantic_requirements(
-                expected_question, context["catalog"]
-            ):
-                bound_names = _predicate_parameter_names(statements[0], field)
-                if not any(
-                    str(parameter_values.get(name, "")).casefold()
-                    == canonical.casefold()
-                    for name in bound_names
-                ):
-                    violations.append(
-                        Violation(
-                            "missing_semantic_filter",
-                            f"The named analyte {canonical!r} must be constrained "
-                            f"by {field} using its canonical bound value.",
-                        )
-                    )
 
     if violations:
         raise QueryInvariantError(violations)

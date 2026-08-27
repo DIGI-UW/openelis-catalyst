@@ -24,7 +24,8 @@
       "minLength": 1
     },
     "dialect": {
-      "const": "postgresql"
+      "type": "string",
+      "minLength": 1
     },
     "schemas": {
       "type": "array",

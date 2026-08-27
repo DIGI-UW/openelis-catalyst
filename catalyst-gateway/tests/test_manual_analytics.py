@@ -34,9 +34,9 @@ class _Connection:
 def test_manual_result_warns_about_blank_columns_without_treating_values_as_empty():
     result = ManualAnalyticsResult(
         columns=[
-            AnalyticsColumn(0, "name_display", "text", 25, "string"),
-            AnalyticsColumn(1, "active", "bool", 16, "boolean"),
-            AnalyticsColumn(2, "score", "int4", 23, "integer"),
+            AnalyticsColumn(0, "name_display", "text", "string"),
+            AnalyticsColumn(1, "active", "bool", "boolean"),
+            AnalyticsColumn(2, "score", "int4", "integer"),
         ],
         rows=[
             [
@@ -61,7 +61,7 @@ def test_manual_result_warns_about_blank_columns_without_treating_values_as_empt
 
 def test_manual_result_does_not_describe_zero_rows_as_blank():
     result = ManualAnalyticsResult(
-        columns=[AnalyticsColumn(0, "name_display", "text", 25, "string")],
+        columns=[AnalyticsColumn(0, "name_display", "text", "string")],
         rows=[],
         truncated=False,
     )
@@ -71,7 +71,7 @@ def test_manual_result_does_not_describe_zero_rows_as_blank():
 
 def test_manual_result_bounds_blank_warning_and_marks_truncated_scope():
     columns = [
-        AnalyticsColumn(index, f"blank_{index}", "text", 25, "string")
+        AnalyticsColumn(index, f"blank_{index}", "txt", "string")
         for index in range(10)
     ]
     result = ManualAnalyticsResult(
@@ -94,13 +94,13 @@ async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
     class Cursor:
         description = [
             ("result_count", "num"),
-            ("ratio", "num"),
-            ("active", "txt"),
-            ("observed_on", "moment"),
-            ("issued_at", "txt"),
+            ("ratio", "dec"),
+            ("active", "flag"),
+            ("observed_on", "day"),
+            ("issued_at", "moment"),
             ("result_id", "txt"),
-            ("evidence", "txt"),
-            ("payload", "txt"),
+            ("evidence", "doc"),
+            ("payload", "blob"),
         ]
 
         def __enter__(self):
@@ -151,12 +151,9 @@ async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
         statement_timeout_ms=750,
     )
 
+    # Exactly one statement reaches the connection: the submitted SQL with its
+    # named bindings. No session preamble is issued on its behalf.
     assert calls == [
-        ("SET TRANSACTION READ ONLY", None),
-        (
-            "SELECT set_config('statement_timeout', %s, true)",
-            ("750ms",),
-        ),
         (
             "SELECT %(minimum)s::integer AS result_count, ':literal' AS literal, "
             "$$:dollar_literal$$ AS body",
@@ -168,49 +165,49 @@ async def test_manual_execution_preserves_sql_and_returns_dynamic_typed_rows():
         {
             "ordinal": 0,
             "name": "result_count",
-            "databaseType": "int4",
+            "databaseType": "num",
             "logicalType": "integer",
         },
         {
             "ordinal": 1,
             "name": "ratio",
-            "databaseType": "numeric",
+            "databaseType": "dec",
             "logicalType": "decimal",
         },
         {
             "ordinal": 2,
             "name": "active",
-            "databaseType": "bool",
+            "databaseType": "flag",
             "logicalType": "boolean",
         },
         {
             "ordinal": 3,
             "name": "observed_on",
-            "databaseType": "date",
+            "databaseType": "day",
             "logicalType": "date",
         },
         {
             "ordinal": 4,
             "name": "issued_at",
-            "databaseType": "timestamptz",
+            "databaseType": "moment",
             "logicalType": "date-time",
         },
         {
             "ordinal": 5,
             "name": "result_id",
-            "databaseType": "uuid",
+            "databaseType": "txt",
             "logicalType": "string",
         },
         {
             "ordinal": 6,
             "name": "evidence",
-            "databaseType": "jsonb",
+            "databaseType": "doc",
             "logicalType": "json",
         },
         {
             "ordinal": 7,
             "name": "payload",
-            "databaseType": "bytea",
+            "databaseType": "blob",
             "logicalType": "binary",
         },
     ]
@@ -324,7 +321,9 @@ async def test_manual_execution_treats_explicit_query_limit_as_complete_result()
 @pytest.mark.asyncio
 async def test_manual_execution_has_deterministic_unknown_type_fallback():
     class Cursor:
-        description = [("extension_value", "txt")]
+        # A type the adapter has no mapping for: the logical type must then be
+        # derived from a real value rather than guessed or left blank.
+        description = [("extension_value", "mystery")]
 
         def __enter__(self):
             return self
@@ -354,7 +353,7 @@ async def test_manual_execution_has_deterministic_unknown_type_fallback():
     assert result.columns[0].as_dict() == {
         "ordinal": 0,
         "name": "extension_value",
-        "databaseType": "oid:99999",
+        "databaseType": "mystery",
         "logicalType": "string",
     }
 
@@ -366,7 +365,7 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
         severity="ERROR localized",
         message_primary='column "missing" does not exist',
         message_detail=(
-            "connection postgresql://alice:super-secret@database:5432/catalyst"
+            "connection hive2://alice:super-secret@thriftserver:10000/default"
         ),
         message_hint="password=another-secret Check the selected field.",
         statement_position="18",
@@ -390,11 +389,12 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
 
         def execute(self, sql, params=None):
             if sql.startswith("SELECT missing"):
-                raise UndefinedColumn("postgresql://alice:super-secret@database")
+                raise UndefinedColumn("hive2://alice:super-secret@thriftserver")
 
-    dsn = "postgresql://demo-user:demo-password@database:5432/catalyst"
+    uri = "hive2://demo-user:demo-password@thriftserver:10000/default"
     adapter = SqlAnalyticsAdapter(
-        dsn,
+        uri,
+        dialect=FIXTURE,
         connect=lambda *args, **kwargs: _Connection(Cursor()),
     )
 
@@ -411,7 +411,7 @@ async def test_manual_execution_preserves_sanitized_postgres_diagnostics():
         "sqlstate": "42703",
         "severity": "ERROR",
         "message": 'column "missing" does not exist',
-        "detail": "connection [redacted-postgresql-dsn]",
+        "detail": "connection [redacted-connection-uri]",
         "hint": "password=[redacted] Check the selected field.",
         "position": 18,
     }

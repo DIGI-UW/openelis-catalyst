@@ -349,7 +349,7 @@ class DriftingAnalytics:
     async def execute_manual(self, **kwargs) -> ManualAnalyticsResult:
         self.manual_calls.append(deepcopy(kwargs))
         return ManualAnalyticsResult(
-            columns=[AnalyticsColumn(0, "test_name", "text", 25, "string")],
+            columns=[AnalyticsColumn(0, "test_name", "txt", "string")],
             rows=[[{"type": "string", "value": "Malaria"}]],
             truncated=False,
         )
@@ -488,82 +488,6 @@ def _snapshot(version: dict) -> dict:
         "expectedColumns": version["expectedColumns"],
         "editorDigest": version["queryDigest"],
     }
-
-
-def _catalog_with_analyte_dimension() -> Catalog:
-    """_base_catalog() plus a semanticDimensions entry naming one analyte, so a
-    question/instruction mentioning it must bind it as a query parameter."""
-    base = _base_catalog()
-    views = deepcopy(base.views)
-    views[0]["semanticDimensions"] = [
-        {
-            "field": "test_name",
-            "semanticType": "analyte",
-            "values": [{"canonical": "Malaria", "aliases": ["malaria"]}],
-        }
-    ]
-    return Catalog(
-        data_source=base.data_source,
-        catalog_version=base.catalog_version,
-        schema_version=base.schema_version,
-        dialect=base.dialect,
-        context_source_id=base.context_source_id,
-        views=views,
-        freshness=base.freshness,
-    )
-
-
-@pytest.mark.asyncio
-async def test_manual_validation_uses_latest_turn_instruction(tmp_path: Path) -> None:
-    """A human SQL edit is validated against the LATEST turn's instruction, not
-    the session's original question: the original question names no analyte
-    (no violation), but the turn's instruction names one the SQL never binds."""
-    service, _, _ = _service(tmp_path, catalog=_catalog_with_analyte_dimension())
-    session = await _create_session(service)
-    assert session["latestValidation"]["findings"] == []
-    base = session["currentVersion"]
-    instruction = "Now just show malaria results"
-    followup = await service.create_workbench_turn(
-        session["sessionId"],
-        {
-            "contractVersion": "catalyst.workbench.turn.request.v1",
-            "instruction": instruction,
-            "profileId": PROFILE_ID,
-            "observedBase": {
-                "versionId": base["versionId"],
-                "queryDigest": base["queryDigest"],
-            },
-            "editorSnapshot": _snapshot(base),
-        },
-    )
-    assert followup.status_code == 201
-    current = service.get_workbench_session(session["sessionId"]).body["currentVersion"]
-
-    saved = await service.create_workbench_version(
-        session["sessionId"],
-        {
-            "contractVersion": "catalyst.workbench.version.request.v1",
-            "parentVersionId": current["versionId"],
-            "parentQueryDigest": current["queryDigest"],
-            "sql": current["sql"].replace("LIMIT 2", "LIMIT 1"),
-            "parameters": current["parameters"],
-            "expectedColumns": current["expectedColumns"],
-        },
-    )
-    assert saved.status_code == 201
-    manual = saved.body["currentVersion"]
-    assert any(
-        finding["ruleCode"] == "gateway_invariant.missing_semantic_filter"
-        for finding in saved.body["latestValidation"]["findings"]
-    )
-
-    validated = await service.validate_workbench_version(manual["versionId"])
-    assert validated.status_code == 201
-    assert any(
-        finding["ruleCode"] == "gateway_invariant.missing_semantic_filter"
-        for finding in validated.body["findings"]
-    )
-    await service.aclose()
 
 
 @pytest.mark.asyncio

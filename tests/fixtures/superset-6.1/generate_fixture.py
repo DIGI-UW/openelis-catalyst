@@ -23,10 +23,7 @@ from src.catalyst.digest import canonical_sha256  # noqa: E402
 
 
 FIXED_TIME = "2026-08-06T00:00:00.000Z"
-ANALYTICS_URI = (
-    "postgresql+psycopg2://catalyst_readonly:demo-readonly-change-me@"
-    "analytics-db:5432/catalyst_analytics"
-)
+ANALYTICS_URI = "hive://catalyst@spark-thriftserver:10000/default"
 ENTITY_IDS = (
     "edb62a6a-cb99-497c-8e58-b4dd2bd7d7ef",
     "89ec9f1b-bfb7-4540-8752-e1aa472ee5c8",
@@ -66,10 +63,10 @@ class FixtureWorkbench:
                 "patient_id ASC LIMIT 10"
             ),
             columns=[
-                self._column(0, "patient_id", "text", 25, "string"),
-                self._column(1, "result_value", "numeric", 1700, "decimal"),
-                self._column(2, "result_unit", "text", 25, "string"),
-                self._column(3, "observed_at", "timestamptz", 1184, "date-time"),
+                self._column(0, "patient_id", "text", "string"),
+                self._column(1, "result_value", "numeric", "decimal"),
+                self._column(2, "result_unit", "text", "string"),
+                self._column(3, "observed_at", "timestamptz", "date-time"),
             ],
             rows=[
                 [
@@ -96,7 +93,7 @@ class FixtureWorkbench:
                 "SELECT COUNT(*)::bigint AS result_count FROM "
                 "analytics.lab_result_fact_v1"
             ),
-            columns=[self._column(0, "result_count", "int8", 20, "integer")],
+            columns=[self._column(0, "result_count", "int8", "integer")],
             rows=[[{"type": "integer", "value": 1152}]],
         )
         self.sessions = {
@@ -109,14 +106,12 @@ class FixtureWorkbench:
         ordinal: int,
         name: str,
         database_type: str,
-        type_oid: int,
         logical_type: str,
     ) -> dict[str, object]:
         return {
             "ordinal": ordinal,
             "name": name,
             "databaseType": database_type,
-            "typeOid": type_oid,
             "logicalType": logical_type,
         }
 

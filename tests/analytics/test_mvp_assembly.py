@@ -163,13 +163,17 @@ class MvpComposeContractTests(unittest.TestCase):
                 with self.subTest(script=script_name, variable=variable):
                     self.assertIn(f"export {variable}=", script)
 
-    def test_data_pipes_is_built_from_the_pinned_checkout_without_spark(self):
+    def test_data_pipes_is_built_from_the_pinned_checkout_with_its_warehouse(self):
         self.assertIn("context: ./.fhir-data-pipes", self.compose)
         self.assertIn("./analytics/config:/app/config:ro", self.compose)
         self.assertTrue((ROOT / "analytics/config/flink-conf.yaml").is_file())
-        self.assertIn('FHIRDATA_GENERATEPARQUETFILES: "false"', self.compose)
-        self.assertIn('FHIRDATA_CREATEHIVERESOURCETABLES: "false"', self.compose)
-        self.assertIn('FHIRDATA_CREATEPARQUETVIEWS: "false"', self.compose)
+        self.assertIn('FHIRDATA_GENERATEPARQUETFILES: "true"', self.compose)
+        self.assertIn('FHIRDATA_CREATEHIVERESOURCETABLES: "true"', self.compose)
+        self.assertIn('FHIRDATA_CREATEPARQUETVIEWS: "true"', self.compose)
+        # The thriftserver must share the warehouse at the same path the
+        # controller registers, or its views resolve to nothing.
+        self.assertIn("data-pipes-dwh:/dwh", self.compose)
+        self.assertIn("sbin/start-thriftserver.sh", self.compose)
         self.assertIn("javax.net.ssl.keyStore", self.compose)
         self.assertIn("key_trust-store-volume:/etc/openelis-global:ro", self.compose)
         self.assertIn(

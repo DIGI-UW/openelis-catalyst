@@ -45,7 +45,9 @@ _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 _REPAIRABILITY = {"deterministic", "model", "manual", "none"}
 _SENSITIVE_DIAGNOSTIC = re.compile(
     r"(?ix)"
-    r"(?:postgres(?:ql)?|mysql)://\S+|"
+    # Any scheme, so a connection URI cannot leak whichever engine
+    # produced the diagnostic.
+    r"\b[a-z][a-z0-9+.-]*://\S+|"
     r"\bconnection\s+to\s+server\s+at\s+(?:\"[^\"]+\"|[^\s,(]+)"
     r"(?:\s+\([^)]*\))?|"
     r"\bport\s+(?:\"[^\"]+\"|\d+)|"
